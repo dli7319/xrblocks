@@ -31,9 +31,10 @@ immersive applications with features like:
 
 - **Hand Tracking & Gestures:** Access advanced hand tracking, custom
   gestures with TensorFlow Lite / PyTorch models, and interaction events.
-- **Gesture Recognition Block:** Enable reusable pinch, fist, thumb-up, and
-  other gestures via `options.enableGestures()` and listen for
-  `gesturestart/update/end` events across blocks.
+- **Gesture Recognition:** Opt into pinch, open-palm, fist, thumbs-up, point,
+  and spread detection with `options.enableGestures()`, tune providers or
+  thresholds, and subscribe to `gesturestart`/`gestureupdate`/`gestureend`
+  events from the shared subsystem.
 - **World Understanding:** Present samples with depth sensing, geometry-aware
   physics, and object recognition with Gemini in both XR and desktop simulator.
 - **AI Integration:** Seamlessly connect to Gemini for multimodal
@@ -128,6 +129,52 @@ code below:
   </body>
 </html>
 ```
+
+### Gesture recognition
+
+XR Blocks now includes an opt-in gesture recognition subsystem powered by the
+reusable `GestureRecognition` script. Call `options.enableGestures()` to enable
+hand tracking plus gesture detection, then tune its provider, thresholds, or
+catalogue as needed:
+
+```js
+import * as xb from 'xrblocks';
+
+const options = new xb.Options();
+options.enableGestures();
+options.gestures.provider = 'heuristics'; // current WebXR joint heuristics
+options.gestures.minimumConfidence = 0.7;
+options.gestures.setGestureEnabled('point', true);
+options.gestures.setGestureEnabled('spread', true);
+```
+
+Once `xb.init(options)` runs, the shared block is exposed at
+`xb.core.gestureRecognition` and emits `gesturestart`, `gestureupdate`, and
+`gestureend` events for the built-in pinch, open-palm, fist, thumbs-up, point,
+and spread gestures. You can subscribe from any script to drive UI or gameplay
+reactions:
+
+```js
+import * as xb from 'xrblocks';
+
+class GestureDebugger extends xb.Script {
+  init() {
+    const gestures = xb.core.gestureRecognition;
+    if (!gestures) return;
+    const log = (phase, {hand, name, confidence = 0}) =>
+      console.log(`[gesture] ${hand} ${name} ${phase} (${confidence.toFixed(2)})`);
+    gestures.addEventListener('gesturestart', (event) => log('start', event.detail));
+    gestures.addEventListener('gestureupdate', (event) => log('update', event.detail));
+    gestures.addEventListener('gestureend', (event) => log('end', event.detail));
+  }
+}
+```
+
+Two samples can help you validate gestures quickly:
+- `templates/2_hands` still visualizes hand meshes and colors the cylinder when
+  gestures fire.
+- `templates/heuristic_hand_gestures` adds a 2D dashboard that lists the active
+  gestures for each hand and streams confidence updates.
 
 ### Development guide
 

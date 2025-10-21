@@ -7,7 +7,7 @@ import {UI_OVERLAY_LAYER} from '../constants';
 import {Depth} from '../depth/Depth';
 import {DepthOptions} from '../depth/DepthOptions';
 import {Hands} from '../input/Hands';
-import {GestureRecognitionBlock} from '../input/gestures/GestureRecognitionBlock';
+import {GestureRecognition} from '../input/gestures/GestureRecognition';
 import {GestureRecognitionOptions} from '../input/gestures/GestureRecognitionOptions.js';
 import {Input} from '../input/Input';
 import {Lighting} from '../lighting/Lighting';
@@ -109,7 +109,7 @@ export class Core {
   xrButton?: XRButton;
   effects?: XREffects;
   ai = new AI();
-  gestureRecognition?: GestureRecognitionBlock;
+  gestureRecognition?: GestureRecognition;
   transition?: XRTransition;
   currentFrame?: XRFrame;
   scriptsManager = new ScriptsManager(async (script: Script) => {
@@ -251,7 +251,7 @@ export class Core {
       webXRRequiredFeatures.push('hand-tracking');
       this.user.hands = new Hands(this.input.hands);
       if (options.gestures.enabled) {
-        this.gestureRecognition = new GestureRecognitionBlock();
+        this.gestureRecognition = new GestureRecognition();
         this.scene.add(this.gestureRecognition);
         this.registry.register(this.gestureRecognition);
       }

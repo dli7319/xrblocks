@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>Gestures: Heuristic Dashboard | XR Blocks Template</title>
+  <meta charset="utf-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <link type="text/css"
+        rel="stylesheet"
+        href="../../samples/main.css">
+  <style>
+    body {
+      font-family: "Google Sans", "Helvetica Neue", Arial, sans-serif;
+      color: #fff;
+    }
+
+    #gesture-dashboard {
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      right: 24px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .gesture-panel {
+      background: rgba(20, 25, 30, 0.86);
+      border: 1px solid rgba(111, 139, 220, 0.35);
+      border-radius: 12px;
+      padding: 16px;
+      width: min(320px, calc(50% - 16px));
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2);
+    }
+
+    .gesture-panel h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: #a9c1ff;
+    }
+
+    .gesture-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.06);
+      transition: background 0.2s ease, transform 0.2s ease;
+    }
+
+    .gesture-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .gesture-row.active {
+      background: linear-gradient(135deg, rgba(66, 133, 244, 0.55), rgba(52, 168, 83, 0.55));
+      transform: translateY(-1px);
+    }
+
+    .gesture-label {
+      font-weight: 600;
+      text-transform: capitalize;
+    }
+
+    .gesture-confidence {
+      font-variant-numeric: tabular-nums;
+      opacity: 0.82;
+    }
+
+    @media (max-width: 720px) {
+      #gesture-dashboard {
+        flex-direction: column;
+      }
+
+      .gesture-panel {
+        width: 100%;
+      }
+    }
+  </style>
+  <script>window.litDisableBundleWarning = true;</script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "troika-three-text": "https://cdn.jsdelivr.net/gh/protectwise/troika@028b81cf308f0f22e5aa8e78196be56ec1997af5/packages/troika-three-text/src/index.js",
+      "troika-three-utils": "https://cdn.jsdelivr.net/gh/protectwise/troika@v0.52.4/packages/troika-three-utils/src/index.js",
+      "troika-worker-utils": "https://cdn.jsdelivr.net/gh/protectwise/troika@v0.52.4/packages/troika-worker-utils/src/index.js",
+      "bidi-js": "https://esm.sh/bidi-js@%5E1.0.2?target=es2022",
+      "webgl-sdf-generator": "https://esm.sh/webgl-sdf-generator@1.1.1/es2022/webgl-sdf-generator.mjs",
+      "lit": "https://cdn.jsdelivr.net/gh/lit/dist@3/core/lit-core.min.js",
+      "lit/": "https://esm.run/lit@3/",
+      "xrblocks": "../../build/xrblocks.js",
+      "xrblocks/addons/": "../../build/addons/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="gesture-dashboard"></div>
+  <script type="module"
+          src="main.js?version=1"></script>
+</body>
+
+</html>

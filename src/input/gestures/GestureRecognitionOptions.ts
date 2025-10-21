@@ -1,7 +1,7 @@
 import {deepMerge} from '../../utils/OptionsUtils';
 import {DeepPartial, DeepReadonly} from '../../utils/Types';
 
-export type GestureProvider = 'webxr'|'mediapipe'|'tfjs';
+export type GestureProvider = 'heuristics'|'mediapipe'|'tfjs';
 
 export type BuiltInGestureName =
     'pinch'|'open-palm'|'fist'|'thumbs-up'|'point'|'spread';
@@ -25,11 +25,11 @@ export class GestureRecognitionOptions {
 
   /**
    * Backing provider that extracts gesture information.
-   *  - 'webxr': WebXR joint heuristics only (no external ML dependency).
+   *  - 'heuristics': WebXR joint heuristics only (no external ML dependency).
    *  - 'mediapipe': MediaPipe Hands running via Web APIs / wasm.
    *  - 'tfjs': TensorFlow.js hand-pose-detection models.
    */
-  provider: GestureProvider = 'webxr';
+  provider: GestureProvider = 'heuristics';
 
   /**
    * Minimum confidence score to emit gesture events. Different providers map to
@@ -51,7 +51,7 @@ export class GestureRecognitionOptions {
     'fist': {enabled: true},
     'thumbs-up': {enabled: true},
     'point': {enabled: false},
-    'spread': {enabled: false},
+    'spread': {enabled: false, threshold: 0.04},
   };
 
   constructor(options?: DeepReadonly<DeepPartial<GestureRecognitionOptions>>) {

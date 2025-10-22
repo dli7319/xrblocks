@@ -24,9 +24,10 @@
 
 **XR Blocks** is a lightweight, cross-platform library for rapidly prototyping
 advanced XR and AI experiences. Built upon [three.js](https://threejs.org), it
-targets Chrome v136+ with WebXR support on Android XR and also includes a
-powerful desktop simulator for development. The framework emphasizes a
-user-centric, developer-friendly SDK designed to simplify the creation of
+targets Chrome v136+ with WebXR support on Android XR (e.g.,
+[Galaxy XR](https://www.samsung.com/us/xr/galaxy-xr/galaxy-xr/)) and also
+includes a powerful desktop simulator for development. The framework emphasizes
+a user-centric, developer-friendly SDK designed to simplify the creation of
 immersive applications with features like:
 
 - **Hand Tracking & Gestures:** Access advanced hand tracking, custom
@@ -233,7 +234,11 @@ These references are built with XR Blocks:
 We call for contributors to integrate our prior art into XR Blocks to enhance
 reproducibility and knowledge sharing:
 
-E.g., integrating models from https://visualblocks.withgoogle.com to XR Blocks:
+E.g., integrating models from <https://visualblocks.withgoogle.com> and [Transformers.js](https://huggingface.co/docs/transformers.js/en/index)
+to XR Blocks; bringing more
+[depth-based interaction](https://augmentedperception.github.io/depthlab/) to
+XR Blocks; and add more samples and demos. For large commits, feel free to add
+an issue before working on it so that your work won't be duplicated with others.
 
 ```bibtex
 @inproceedings{Du2023Rapsai,

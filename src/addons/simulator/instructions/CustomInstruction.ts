@@ -15,15 +15,14 @@ export class CustomInstruction extends SimulatorInstructionsCard {
   }
 
   getImageContents() {
-    return this.customInstruction.videoSrc ? html`
-      <video playsinline autoplay muted loop>
-          <source
-            src=${this.customInstruction.videoSrc}
-            type="video/webm">
-          Your browser does not support the video tag.
-      </video>
-    ` :
-                                             html``;
+    return this.customInstruction.videoSrc
+      ? html`
+          <video playsinline autoplay muted loop>
+            <source src=${this.customInstruction.videoSrc} type="video/webm" />
+            Your browser does not support the video tag.
+          </video>
+        `
+      : html``;
   }
 
   getDescriptionContents() {

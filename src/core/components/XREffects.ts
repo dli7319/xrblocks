@@ -3,9 +3,13 @@ import {Pass} from 'three/addons/postprocessing/Pass.js';
 
 export class XRPass extends Pass {
   render(
-      _renderer: THREE.WebGLRenderer, _writeBuffer: THREE.WebGLRenderTarget,
-      _readBuffer: THREE.WebGLRenderTarget, _deltaTime: number,
-      _maskActive: boolean, _viewId: number = 0) {}
+    _renderer: THREE.WebGLRenderer,
+    _writeBuffer: THREE.WebGLRenderTarget,
+    _readBuffer: THREE.WebGLRenderTarget,
+    _deltaTime: number,
+    _maskActive: boolean,
+    _viewId: number = 0
+  ) {}
 }
 
 /**
@@ -20,8 +24,10 @@ export class XREffects {
   dimensions = new THREE.Vector2();
 
   constructor(
-      private renderer: THREE.WebGLRenderer, private scene: THREE.Scene,
-      private timer: THREE.Timer) {};
+    private renderer: THREE.WebGLRenderer,
+    private scene: THREE.Scene,
+    private timer: THREE.Timer
+  ) {}
 
   /**
    * Adds a pass to the effect pipeline.
@@ -41,14 +47,18 @@ export class XREffects {
     }
     const neededRenderTargets = this.renderer.xr.isPresenting ? 4 : 2;
     for (let i = 0; i < neededRenderTargets; i++) {
-      if (i >= this.renderTargets.length ||
-          this.renderTargets[i].width != dimensions.x ||
-          this.renderTargets[i].height != dimensions.y) {
+      if (
+        i >= this.renderTargets.length ||
+        this.renderTargets[i].width != dimensions.x ||
+        this.renderTargets[i].height != dimensions.y
+      ) {
         this.renderTargets[i]?.depthTexture?.dispose();
         this.renderTargets[i]?.dispose();
         this.renderTargets[i] = defaultTarget.clone();
-        this.renderTargets[i].depthTexture =
-            new THREE.DepthTexture(dimensions.x, dimensions.y);
+        this.renderTargets[i].depthTexture = new THREE.DepthTexture(
+          dimensions.x,
+          dimensions.y
+        );
       }
     }
     for (let i = neededRenderTargets; i < this.renderTargets.length; i++) {
@@ -104,22 +114,36 @@ export class XREffects {
           const lastRenderTargetIndex = i % 2;
           const nextRenderTargetIndex = (i + 1) % 2;
           defaultTarget.viewport.set(
-              eye * this.dimensions.x / 2, 0, this.dimensions.x / 2,
-              this.dimensions.y);
+            (eye * this.dimensions.x) / 2,
+            0,
+            this.dimensions.x / 2,
+            this.dimensions.y
+          );
           this.passes[i].render(
-              renderer, this.renderTargets[2 * nextRenderTargetIndex + eye],
-              this.renderTargets[2 * lastRenderTargetIndex + eye], deltaTime,
-              /*maskActive=*/ false, /*viewId=*/ eye);
+            renderer,
+            this.renderTargets[2 * nextRenderTargetIndex + eye],
+            this.renderTargets[2 * lastRenderTargetIndex + eye],
+            deltaTime,
+            /*maskActive=*/ false,
+            /*viewId=*/ eye
+          );
         }
         if (this.passes.length > 0) {
           const lastRenderTargetIndex = (this.passes.length - 1) % 2;
           defaultTarget.viewport.set(
-              eye * this.dimensions.x / 2, 0, this.dimensions.x / 2,
-              this.dimensions.y);
+            (eye * this.dimensions.x) / 2,
+            0,
+            this.dimensions.x / 2,
+            this.dimensions.y
+          );
           this.passes[this.passes.length - 1].render(
-              renderer, defaultTarget,
-              this.renderTargets[2 * lastRenderTargetIndex + eye], deltaTime,
-              /*maskActive=*/ false, /*viewId=*/ eye);
+            renderer,
+            defaultTarget,
+            this.renderTargets[2 * lastRenderTargetIndex + eye],
+            deltaTime,
+            /*maskActive=*/ false,
+            /*viewId=*/ eye
+          );
         }
       }
       renderer.xr.enabled = xrEnabled;
@@ -145,16 +169,24 @@ export class XREffects {
       const lastRenderTargetIndex = i % 2;
       const nextRenderTargetIndex = (i + 1) % 2;
       this.passes[i].render(
-          renderer, this.renderTargets[nextRenderTargetIndex],
-          this.renderTargets[lastRenderTargetIndex], deltaTime,
-          /*maskActive=*/ false, /*viewId=*/ 0);
+        renderer,
+        this.renderTargets[nextRenderTargetIndex],
+        this.renderTargets[lastRenderTargetIndex],
+        deltaTime,
+        /*maskActive=*/ false,
+        /*viewId=*/ 0
+      );
     }
     if (this.passes.length > 0) {
       const lastRenderTargetIndex = (this.passes.length - 1) % 2;
       this.passes[this.passes.length - 1].render(
-          renderer, defaultTarget, this.renderTargets[lastRenderTargetIndex],
-          deltaTime,
-          /*maskActive=*/ false, /*viewId=*/ 0);
+        renderer,
+        defaultTarget,
+        this.renderTargets[lastRenderTargetIndex],
+        deltaTime,
+        /*maskActive=*/ false,
+        /*viewId=*/ 0
+      );
     }
     renderer.xr.enabled = xrEnabled;
     renderer.xr.isPresenting = xrIsPresenting;

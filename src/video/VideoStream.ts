@@ -16,10 +16,10 @@ export enum StreamState {
 export type VideoStreamDetails = {
   force?: boolean;
   error?: Error;
-}
+};
 
 export interface VideoStreamEventMap<T> extends THREE.Object3DEventMap {
-  statechange: {state: StreamState, details?: T};
+  statechange: {state: StreamState; details?: T};
 }
 
 export type VideoStreamGetSnapshotOptions = {
@@ -44,9 +44,9 @@ export type VideoStreamOptions = {
  * The base class for handling video streams (from camera or file), managing
  * the underlying <video> element, streaming state, and snapshot logic.
  */
-export class VideoStream<T extends VideoStreamDetails =
-                                       VideoStreamDetails> extends
-    Script<VideoStreamEventMap<T>> {
+export class VideoStream<
+  T extends VideoStreamDetails = VideoStreamDetails,
+> extends Script<VideoStreamEventMap<T>> {
   loaded = false;
   width?: number;
   height?: number;
@@ -54,14 +54,13 @@ export class VideoStream<T extends VideoStreamDetails =
   texture: THREE.VideoTexture;
   state = StreamState.IDLE;
 
-  protected stream_: MediaStream|null = null;
+  protected stream_: MediaStream | null = null;
   protected video_ = document.createElement('video');
 
   private willCaptureFrequently_: boolean;
-  private frozenTexture_: THREE.Texture|null = null;
-  private canvas_: HTMLCanvasElement|null = null;
-  private context_: CanvasRenderingContext2D|null = null;
-
+  private frozenTexture_: THREE.Texture | null = null;
+  private canvas_: HTMLCanvasElement | null = null;
+  private context_: CanvasRenderingContext2D | null = null;
 
   /**
    * @param options - The configuration options.
@@ -85,12 +84,17 @@ export class VideoStream<T extends VideoStreamDetails =
    * @param state - The new state.
    * @param details - Additional data for the event payload.
    */
-  protected setState_(state: StreamState, details: VideoStreamDetails|T = {}) {
+  protected setState_(
+    state: StreamState,
+    details: VideoStreamDetails | T = {}
+  ) {
     if (this.state === state && !details.force) return;
     this.state = state;
     this.dispatchEvent({type: 'statechange', state: this.state, ...details});
     console.debug(
-        `VideoStream state changed to ${state} with details:`, details);
+      `VideoStream state changed to ${state} with details:`,
+      details
+    );
   }
 
   /**
@@ -100,7 +104,10 @@ export class VideoStream<T extends VideoStreamDetails =
    * @param allowRetry - Whether to allow a retry attempt on failure.
    */
   protected handleVideoStreamLoadedMetadata(
-      resolve: () => void, reject: (_: Error) => void, allowRetry = false) {
+    resolve: () => void,
+    reject: (_: Error) => void,
+    allowRetry = false
+  ) {
     try {
       if (this.video_.videoWidth > 0 && this.video_.videoHeight > 0) {
         this.width = this.video_.videoWidth;
@@ -135,30 +142,40 @@ export class VideoStream<T extends VideoStreamDetails =
     height = this.height,
     outputFormat = 'texture',
     mimeType = 'image/jpeg',
-    quality = 0.9
+    quality = 0.9,
   }: VideoStreamGetSnapshotOptions = {}) {
-    if (!this.loaded || !width || !height ||
-        this.video_.readyState < this.video_.HAVE_CURRENT_DATA) {
+    if (
+      !this.loaded ||
+      !width ||
+      !height ||
+      this.video_.readyState < this.video_.HAVE_CURRENT_DATA
+    ) {
       return null;
     }
 
     if (width > this.width! || height > this.height!) {
-      console.warn(`The requested snapshot width (${width}px x ${
-          height}px) is larger than the source video width (${this.width}px x ${
-          this.height}px). The snapshot will be upscaled.`);
+      console.warn(
+        `The requested snapshot width (${width}px x ${
+          height
+        }px) is larger than the source video width (${this.width}px x ${
+          this.height
+        }px). The snapshot will be upscaled.`
+      );
     }
 
     try {
       // Re-initialize canvas only if dimensions have changed.
-      if (!this.canvas_ || this.canvas_.width !== width ||
-          this.canvas_.height !== height) {
+      if (
+        !this.canvas_ ||
+        this.canvas_.width !== width ||
+        this.canvas_.height !== height
+      ) {
         this.canvas_ = document.createElement('canvas');
         this.canvas_.width = width;
         this.canvas_.height = height;
-        this.context_ =
-            this.canvas_.getContext(
-                '2d', {willCaptureFrequently: this.willCaptureFrequently_}) as
-            CanvasRenderingContext2D;
+        this.context_ = this.canvas_.getContext('2d', {
+          willCaptureFrequently: this.willCaptureFrequently_,
+        }) as CanvasRenderingContext2D;
       }
 
       this.context_!.drawImage(this.video_, 0, 0, width, height);
@@ -187,7 +204,7 @@ export class VideoStream<T extends VideoStreamDetails =
    */
   protected stop_() {
     if (this.stream_) {
-      this.stream_.getTracks().forEach(track => track.stop());
+      this.stream_.getTracks().forEach((track) => track.stop());
       this.stream_ = null;
     }
     if (this.video_.srcObject) {

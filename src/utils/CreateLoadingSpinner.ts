@@ -50,5 +50,6 @@ customElements.define('xb-blocks-loading-spinner', LoadingSpinner);
 // Creates a new Loading spinner and attaches it to document.body.
 export function createLoadingSpinner() {
   return document.body.appendChild(
-      document.createElement('xb-blocks-loading-spinner'));
+    document.createElement('xb-blocks-loading-spinner')
+  );
 }

@@ -38,9 +38,9 @@ export function showOnlyInRightEye<T extends THREE.Object3D>(obj: T) {
  *     eye textures.
  */
 export async function loadStereoImageAsTextures(url: string) {
-  const image = await new Promise(
-      (resolve, reject) => {
-          new THREE.ImageLoader().load(url, resolve, undefined, reject)});
+  const image = await new Promise((resolve, reject) => {
+    new THREE.ImageLoader().load(url, resolve, undefined, reject);
+  });
   const leftTexture = new THREE.Texture();
   leftTexture.image = image;
   leftTexture.repeat.x = 0.5;

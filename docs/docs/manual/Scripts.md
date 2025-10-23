@@ -12,7 +12,7 @@ To take advantage of these life cycle functions, simply create a class extending
 The [`Script`](/api/classes/Core) will iterate over the scene graph each frame to find [`Script`](/api/classes/Script)s and call their corresponding life cycle functions.
 
 ```javascript
-import * as xb from "xrblocks";
+import * as xb from 'xrblocks';
 
 export class MyClass extends xb.Script {
   async init() {

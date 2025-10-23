@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 
 import {Handedness} from '../Hands';
-import {BuiltInGestureName, GestureConfiguration} from './GestureRecognitionOptions';
+import {
+  BuiltInGestureName,
+  GestureConfiguration,
+} from './GestureRecognitionOptions';
 
-export type HandLabel = 'left'|'right';
+export type HandLabel = 'left' | 'right';
 
 export type JointPositions = Map<string, THREE.Vector3>;
 
@@ -18,9 +21,11 @@ export type GestureDetectionResult = {
   data?: Record<string, unknown>;
 };
 
-export type GestureDetector =
-    (context: HandContext,
-     config: GestureConfiguration) => GestureDetectionResult|undefined;
+export type GestureDetector = (
+  context: HandContext,
+  config: GestureConfiguration
+) => GestureDetectionResult | undefined;
 
-export type GestureDetectorMap =
-    Partial<Record<BuiltInGestureName, GestureDetector>>;
+export type GestureDetectorMap = Partial<
+  Record<BuiltInGestureName, GestureDetector>
+>;

@@ -7,7 +7,7 @@ import {XRDeviceCamera} from './XRDeviceCamera';
 
 export const aspectRatios = {
   depth: 1.0,
-  RGB: 4 / 3
+  RGB: 4 / 3,
 };
 
 /**
@@ -40,13 +40,16 @@ export const rgbToDepthParams = {
  *     inputs are invalid.
  */
 export function transformRgbToDepthUv(
-    rgbUv: {u: number, v: number}, xrDeviceCamera?: XRDeviceCamera) {
+  rgbUv: {u: number; v: number},
+  xrDeviceCamera?: XRDeviceCamera
+) {
   if (xrDeviceCamera?.simulatorCamera) {
     // The simulator camera crops the viewport image to match its aspect ratio,
     // while the depth map covers the entire viewport, so we adjust for this.
     const viewportAspect = window.innerWidth / window.innerHeight;
-    const cameraAspect = xrDeviceCamera.simulatorCamera.width /
-        xrDeviceCamera.simulatorCamera.height;
+    const cameraAspect =
+      xrDeviceCamera.simulatorCamera.width /
+      xrDeviceCamera.simulatorCamera.height;
     let {u, v} = rgbUv;
 
     if (viewportAspect > cameraAspect) {
@@ -86,12 +89,17 @@ export function transformRgbToDepthUv(
   const u_centered = u_norm - rgbToDepthParams.xc;
   const v_centered = v_norm - rgbToDepthParams.yc;
   const r2 = u_centered * u_centered + v_centered * v_centered;
-  const radial = 1 + rgbToDepthParams.k1 * r2 + rgbToDepthParams.k2 * r2 * r2 +
-      rgbToDepthParams.k3 * r2 * r2 * r2;
-  const tanX = 2 * rgbToDepthParams.p1 * u_centered * v_centered +
-      rgbToDepthParams.p2 * (r2 + 2 * u_centered * u_centered);
-  const tanY = rgbToDepthParams.p1 * (r2 + 2 * v_centered * v_centered) +
-      2 * rgbToDepthParams.p2 * u_centered * v_centered;
+  const radial =
+    1 +
+    rgbToDepthParams.k1 * r2 +
+    rgbToDepthParams.k2 * r2 * r2 +
+    rgbToDepthParams.k3 * r2 * r2 * r2;
+  const tanX =
+    2 * rgbToDepthParams.p1 * u_centered * v_centered +
+    rgbToDepthParams.p2 * (r2 + 2 * u_centered * u_centered);
+  const tanY =
+    rgbToDepthParams.p1 * (r2 + 2 * v_centered * v_centered) +
+    2 * rgbToDepthParams.p2 * u_centered * v_centered;
   const u_distorted = u_centered * radial + tanX + rgbToDepthParams.xc;
   const v_distorted = v_centered * radial + tanY + rgbToDepthParams.yc;
 
@@ -101,9 +109,9 @@ export function transformRgbToDepthUv(
 
   // Apply the final user-controlled scaling (zoom and stretch)
   const finalNormX =
-      u_fitted * rgbToDepthParams.scale * rgbToDepthParams.scaleX;
+    u_fitted * rgbToDepthParams.scale * rgbToDepthParams.scaleX;
   const finalNormY =
-      v_fitted * rgbToDepthParams.scale * rgbToDepthParams.scaleY;
+    v_fitted * rgbToDepthParams.scale * rgbToDepthParams.scaleY;
 
   // Convert the final normalized coordinate back to a UV coordinate [0, 1]
   const finalU = finalNormX + 0.5;
@@ -128,10 +136,13 @@ export function transformRgbToDepthUv(
  * @returns Vertex at (u, v) in world space.
  */
 export function transformRgbUvToWorld(
-    rgbUv: {u: number, v: number},
-    depthArray: number[]|Uint16Array|Float32Array,
-    viewProjectionMatrix: THREE.Matrix4, matrixWorld: THREE.Matrix4,
-    xrDeviceCamera?: XRDeviceCamera, xrDepth = Depth.instance) {
+  rgbUv: {u: number; v: number},
+  depthArray: number[] | Uint16Array | Float32Array,
+  viewProjectionMatrix: THREE.Matrix4,
+  matrixWorld: THREE.Matrix4,
+  xrDeviceCamera?: XRDeviceCamera,
+  xrDepth = Depth.instance
+) {
   if (!depthArray || !viewProjectionMatrix || !matrixWorld || !xrDepth)
     return null;
   const depthUV = transformRgbToDepthUv(rgbUv, xrDeviceCamera);
@@ -140,19 +151,24 @@ export function transformRgbUvToWorld(
   }
 
   const {u: depthU, v: depthV} = depthUV;
-  const depthX =
-      Math.round(clamp(depthU * xrDepth.width, 0, xrDepth.width - 1));
+  const depthX = Math.round(
+    clamp(depthU * xrDepth.width, 0, xrDepth.width - 1)
+  );
 
   // Invert depthV for array access, as image arrays are indexed from top-left.
-  const depthY =
-      Math.round(clamp((1.0 - depthV) * xrDepth.height, 0, xrDepth.height - 1));
+  const depthY = Math.round(
+    clamp((1.0 - depthV) * xrDepth.height, 0, xrDepth.height - 1)
+  );
   const rawDepthValue = depthArray[depthY * xrDepth.width + depthX];
   const depthInMeters = xrDepth.rawValueToMeters * rawDepthValue;
 
   // Convert UV to normalized device coordinates and create a point on the near
   // plane.
-  const viewSpacePosition =
-      new THREE.Vector3(2.0 * (depthU - 0.5), 2.0 * (depthV - 0.5), -1);
+  const viewSpacePosition = new THREE.Vector3(
+    2.0 * (depthU - 0.5),
+    2.0 * (depthV - 0.5),
+    -1
+  );
 
   const viewProjectionMatrixInverse = viewProjectionMatrix.clone().invert();
 
@@ -187,17 +203,19 @@ export async function cropImage(base64Image: string, boundingBox: THREE.Box2) {
       console.error('Error loading image for cropping:', err);
       reject(new Error('Failed to load image for cropping.'));
     };
-    img.src = base64Image.startsWith('data:image') ?
-        base64Image :
-        `data:image/png;base64,${base64Image}`;
+    img.src = base64Image.startsWith('data:image')
+      ? base64Image
+      : `data:image/png;base64,${base64Image}`;
   });
 
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
 
   // Create a unit box and find the intersection to clamp coordinates.
-  const unitBox =
-      new THREE.Box2(new THREE.Vector2(0, 0), new THREE.Vector2(1, 1));
+  const unitBox = new THREE.Box2(
+    new THREE.Vector2(0, 0),
+    new THREE.Vector2(1, 1)
+  );
   const clampedBox = boundingBox.clone().intersect(unitBox);
 
   const cropSize = new THREE.Vector2();
@@ -220,8 +238,15 @@ export async function cropImage(base64Image: string, boundingBox: THREE.Box2) {
 
   // Draw the cropped portion of the source image onto the canvas.
   ctx.drawImage(
-      img, sourceX, sourceY, sourceWidth, sourceHeight,  // Source rectangle
-      0, 0, sourceWidth, sourceHeight  // Destination rectangle
+    img,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight, // Source rectangle
+    0,
+    0,
+    sourceWidth,
+    sourceHeight // Destination rectangle
   );
 
   return canvas.toDataURL('image/png');

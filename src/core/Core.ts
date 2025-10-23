@@ -29,7 +29,11 @@ import {Registry} from './components/Registry';
 import {ScreenshotSynthesizer} from './components/ScreenshotSynthesizer';
 import {ScriptsManager} from './components/ScriptsManager';
 import {WaitFrame} from './components/WaitFrame';
-import {IMMERSIVE_AR, WebXRSessionEventType, WebXRSessionManager} from './components/WebXRSessionManager';
+import {
+  IMMERSIVE_AR,
+  WebXRSessionEventType,
+  WebXRSessionManager,
+} from './components/WebXRSessionManager';
 import {XRButton} from './components/XRButton';
 import {XREffects} from './components/XREffects';
 import {XRTransition} from './components/XRTransition';
@@ -118,9 +122,11 @@ export class Core {
       await script.initPhysics(this.physics);
     }
   });
-  renderSceneOverride?:
-      (renderer: THREE.WebGLRenderer, scene: THREE.Scene,
-       camera: THREE.Camera) => void;
+  renderSceneOverride?: (
+    renderer: THREE.WebGLRenderer,
+    scene: THREE.Scene,
+    camera: THREE.Camera
+  ) => void;
   webXRSessionManager?: WebXRSessionManager;
 
   /**
@@ -185,8 +191,11 @@ export class Core {
     }
 
     this.camera = new THREE.PerspectiveCamera(
-        /*fov=*/ 90, window.innerWidth / window.innerHeight,
-        /*near=*/ options.camera.near, /*far=*/ options.camera.far);
+      /*fov=*/ 90,
+      window.innerWidth / window.innerHeight,
+      /*near=*/ options.camera.near,
+      /*far=*/ options.camera.far
+    );
     this.registry.register(this.camera, THREE.Camera);
     this.registry.register(this.camera, THREE.PerspectiveCamera);
     this.renderer = new THREE.WebGLRenderer({
@@ -194,13 +203,15 @@ export class Core {
       antialias: options.antialias,
       stencil: options.stencil,
       alpha: true,
-      logarithmicDepthBuffer: options.logarithmicDepthBuffer
+      logarithmicDepthBuffer: options.logarithmicDepthBuffer,
     });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.xr.enabled = true;
     // disable built-in occlusion
-    this.renderer.xr.getDepthSensingMesh = function(){ return null; }
+    this.renderer.xr.getDepthSensingMesh = function () {
+      return null;
+    };
     this.registry.register(this.renderer);
 
     this.renderer.xr.setReferenceSpaceType(options.referenceSpaceType);
@@ -215,8 +226,11 @@ export class Core {
 
     // Sets up controllers.
     if (options.controllers.enabled) {
-      this.input.init(
-          {scene: this.scene, options: options, renderer: this.renderer});
+      this.input.init({
+        scene: this.scene,
+        options: options,
+        renderer: this.renderer,
+      });
       this.input.bindSelectStart(this.scriptsManager.callSelectStartBound);
       this.input.bindSelectEnd(this.scriptsManager.callSelectEndBound);
       this.input.bindSelect(this.scriptsManager.callSelectBound);
@@ -241,11 +255,17 @@ export class Core {
       webXRRequiredFeatures.push('local-floor');
       this.webXRSettings.depthSensing = {
         usagePreference: [],
-        dataFormatPreference:
-            [this.options.depth.useFloat32 ? 'float32' : 'luminance-alpha'],
+        dataFormatPreference: [
+          this.options.depth.useFloat32 ? 'float32' : 'luminance-alpha',
+        ],
       };
       this.depth.init(
-          this.camera, options.depth, this.renderer, this.registry, this.scene);
+        this.camera,
+        options.depth,
+        this.renderer,
+        this.registry,
+        this.scene
+      );
     }
     if (options.hands.enabled) {
       webXRRequiredFeatures.push('hand-tracking');
@@ -265,7 +285,11 @@ export class Core {
       webXRRequiredFeatures.push('light-estimation');
       this.lighting = new Lighting();
       this.lighting.init(
-          options.lighting, this.renderer, this.scene, this.depth);
+        options.lighting,
+        this.renderer,
+        this.scene,
+        this.depth
+      );
     }
 
     // Sets up physics.
@@ -276,38 +300,42 @@ export class Core {
 
       if (options.depth.enabled) {
         this.depth.depthMesh?.initRapierPhysics(
-            this.physics.RAPIER, this.physics.blendedWorld);
+          this.physics.RAPIER,
+          this.physics.blendedWorld
+        );
       }
     }
 
     this.webXRSessionManager = new WebXRSessionManager(
-        this.renderer,
-        this.webXRSettings,
-        IMMERSIVE_AR,
+      this.renderer,
+      this.webXRSettings,
+      IMMERSIVE_AR
     );
     this.webXRSessionManager.addEventListener(
-        WebXRSessionEventType.SESSION_START,
-        (event) => this.onXRSessionStarted(event.session),
+      WebXRSessionEventType.SESSION_START,
+      (event) => this.onXRSessionStarted(event.session)
     );
     this.webXRSessionManager.addEventListener(
-        WebXRSessionEventType.SESSION_END,
-        this.onXRSessionEnded.bind(this),
+      WebXRSessionEventType.SESSION_END,
+      this.onXRSessionEnded.bind(this)
     );
 
     // Sets up xrButton.
-    const shouldAutostartSimulator = this.options.xrButton.autostartSimulator ||
-        this.options.xrButton.autostartSimulatorOnDesktop &&
-            this.options.xrButton.enableSimulator && onDesktopUserAgent();
+    const shouldAutostartSimulator =
+      this.options.xrButton.autostartSimulator ||
+      (this.options.xrButton.autostartSimulatorOnDesktop &&
+        this.options.xrButton.enableSimulator &&
+        onDesktopUserAgent());
     if (!shouldAutostartSimulator && options.xrButton.enabled) {
       this.xrButton = new XRButton(
-          this.webXRSessionManager,
-          options.xrButton?.startText,
-          options.xrButton?.endText,
-          options.xrButton?.invalidText,
-          options.xrButton?.startSimulatorText,
-          options.xrButton?.enableSimulator,
-          options.xrButton?.showSimulatorButtonOnMobile,
-          this.startSimulator.bind(this),
+        this.webXRSessionManager,
+        options.xrButton?.startText,
+        options.xrButton?.endText,
+        options.xrButton?.invalidText,
+        options.xrButton?.startSimulatorText,
+        options.xrButton?.enableSimulator,
+        options.xrButton?.showSimulatorButtonOnMobile,
+        this.startSimulator.bind(this)
       );
       document.body.appendChild(this.xrButton.domElement);
     }
@@ -412,7 +440,10 @@ export class Core {
 
     this.renderSimulatorAndScene();
     this.screenshotSynthesizer.onAfterRender(
-        this.renderer, this.renderSceneBound, this.deviceCamera);
+      this.renderer,
+      this.renderSceneBound,
+      this.deviceCamera
+    );
     if (this.simulatorRunning) {
       this.simulator.renderSimulatorScene();
     }
@@ -490,15 +521,19 @@ export class Core {
   private renderScene(cameraOverride?: THREE.Camera) {
     if (this.renderSceneOverride) {
       this.renderSceneOverride(
-          this.renderer, this.scene, cameraOverride ?? this.camera);
+        this.renderer,
+        this.scene,
+        cameraOverride ?? this.camera
+      );
     } else if (this.effects) {
       this.effects.render();
     } else {
       this.renderer.render(this.scene, cameraOverride ?? this.camera);
-      if (traverseUtil(
-              this.scene,
-              (node: THREE.Object3D) =>
-                  node.layers.isEnabled(UI_OVERLAY_LAYER))) {
+      if (
+        traverseUtil(this.scene, (node: THREE.Object3D) =>
+          node.layers.isEnabled(UI_OVERLAY_LAYER)
+        )
+      ) {
         const originalLayers = this.camera.layers.mask;
         this.camera.layers.set(UI_OVERLAY_LAYER);
         this.renderer.render(this.scene, this.camera);
@@ -506,4 +541,4 @@ export class Core {
       }
     }
   }
-};
+}

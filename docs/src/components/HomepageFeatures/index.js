@@ -8,8 +8,9 @@ const FeatureList = [
     Svg: require('@site/static/img/undraw_docusaurus_mountain.svg').default,
     description: (
       <>
-        XR Blocks was designed to get your website up and running quickly.
-        Our SDK requires no compilation or bundlers. Just save and refresh as you go.
+        XR Blocks was designed to get your website up and running quickly. Our
+        SDK requires no compilation or bundlers. Just save and refresh as you
+        go.
       </>
     ),
   },
@@ -18,8 +19,8 @@ const FeatureList = [
     Svg: require('@site/static/img/undraw_docusaurus_tree.svg').default,
     description: (
       <>
-        XR Blocks lets you focus on your app, and we&apos;ll do the chores.
-        Our SDK automatically sets up the renderer and WebXR session.
+        XR Blocks lets you focus on your app, and we&apos;ll do the chores. Our
+        SDK automatically sets up the renderer and WebXR session.
       </>
     ),
   },
@@ -28,8 +29,8 @@ const FeatureList = [
     Svg: require('@site/static/img/undraw_docusaurus_react.svg').default,
     description: (
       <>
-        XR Blocks builds upon three.js to create WebXR experiences.
-        Build new XR scenes using WebXR hands and depth capabilities.
+        XR Blocks builds upon three.js to create WebXR experiences. Build new XR
+        scenes using WebXR hands and depth capabilities.
       </>
     ),
   },

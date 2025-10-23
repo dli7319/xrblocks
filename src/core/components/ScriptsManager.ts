@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 import {KeyEvent, Script, SelectEvent} from '../Script';
 
-type MaybeScript = THREE.Object3D&{isXRScript?: boolean};
+type MaybeScript = THREE.Object3D & {isXRScript?: boolean};
 
 export class ScriptsManager {
   /** The set of all currently initialized scripts. */

@@ -65,6 +65,5 @@ void main(void) {
     (cameraFar - cameraNear) + cameraNear);
   gl_FragColor = vec4(step(virtual_depth, real_depth), step(0.001, diffuse.a), 0.0, 0.0);
 }
-`
-
+`,
 };

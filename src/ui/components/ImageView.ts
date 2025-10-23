@@ -8,7 +8,7 @@ import {ViewOptions} from '../core/ViewOptions';
  * It automatically handles loading the image and scaling it to fit within its
  * layout bounds while preserving the original aspect ratio.
  */
-export type ImageViewOptions = ViewOptions&{
+export type ImageViewOptions = ViewOptions & {
   src?: string;
 };
 
@@ -32,7 +32,7 @@ export class ImageView extends View {
     super(options);
 
     const material = new THREE.MeshBasicMaterial({
-      map: null,  // Texture will be loaded and assigned in reload()
+      map: null, // Texture will be loaded and assigned in reload()
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -107,7 +107,10 @@ export class ImageView extends View {
 
       // Applies the calculated scale to the mesh.
       this.mesh.scale.set(
-          textureWidth * minScaleFactor, textureHeight * minScaleFactor, 1);
+        textureWidth * minScaleFactor,
+        textureHeight * minScaleFactor,
+        1
+      );
     }
   }
 

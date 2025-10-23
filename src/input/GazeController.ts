@@ -28,8 +28,10 @@ interface GazeControllerEventMap extends THREE.Object3DEventMap {
  * WebXR Eye Tracking is not yet available. This API simulates a reticle
  * at the center of the field of view for simulating gaze-based interaction.
  */
-export class GazeController extends Script<GazeControllerEventMap> implements
-    Controller {
+export class GazeController
+  extends Script<GazeControllerEventMap>
+  implements Controller
+{
   static dependencies = {camera: THREE.Camera};
 
   /**
@@ -52,8 +54,12 @@ export class GazeController extends Script<GazeControllerEventMap> implements
    * An animatable number that tracks the progress of the gaze selection, from
    * 0.0 to 1.0.
    */
-  activationAmount =
-      new AnimatableNumber(0.0, 0.0, 1.0, 1.0 / this.activationTimeSeconds);
+  activationAmount = new AnimatableNumber(
+    0.0,
+    0.0,
+    1.0,
+    1.0 / this.activationTimeSeconds
+  );
 
   /**
    * Stores the reticle's position from the previous frame to calculate movement
@@ -86,7 +92,7 @@ export class GazeController extends Script<GazeControllerEventMap> implements
     const delta = this.clock.getDelta();
     this.activationAmount.update(delta);
     const movement =
-        this.lastReticlePosition.distanceTo(this.reticle.position) / delta;
+      this.lastReticlePosition.distanceTo(this.reticle.position) / delta;
     if (movement > PRESS_MOVEMENT_THRESHOLD) {
       this.activationAmount.value = 0.0;
       if (this.userData.selected) {

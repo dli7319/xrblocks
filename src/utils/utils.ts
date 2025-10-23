@@ -122,12 +122,15 @@ export function getVec4ByColorString(colorString: string) {
   // Remove the '#' if it exists.
   const hex = colorString.startsWith('#') ? colorString.slice(1) : colorString;
   const len = hex.length;
-  let alpha = 1.0;  // Default alpha to 1
+  let alpha = 1.0; // Default alpha to 1
 
   let expandedHex = hex;
   if (len === 3 || len === 4) {
     // Expand shorthand: rgb -> rrgbbaa or rgba -> rrggbbaa
-    expandedHex = hex.split('').map((char) => char + char).join('');
+    expandedHex = hex
+      .split('')
+      .map((char) => char + char)
+      .join('');
   }
 
   if (expandedHex.length === 8) {
@@ -150,7 +153,7 @@ export function getVec4ByColorString(colorString: string) {
   return new THREE.Vector4(r, g, b, alpha);
 }
 
-export function getColorHex(fontColor: string|number) {
+export function getColorHex(fontColor: string | number) {
   if (typeof fontColor === 'string') {
     const vec4 = getVec4ByColorString(fontColor);
     const r = Math.round(vec4.x * 255);

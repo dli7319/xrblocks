@@ -10,14 +10,14 @@ import * as THREE from 'three';
  */
 export const SquircleShader = {
   uniforms: {
-    'uMainTex': {value: null},
-    'uUseImage': {value: 0.0},
-    'uBackgroundColor': {
+    uMainTex: {value: null},
+    uUseImage: {value: 0.0},
+    uBackgroundColor: {
       value: new THREE.Vector4(0.4, 0.8, 1.0, 1.0),
     },
-    'uBoxSize': {value: new THREE.Vector2(0.5, 0.5)},
-    'uRadius': {value: 0.05},
-    'uOpacity': {value: 1.0}
+    uBoxSize: {value: new THREE.Vector2(0.5, 0.5)},
+    uRadius: {value: 0.05},
+    uOpacity: {value: 1.0},
   },
 
   vertexShader: /* glsl */ `
@@ -131,5 +131,5 @@ export const SquircleShader = {
       // Return premultiplied alpha.
       gl_FragColor = uOpacity * finalColor.a * vec4(finalColor.rgb, 1.0);
     }
-  `
+  `,
 };

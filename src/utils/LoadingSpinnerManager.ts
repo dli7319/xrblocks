@@ -52,14 +52,15 @@ export class LoadingSpinnerManager {
     THREE.DefaultLoadingManager.onStart = (_url, itemsLoaded, itemsTotal) => {
       this.isLoading = true;
       window.parent.postMessage(
-          {
-            type: 'XR_LOADING_PROGRESS',
-            payload: {
-              progress: itemsLoaded / itemsTotal,
-              message: 'Loading assets...'
-            }
+        {
+          type: 'XR_LOADING_PROGRESS',
+          payload: {
+            progress: itemsLoaded / itemsTotal,
+            message: 'Loading assets...',
           },
-          '*');
+        },
+        '*'
+      );
     };
 
     /**
@@ -70,17 +71,21 @@ export class LoadingSpinnerManager {
      * @param itemsLoaded - The number of items loaded so far.
      * @param itemsTotal - The total number of items to load.
      */
-    THREE.DefaultLoadingManager.onProgress = (_url, itemsLoaded, itemsTotal) => {
+    THREE.DefaultLoadingManager.onProgress = (
+      _url,
+      itemsLoaded,
+      itemsTotal
+    ) => {
       window.parent.postMessage(
-          {
-            type: 'XR_LOADING_PROGRESS',
-            payload: {
-              progress: itemsLoaded / itemsTotal,
-              message:
-                  `Loading ${Math.round((itemsLoaded / itemsTotal) * 100)}%`
-            }
+        {
+          type: 'XR_LOADING_PROGRESS',
+          payload: {
+            progress: itemsLoaded / itemsTotal,
+            message: `Loading ${Math.round((itemsLoaded / itemsTotal) * 100)}%`,
           },
-          '*');
+        },
+        '*'
+      );
     };
 
     /**
@@ -105,11 +110,12 @@ export class LoadingSpinnerManager {
       console.warn('XRBlocks: Error loading: ' + url);
       this.hideSpinner();
       window.parent.postMessage(
-          {
-            type: 'XR_LOADING_ERROR',
-            payload: {url, message: 'Failed to load assets.'}
-          },
-          '*');
+        {
+          type: 'XR_LOADING_ERROR',
+          payload: {url, message: 'Failed to load assets.'},
+        },
+        '*'
+      );
     };
   }
 }

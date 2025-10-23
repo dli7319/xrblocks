@@ -6,21 +6,23 @@ import {MeshScript} from '../Script';
 /**
  * Defines the possible XR modes.
  */
-export type XRMode = 'AR'|'VR';
+export type XRMode = 'AR' | 'VR';
 
 export type XRTransitionToVROptions = {
   /** The target opacity. */
   targetAlpha?: number;
   /** The target color. Defaults to `defaultBackgroundColor`. */
   color?: THREE.Color | number;
-}
+};
 
 /**
  * Manages smooth transitions between AR (transparent) and VR (colored)
  * backgrounds within an active XR session.
  */
-export class XRTransition extends
-    MeshScript<THREE.SphereGeometry, THREE.MeshBasicMaterial> {
+export class XRTransition extends MeshScript<
+  THREE.SphereGeometry,
+  THREE.MeshBasicMaterial
+> {
   ignoreReticleRaycast = true;
   static dependencies = {
     renderer: THREE.WebGLRenderer,
@@ -49,19 +51,25 @@ export class XRTransition extends
       transparent: true,
       opacity: 0,
       depthTest: false,
-      side: THREE.BackSide,  // Render on the inside of the sphere.
+      side: THREE.BackSide, // Render on the inside of the sphere.
     });
     super(geometry, material);
     this.ignoreReticleRaycast = true;
     this.renderOrder = -Infinity;
   }
 
-  init({renderer, camera, timer, scene, options}: {
-    renderer: THREE.WebGLRenderer,
-    camera: THREE.Camera,
-    timer: THREE.Timer,
-    scene: THREE.Scene,
-    options: Options
+  init({
+    renderer,
+    camera,
+    timer,
+    scene,
+    options,
+  }: {
+    renderer: THREE.WebGLRenderer;
+    camera: THREE.Camera;
+    timer: THREE.Timer;
+    scene: THREE.Scene;
+    options: Options;
   }) {
     this.renderer = renderer;
     this.sceneCamera = camera;
@@ -102,8 +110,11 @@ export class XRTransition extends
     const currentOpacity = this.material.opacity;
     if (currentOpacity !== this.targetAlpha) {
       const lerpFactor = this.timer.getDelta() / this.transitionTime;
-      this.material.opacity =
-          THREE.MathUtils.lerp(currentOpacity, this.targetAlpha, lerpFactor);
+      this.material.opacity = THREE.MathUtils.lerp(
+        currentOpacity,
+        this.targetAlpha,
+        lerpFactor
+      );
       if (Math.abs(this.material.opacity - this.targetAlpha) < 0.01) {
         this.material.opacity = this.targetAlpha;
       }

@@ -16,8 +16,8 @@ const DEFAULT_KEY_COLOR = '#121212';
 const SPECIAL_KEY_COLOR = '#292929';
 
 interface SpecialKey {
-  position: 'left'|'right'|'center';
-  type: 'tab'|'backspace'|'shift_lock'|'enter'|'shift'|'space';
+  position: 'left' | 'right' | 'center';
+  type: 'tab' | 'backspace' | 'shift_lock' | 'enter' | 'shift' | 'space';
   iconName: string;
   weight?: number;
   backgroundColor?: string;
@@ -91,10 +91,11 @@ const KEY_LAYOUT: KeyRowData[] = [
 
 class KeyboardButton extends xb.TextButton {
   originalKey: string;
-  shiftKey?: string
+  shiftKey?: string;
 
-  constructor(options: xb.TextButtonOptions&
-              {originalKey: string, shiftKey?: string}) {
+  constructor(
+    options: xb.TextButtonOptions & {originalKey: string; shiftKey?: string}
+  ) {
     super(options);
     this.originalKey = options.originalKey;
     this.shiftKey = options.shiftKey;
@@ -107,8 +108,8 @@ export class Keyboard extends xb.Script {
   private isCapsLockOn: boolean = false;
   private textButtons: KeyboardButton[] = [];
 
-  public onEnterPressed: ((text: string) => void)|null = null;
-  public onTextChanged: ((text: string) => void)|null = null;
+  public onEnterPressed: ((text: string) => void) | null = null;
+  public onTextChanged: ((text: string) => void) | null = null;
 
   private subspace: xb.SpatialPanel;
   private mainPanel: xb.Panel;
@@ -118,13 +119,16 @@ export class Keyboard extends xb.Script {
   constructor() {
     super();
 
-    this.subspace =
-        new xb.SpatialPanel({useDefaultPosition: false, showEdge: false});
+    this.subspace = new xb.SpatialPanel({
+      useDefaultPosition: false,
+      showEdge: false,
+    });
     this.subspace.isRoot = true;
     this.add(this.subspace);
 
-    this.mainPanel =
-        this.subspace.add(new xb.Panel({backgroundColor: KEYBOARD_COLOR}));
+    this.mainPanel = this.subspace.add(
+      new xb.Panel({backgroundColor: KEYBOARD_COLOR})
+    );
     this.mainGrid = new xb.Grid();
     this.mainPanel.add(this.mainGrid);
     this.mainGrid.addRow({weight: ROW_TOP_PADDING});
@@ -159,12 +163,16 @@ export class Keyboard extends xb.Script {
   public createKeyboard(): void {
     this.keyRows = [];
     const dynamicRowWeight = 0.93 / KEY_LAYOUT.length;
-    KEY_LAYOUT.forEach(
-        (rowData) => this.createRow(rowData, this.mainGrid, dynamicRowWeight));
+    KEY_LAYOUT.forEach((rowData) =>
+      this.createRow(rowData, this.mainGrid, dynamicRowWeight)
+    );
   }
 
-  private createRow(rowData: KeyRowData, parentGrid: Grid, rowWeight: number):
-      void {
+  private createRow(
+    rowData: KeyRowData,
+    parentGrid: Grid,
+    rowWeight: number
+  ): void {
     const row = parentGrid.addRow({weight: rowWeight});
     row.addCol({weight: COLUMN_LEFT_PADDING});
 
@@ -178,18 +186,18 @@ export class Keyboard extends xb.Script {
     if (textKeys.length === 0) {
       let currentColumnWeight = 0;
       row.addCol({weight: 0.145});
-      specialKeys.forEach(key => {
+      specialKeys.forEach((key) => {
         currentColumnWeight += key.weight || COLUMN_WEIGHT;
       });
       const missingWeight = TARGET_COLUMN_WEIGHT - currentColumnWeight;
       if (missingWeight > 1) {
-        const leftKeys = specialKeys.filter(key => key.position === 'left');
-        const rightKeys = specialKeys.filter(key => key.position === 'right');
+        const leftKeys = specialKeys.filter((key) => key.position === 'left');
+        const rightKeys = specialKeys.filter((key) => key.position === 'right');
 
-        const weightForLeftKeys = (missingWeight / 3) / (leftKeys.length || 1);
+        const weightForLeftKeys = missingWeight / 3 / (leftKeys.length || 1);
         const weightForRightKeys =
-            (missingWeight * 2 / 3) / (rightKeys.length || 1);
-        specialKeys.forEach(key => {
+          (missingWeight * 2) / 3 / (rightKeys.length || 1);
+        specialKeys.forEach((key) => {
           let finalWeight = key.weight || COLUMN_WEIGHT;
           if (key.position === 'left') {
             finalWeight += weightForLeftKeys;
@@ -199,17 +207,20 @@ export class Keyboard extends xb.Script {
           this.createSpecialButtons(row, {...key, weight: finalWeight});
         });
       } else {
-        specialKeys.forEach(key => this.createSpecialButtons(row, key));
+        specialKeys.forEach((key) => this.createSpecialButtons(row, key));
       }
       return;
     }
 
-    const leftSpecialKeys = specialKeys.filter(key => key.position === 'left');
-    const rightSpecialKeys =
-        specialKeys.filter(key => key.position === 'right');
+    const leftSpecialKeys = specialKeys.filter(
+      (key) => key.position === 'left'
+    );
+    const rightSpecialKeys = specialKeys.filter(
+      (key) => key.position === 'right'
+    );
     let remainingWeight = TARGET_COLUMN_WEIGHT;
 
-    leftSpecialKeys.forEach(key => {
+    leftSpecialKeys.forEach((key) => {
       this.createSpecialButtons(row, key);
       remainingWeight -= key.weight!;
     });
@@ -220,7 +231,7 @@ export class Keyboard extends xb.Script {
       remainingWeight -= COLUMN_WEIGHT;
     });
 
-    rightSpecialKeys.forEach(key => {
+    rightSpecialKeys.forEach((key) => {
       const finalWeight = (key.weight || COLUMN_WEIGHT) + remainingWeight;
       this.createSpecialButtons(row, {...key, weight: finalWeight});
     });
@@ -236,7 +247,7 @@ export class Keyboard extends xb.Script {
       fontSize: FONT_SIZE,
       backgroundColor: DEFAULT_KEY_COLOR,
       originalKey: key,
-      shiftKey: shiftKey
+      shiftKey: shiftKey,
     });
     keyPanel.add(textButton);
 
@@ -255,13 +266,15 @@ export class Keyboard extends xb.Script {
     });
 
     if (key.type !== 'space') {
-      const btn = keyPanel.add(new xb.IconButton({
-        text: key.iconName,
-        fontSize: FONT_SIZE,
-        backgroundColor: backgroundColor,
-        paddingZ: 0.05,
-        opacity: 0,
-      }));
+      const btn = keyPanel.add(
+        new xb.IconButton({
+          text: key.iconName,
+          fontSize: FONT_SIZE,
+          backgroundColor: backgroundColor,
+          paddingZ: 0.05,
+          opacity: 0,
+        })
+      );
 
       btn.onTriggered = () => {
         this.handleSpecialKey(key.type);
@@ -307,18 +320,20 @@ export class Keyboard extends xb.Script {
   }
 
   private refreshKeyboard(): void {
-    this.textButtons.forEach(button => {
+    this.textButtons.forEach((button) => {
       const isLetter =
-          button.originalKey.length === 1 && button.originalKey.match(/[a-z]/i);
+        button.originalKey.length === 1 && button.originalKey.match(/[a-z]/i);
       let newText: string;
 
       const produceUpper = this.isShifted !== this.isCapsLockOn;
       if (isLetter) {
-        newText = produceUpper ? button.originalKey.toUpperCase() :
-                                 button.originalKey.toLowerCase();
+        newText = produceUpper
+          ? button.originalKey.toUpperCase()
+          : button.originalKey.toLowerCase();
       } else {
-        newText = this.isShifted ? (button.shiftKey || button.originalKey) :
-                                   button.originalKey;
+        newText = this.isShifted
+          ? button.shiftKey || button.originalKey
+          : button.originalKey;
       }
 
       button.setText(newText);

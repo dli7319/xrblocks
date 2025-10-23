@@ -15,11 +15,13 @@ export class SimulatorScene extends THREE.Scene {
     this.addLights();
     if (simulatorOptions.scenePath) {
       await this.loadGLTF(
-          simulatorOptions.scenePath,
-          new THREE.Vector3(
-              simulatorOptions.initialScenePosition.x,
-              simulatorOptions.initialScenePosition.y,
-              simulatorOptions.initialScenePosition.z));
+        simulatorOptions.scenePath,
+        new THREE.Vector3(
+          simulatorOptions.initialScenePosition.x,
+          simulatorOptions.initialScenePosition.y,
+          simulatorOptions.initialScenePosition.z
+        )
+      );
     }
   }
 
@@ -31,17 +33,18 @@ export class SimulatorScene extends THREE.Scene {
     const loader = new GLTFLoader();
     return new Promise((resolve, reject) => {
       loader.load(
-          path,
-          (gltf) => {
-            gltf.scene.position.copy(initialPosition);
-            this.add(gltf.scene);
-            this.gltf = gltf;
-            resolve(gltf);
-          },
-          () => {},
-          (error) => {
-            reject(error);
-          });
+        path,
+        (gltf) => {
+          gltf.scene.position.copy(initialPosition);
+          this.add(gltf.scene);
+          this.gltf = gltf;
+          resolve(gltf);
+        },
+        () => {},
+        (error) => {
+          reject(error);
+        }
+      );
     });
   }
 }

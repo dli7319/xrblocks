@@ -23,10 +23,14 @@ export class FreestandingSlider {
    * Create a freestanding slider object.
    */
   constructor(
-      public startingValue = 0.0, public minValue = 0.0, public maxValue = 1.0,
-      public scale = 1.0, rotationScale?: number) {
+    public startingValue = 0.0,
+    public minValue = 0.0,
+    public maxValue = 1.0,
+    public scale = 1.0,
+    rotationScale?: number
+  ) {
     this.rotationScale =
-        rotationScale != undefined ? rotationScale : -this.scale;
+      rotationScale != undefined ? rotationScale : -this.scale;
   }
 
   /**
@@ -54,12 +58,15 @@ export class FreestandingSlider {
    * @returns The calculated slider value, clamped within the min/max range.
    */
   getValue(position: THREE.Vector3) {
-    positionDiff.copy(position)
-        .sub(this.initialPosition)
-        .applyQuaternion(this.initialRotationInverse);
+    positionDiff
+      .copy(position)
+      .sub(this.initialPosition)
+      .applyQuaternion(this.initialRotationInverse);
     return clamp(
-        this.startingValue + this.scale * positionDiff.x, this.minValue,
-        this.maxValue);
+      this.startingValue + this.scale * positionDiff.x,
+      this.minValue,
+      this.maxValue
+    );
   }
 
   /**
@@ -72,8 +79,10 @@ export class FreestandingSlider {
     rotationDiff.copy(rotation).multiply(this.initialRotationInverse);
     euler.setFromQuaternion(rotationDiff, 'YXZ');
     return clamp(
-        this.startingValue + this.rotationScale * euler.y, this.minValue,
-        this.maxValue);
+      this.startingValue + this.rotationScale * euler.y,
+      this.minValue,
+      this.maxValue
+    );
   }
 
   /**
@@ -83,9 +92,9 @@ export class FreestandingSlider {
    * @returns The calculated slider value.
    */
   getValueFromController(controller: THREE.Object3D) {
-    return controller instanceof MouseController ?
-        this.getValueFromRotation(controller.quaternion) :
-        this.getValue(controller.position);
+    return controller instanceof MouseController
+      ? this.getValueFromRotation(controller.quaternion)
+      : this.getValue(controller.position);
   }
 
   /**
@@ -93,6 +102,6 @@ export class FreestandingSlider {
    * @param value - The new starting value for the next gesture.
    */
   updateValue(value: number) {
-    this.startingValue = value
+    this.startingValue = value;
   }
 }

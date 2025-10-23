@@ -21,6 +21,7 @@ export class MyScript extends xb.Script {
 ## Core Features
 
 ### AI Audio
+
 ```javascript
 // Enable microphone capture and stream to AI
 await xb.core.sound.enableAudio();
@@ -34,6 +35,7 @@ xb.core.sound.disableAudio(); // Stop capture
 ```
 
 ### Volume Control
+
 ```javascript
 // Master volume (0.0 - 1.0)
 xb.core.sound.setMasterVolume(0.8);
@@ -48,10 +50,11 @@ xb.core.sound.unmuteAll();
 ```
 
 ### Status Checking
+
 ```javascript
 // Check audio states
-xb.core.sound.isAudioEnabled();     // Is microphone active?
-xb.core.sound.isAIAudioPlaying();   // Is AI audio playing?
+xb.core.sound.isAudioEnabled(); // Is microphone active?
+xb.core.sound.isAIAudioPlaying(); // Is AI audio playing?
 xb.core.sound.isAIStreamingEnabled(); // Is streaming to AI?
 ```
 

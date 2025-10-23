@@ -6,16 +6,17 @@ import {KTX2Loader} from 'three/addons/loaders/KTX2Loader.js';
 /**
  * The base URL for Three.js JSM examples, used for DRACO and KTX2 decoders.
  */
-const jsmUrl =
-    `https://cdn.jsdelivr.net/npm/three@0.${THREE.REVISION}.0/examples/jsm/`;
+const jsmUrl = `https://cdn.jsdelivr.net/npm/three@0.${THREE.REVISION}.0/examples/jsm/`;
 
 /**
  * The configured GLTFLoader instance.
  */
-let gltfLoaderInstance: GLTFLoader|undefined;
+let gltfLoaderInstance: GLTFLoader | undefined;
 
 function getGLTFLoader(
-    renderer?: THREE.WebGLRenderer, manager?: THREE.LoadingManager) {
+  renderer?: THREE.WebGLRenderer,
+  manager?: THREE.LoadingManager
+) {
   if (gltfLoaderInstance) {
     return gltfLoaderInstance;
   }
@@ -43,7 +44,7 @@ export type ModelLoaderLoadGLTFOptions = {
   renderer?: THREE.WebGLRenderer;
 };
 
-export type ModelLoaderLoadOptions = ModelLoaderLoadGLTFOptions&{
+export type ModelLoaderLoadOptions = ModelLoaderLoadGLTFOptions & {
   /**
    * Optional callback for loading progress. Note: This will be ignored if a
    * LoadingManager is provided.
@@ -74,13 +75,18 @@ export class ModelLoader {
    * @returns A promise that resolves with the loaded model data (e.g., a glTF
    *     scene or a SplatMesh).
    */
-  async load({path, url = '', renderer = undefined, onProgress = undefined}:
-                 ModelLoaderLoadOptions) {
+  async load({
+    path,
+    url = '',
+    renderer = undefined,
+    onProgress = undefined,
+  }: ModelLoaderLoadOptions) {
     if (onProgress) {
       console.warn(
-          'ModelLoader: An onProgress callback was provided to load(), ' +
+        'ModelLoader: An onProgress callback was provided to load(), ' +
           'but a LoadingManager is in use. Progress will be reported via the ' +
-          'LoadingManager\'s onProgress callback. The provided callback will be ignored.');
+          "LoadingManager's onProgress callback. The provided callback will be ignored."
+      );
     }
     const extension = url.split('.').pop()?.toLowerCase() || '';
     const splatExtensions = ['ply', 'spz', 'splat', 'ksplat'];
@@ -102,7 +108,7 @@ export class ModelLoader {
    * SplatMesh object.
    */
   async loadSplat({url = ''}) {
-    const {SplatMesh} = await import('@sparkjsdev/spark');  // Dynamic import
+    const {SplatMesh} = await import('@sparkjsdev/spark'); // Dynamic import
     const splatMesh = new SplatMesh({url});
     await splatMesh.initialized;
     return splatMesh;
@@ -124,7 +130,11 @@ export class ModelLoader {
     }
     return new Promise<GLTF>((resolve, reject) => {
       loader.load(
-          url, (gltf) => resolve(gltf), undefined, (error) => reject(error));
+        url,
+        (gltf) => resolve(gltf),
+        undefined,
+        (error) => reject(error)
+      );
     });
   }
 }

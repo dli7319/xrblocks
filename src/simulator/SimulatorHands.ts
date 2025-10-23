@@ -7,20 +7,24 @@ import type {DeepReadonly} from '../utils/Types';
 
 import {SimulatorHandPoseChangeRequestEvent} from './events/SimulatorHandEvents';
 import {SimulatorHandPoseJoints} from './handPoses/HandPoseJoints';
-import {SIMULATOR_HAND_POSE_TO_JOINTS_LEFT, SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT, SimulatorHandPose} from './handPoses/HandPoses';
+import {
+  SIMULATOR_HAND_POSE_TO_JOINTS_LEFT,
+  SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT,
+  SimulatorHandPose,
+} from './handPoses/HandPoses';
 import {SimulatorControllerState} from './SimulatorControllerState';
 import {SimulatorXRHand} from './SimulatorXRHand';
 
 const DEFAULT_HAND_PROFILE_PATH =
-    'https://cdn.jsdelivr.net/npm/@webxr-input-profiles/assets@1.0/dist/profiles/generic-hand/';
+  'https://cdn.jsdelivr.net/npm/@webxr-input-profiles/assets@1.0/dist/profiles/generic-hand/';
 
 const vector3 = new THREE.Vector3();
 const quaternion = new THREE.Quaternion();
 
-export type SimulatorHandPoseHTMLElement = HTMLElement&{
+export type SimulatorHandPoseHTMLElement = HTMLElement & {
   visible: boolean;
   handPose?: SimulatorHandPose;
-}
+};
 
 export class SimulatorHands {
   leftController = new THREE.Object3D();
@@ -32,9 +36,9 @@ export class SimulatorHands {
   leftHandPose? = SimulatorHandPose.RELAXED;
   rightHandPose? = SimulatorHandPose.RELAXED;
   leftHandTargetJoints: DeepReadonly<SimulatorHandPoseJoints> =
-      SIMULATOR_HAND_POSE_TO_JOINTS_LEFT[SimulatorHandPose.RELAXED];
+    SIMULATOR_HAND_POSE_TO_JOINTS_LEFT[SimulatorHandPose.RELAXED];
   rightHandTargetJoints: DeepReadonly<SimulatorHandPoseJoints> =
-      SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT[SimulatorHandPose.RELAXED];
+    SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT[SimulatorHandPose.RELAXED];
   lerpSpeed = 0.1;
   handPosePanelElement?: SimulatorHandPoseHTMLElement;
   onHandPoseChangeRequestBound = this.onHandPoseChangeRequest.bind(this);
@@ -45,8 +49,9 @@ export class SimulatorHands {
   private rightXRHand = new SimulatorXRHand();
 
   constructor(
-      private simulatorControllerState: SimulatorControllerState,
-      private simulatorScene: THREE.Scene) {}
+    private simulatorControllerState: SimulatorControllerState,
+    private simulatorScene: THREE.Scene
+  ) {}
 
   /**
    * Initialize Simulator Hands.
@@ -61,10 +66,10 @@ export class SimulatorHands {
   loadMeshes() {
     this.loader = new GLTFLoader();
     this.loader.setPath(DEFAULT_HAND_PROFILE_PATH);
-    this.loader.load('left.glb', gltf => {
+    this.loader.load('left.glb', (gltf) => {
       this.leftHand = gltf.scene;
       this.leftController.add(this.leftHand);
-      HAND_JOINT_NAMES.forEach(jointName => {
+      HAND_JOINT_NAMES.forEach((jointName) => {
         const bone = gltf.scene.getObjectByName(jointName);
         if (bone) {
           this.leftHandBones.push(bone);
@@ -75,13 +80,13 @@ export class SimulatorHands {
       this.setLeftHandJoints(this.leftHandTargetJoints);
       this.input.hands[0]?.dispatchEvent?.({
         type: 'connected',
-        data: {hand: this.leftXRHand, handedness: 'left'} as XRInputSource
+        data: {hand: this.leftXRHand, handedness: 'left'} as XRInputSource,
       });
     });
-    this.loader.load('right.glb', gltf => {
+    this.loader.load('right.glb', (gltf) => {
       this.rightHand = gltf.scene;
       this.rightController.add(this.rightHand);
-      HAND_JOINT_NAMES.forEach(jointName => {
+      HAND_JOINT_NAMES.forEach((jointName) => {
         const bone = gltf.scene.getObjectByName(jointName);
         if (bone) {
           this.rightHandBones.push(bone);
@@ -92,7 +97,7 @@ export class SimulatorHands {
       this.setRightHandJoints(this.rightHandTargetJoints);
       this.input.hands[1]?.dispatchEvent?.({
         type: 'connected',
-        data: {hand: this.rightXRHand, handedness: 'right'} as XRInputSource
+        data: {hand: this.rightXRHand, handedness: 'right'} as XRInputSource,
       });
     });
   }
@@ -106,7 +111,7 @@ export class SimulatorHands {
         target: this.input.controllers[0],
         data: {
           handedness: 'left',
-        }
+        },
       });
     } else if (this.leftHandPose === SimulatorHandPose.PINCHING) {
       this.input.dispatchEvent({
@@ -114,7 +119,7 @@ export class SimulatorHands {
         target: this.input.controllers[0],
         data: {
           handedness: 'left',
-        }
+        },
       });
     }
 
@@ -132,7 +137,7 @@ export class SimulatorHands {
         target: this.input.controllers[1],
         data: {
           handedness: 'right',
-        }
+        },
       });
     } else if (this.rightHandPose === SimulatorHandPose.PINCHING) {
       this.input.dispatchEvent({
@@ -140,7 +145,7 @@ export class SimulatorHands {
         target: this.input.controllers[1],
         data: {
           handedness: 'right',
-        }
+        },
       });
     }
 
@@ -157,7 +162,7 @@ export class SimulatorHands {
         target: this.input.controllers[1],
         data: {
           handedness: 'left',
-        }
+        },
       });
     }
     if (joints != this.leftHandTargetJoints) {
@@ -168,7 +173,7 @@ export class SimulatorHands {
       const bone = this.leftHandBones[i];
       const jointData = joints[i];
       if (bone && jointData) {
-        bone.position.fromArray(jointData.t)
+        bone.position.fromArray(jointData.t);
         bone.quaternion.fromArray(jointData.r);
         bone.scale.fromArray([1, 1, 1]);
       }
@@ -183,7 +188,7 @@ export class SimulatorHands {
         target: this.input.controllers[1],
         data: {
           handedness: 'right',
-        }
+        },
       });
     }
     if (joints != this.rightHandTargetJoints) {
@@ -194,7 +199,7 @@ export class SimulatorHands {
       const bone = this.rightHandBones[i];
       const jointData = joints[i];
       if (bone && jointData) {
-        bone.position.fromArray(jointData.t)
+        bone.position.fromArray(jointData.t);
         bone.quaternion.fromArray(jointData.r);
         bone.scale.fromArray([1, 1, 1]);
       }
@@ -212,7 +217,7 @@ export class SimulatorHands {
       const bone = this.leftHandBones[i];
       const targetJoint = this.leftHandTargetJoints[i];
       if (bone && targetJoint) {
-        vector3.fromArray(targetJoint.t)
+        vector3.fromArray(targetJoint.t);
         quaternion.fromArray(targetJoint.r);
 
         bone.position.lerp(vector3, this.lerpSpeed);
@@ -226,7 +231,7 @@ export class SimulatorHands {
       const bone = this.rightHandBones[i];
       const targetJoint = this.rightHandTargetJoints[i];
       if (bone && targetJoint) {
-        vector3.fromArray(targetJoint.t)
+        vector3.fromArray(targetJoint.t);
         quaternion.fromArray(targetJoint.r);
 
         bone.position.lerp(vector3, this.lerpSpeed);
@@ -251,7 +256,8 @@ export class SimulatorHands {
         }
         leftHand.joints[joint]!.position.copy(this.leftHandBones[i].position);
         leftHand.joints[joint]!.quaternion.copy(
-            this.leftHandBones[i].quaternion);
+          this.leftHandBones[i].quaternion
+        );
         leftHand.updateWorldMatrix(false, true);
       }
     }
@@ -259,7 +265,8 @@ export class SimulatorHands {
     if (rightHand) {
       this.rightController.updateWorldMatrix(true, false);
       rightHand.position.setFromMatrixPosition(
-          this.rightController.matrixWorld);
+        this.rightController.matrixWorld
+      );
       rightHand.setRotationFromMatrix(this.rightController.matrixWorld);
       rightHand.updateMatrix();
       for (let i = 0; i < this.rightHandBones.length; i++) {
@@ -270,7 +277,8 @@ export class SimulatorHands {
         }
         rightHand.joints[joint]!.position.copy(this.rightHandBones[i].position);
         rightHand.joints[joint]!.quaternion.copy(
-            this.rightHandBones[i].quaternion);
+          this.rightHandBones[i].quaternion
+        );
         rightHand.updateWorldMatrix(false, true);
       }
     }
@@ -278,12 +286,14 @@ export class SimulatorHands {
 
   setLeftHandPinching(pinching = true) {
     this.setLeftHandLerpPose(
-        pinching ? SimulatorHandPose.PINCHING : SimulatorHandPose.RELAXED);
+      pinching ? SimulatorHandPose.PINCHING : SimulatorHandPose.RELAXED
+    );
   }
 
   setRightHandPinching(pinching = true) {
     this.setRightHandLerpPose(
-        pinching ? SimulatorHandPose.PINCHING : SimulatorHandPose.RELAXED);
+      pinching ? SimulatorHandPose.PINCHING : SimulatorHandPose.RELAXED
+    );
   }
 
   showHands() {
@@ -318,12 +328,14 @@ export class SimulatorHands {
   setHandPosePanelElement(element: HTMLElement) {
     if (this.handPosePanelElement) {
       this.handPosePanelElement.removeEventListener(
-          SimulatorHandPoseChangeRequestEvent.type,
-          this.onHandPoseChangeRequestBound);
+        SimulatorHandPoseChangeRequestEvent.type,
+        this.onHandPoseChangeRequestBound
+      );
     }
     element.addEventListener(
-        SimulatorHandPoseChangeRequestEvent.type,
-        this.onHandPoseChangeRequestBound);
+      SimulatorHandPoseChangeRequestEvent.type,
+      this.onHandPoseChangeRequestBound
+    );
     this.handPosePanelElement = element as SimulatorHandPoseHTMLElement;
     this.updateHandPosePanel();
   }
@@ -340,7 +352,7 @@ export class SimulatorHands {
 
   toggleHandedness() {
     this.simulatorControllerState.currentControllerIndex =
-        (this.simulatorControllerState.currentControllerIndex + 1) % 2;
+      (this.simulatorControllerState.currentControllerIndex + 1) % 2;
     this.updateHandPosePanel();
   }
 }

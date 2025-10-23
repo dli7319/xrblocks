@@ -51,7 +51,7 @@ export class DragManager extends Script {
   private input!: Input;
   private camera!: THREE.Camera;
 
-  init({input, camera}: {input: Input, camera: THREE.Camera}) {
+  init({input, camera}: {input: Input; camera: THREE.Camera}) {
     this.input = input;
     this.camera = camera;
   }
@@ -78,9 +78,12 @@ export class DragManager extends Script {
 
   beginDragging(intersection: THREE.Intersection, controller: THREE.Object3D) {
     const [draggableObject, draggingMode] =
-        this.findDraggableObjectAndDraggingMode(intersection.object);
-    if (draggableObject == null || draggingMode == null ||
-        draggingMode == DragManager.DO_NOT_DRAG) {
+      this.findDraggableObjectAndDraggingMode(intersection.object);
+    if (
+      draggableObject == null ||
+      draggingMode == null ||
+      draggingMode == DragManager.DO_NOT_DRAG
+    ) {
       return false;
     }
     if (this.mode != DragManager.IDLE) {
@@ -88,14 +91,17 @@ export class DragManager extends Script {
       return this.beginScaling(controller);
     }
     this.draggableObject = draggableObject;
-    this.mode = draggingMode == DragManager.ROTATING ? DragManager.ROTATING :
-                                                       DragManager.TRANSLATING;
+    this.mode =
+      draggingMode == DragManager.ROTATING
+        ? DragManager.ROTATING
+        : DragManager.TRANSLATING;
     this.originalController1Position.copy(controller.position);
     this.originalController1MatrixInverse
-        .compose(controller.position, controller.quaternion, controller.scale)
-        .invert();
-    this.originalController1RotationInverse.copy(controller.quaternion)
-        .invert();
+      .compose(controller.position, controller.quaternion, controller.scale)
+      .invert();
+    this.originalController1RotationInverse
+      .copy(controller.quaternion)
+      .invert();
     this.intersection = intersection;
     this.controller1 = controller;
     this.originalObjectRotation.copy(draggableObject.quaternion);
@@ -108,10 +114,9 @@ export class DragManager extends Script {
   // hands.
   beginScaling(controller: THREE.Object3D) {
     this.controller2 = controller;
-    this.originalScalingControllerDistance =
-        _vector3
-            .subVectors(this.controller1!.position, this.controller2.position)
-            .length();
+    this.originalScalingControllerDistance = _vector3
+      .subVectors(this.controller1!.position, this.controller2.position)
+      .length();
     this.originalScalingObjectScale.copy(this.intersection!.object.scale);
     this.mode = DragManager.SCALING;
     return true;
@@ -133,11 +138,12 @@ export class DragManager extends Script {
     const model = this.draggableObject!;
     model.position.copy(this.originalObjectPosition);
     model.quaternion.copy(this.originalObjectRotation);
-    model.scale.copy(this.originalObjectScale)
+    model.scale.copy(this.originalObjectScale);
     model.updateMatrix();
     this.controller1!.updateMatrix();
-    model.matrix.premultiply(this.originalController1MatrixInverse)
-        .premultiply(this.controller1!.matrix);
+    model.matrix
+      .premultiply(this.originalController1MatrixInverse)
+      .premultiply(this.controller1!.matrix);
     model.position.setFromMatrixPosition(model.matrix);
     if (model.dragFacingCamera) {
       this.turnPanelToFaceTheCamera();
@@ -154,37 +160,49 @@ export class DragManager extends Script {
     }
     const model = this.draggableObject!;
     const deltaPosition = new THREE.Vector3().subVectors(
-        controller.position, this.originalController1Position);
+      controller.position,
+      this.originalController1Position
+    );
     deltaPosition.applyQuaternion(this.originalController1RotationInverse);
-    const offsetRotation =
-        _quaternion.setFromAxisAngle(UP, 10.0 * deltaPosition.x);
+    const offsetRotation = _quaternion.setFromAxisAngle(
+      UP,
+      10.0 * deltaPosition.x
+    );
     model.quaternion.multiplyQuaternions(
-        offsetRotation, this.originalObjectRotation);
+      offsetRotation,
+      this.originalObjectRotation
+    );
     return true;
   }
 
   updateRotatingFromMouseController(controller: THREE.Object3D) {
     const model = this.draggableObject!;
     const deltaRotation = _quaternion.multiplyQuaternions(
-        controller.quaternion, this.originalController1RotationInverse);
+      controller.quaternion,
+      this.originalController1RotationInverse
+    );
     const rotationYawAngle = _euler.setFromQuaternion(deltaRotation, 'YXZ');
-    const offsetRotation =
-        _quaternion.setFromAxisAngle(UP, -10.0 * rotationYawAngle.y);
+    const offsetRotation = _quaternion.setFromAxisAngle(
+      UP,
+      -10.0 * rotationYawAngle.y
+    );
     model.quaternion.multiplyQuaternions(
-        offsetRotation, this.originalObjectRotation);
+      offsetRotation,
+      this.originalObjectRotation
+    );
     return true;
   }
 
   updateScaling() {
-    const newControllerDistance =
-        _vector3
-            .subVectors(this.controller1!.position, this.controller2!.position)
-            .length();
+    const newControllerDistance = _vector3
+      .subVectors(this.controller1!.position, this.controller2!.position)
+      .length();
     const distanceRatio =
-        newControllerDistance / this.originalScalingControllerDistance;
+      newControllerDistance / this.originalScalingControllerDistance;
     const model = this.draggableObject!;
-    model.scale.copy(this.originalScalingObjectScale)
-        .multiplyScalar(distanceRatio);
+    model.scale
+      .copy(this.originalScalingObjectScale)
+      .multiplyScalar(distanceRatio);
     return true;
   }
 
@@ -192,7 +210,9 @@ export class DragManager extends Script {
     const model = this.draggableObject!;
     _vector3.subVectors(model.position, this.camera.position);
     model.quaternion.setFromAxisAngle(
-        UP, (3 * Math.PI / 2) - Math.atan2(_vector3.z, _vector3.x));
+      UP,
+      (3 * Math.PI) / 2 - Math.atan2(_vector3.z, _vector3.x)
+    );
   }
 
   /**
@@ -203,17 +223,18 @@ export class DragManager extends Script {
    *     mode.
    */
   private findDraggableObjectAndDraggingMode(
-      target: THREE.Object3D|null|
-      undefined): [Draggable|undefined, DragMode|undefined] {
+    target: THREE.Object3D | null | undefined
+  ): [Draggable | undefined, DragMode | undefined] {
     let currentTarget = target;
-    let draggableObject: Draggable|undefined;
-    let draggingMode: DragMode|undefined;
+    let draggableObject: Draggable | undefined;
+    let draggingMode: DragMode | undefined;
     while (currentTarget && !draggableObject) {
-      draggableObject = (currentTarget as Partial<Draggable>).draggable ?
-          (currentTarget as Draggable) :
-          undefined;
-      draggingMode = draggingMode ??
-          (currentTarget as Partial<HasDraggingMode>).draggingMode;
+      draggableObject = (currentTarget as Partial<Draggable>).draggable
+        ? (currentTarget as Draggable)
+        : undefined;
+      draggingMode =
+        draggingMode ??
+        (currentTarget as Partial<HasDraggingMode>).draggingMode;
       currentTarget = currentTarget.parent;
     }
     return [draggableObject, draggingMode];

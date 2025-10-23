@@ -11,19 +11,19 @@ import * as THREE from 'three';
  */
 export const SpatialPanelShader = {
   uniforms: {
-    'uMainTex': {value: null},
-    'uUseImage': {value: 0.0},
-    'uBackgroundColor': {
+    uMainTex: {value: null},
+    uUseImage: {value: 0.0},
+    uBackgroundColor: {
       value: new THREE.Vector4(0.4, 0.8, 1.0, 1.0),
     },
-    'uBoxSize': {value: new THREE.Vector2(0.5, 0.5)},
-    'uRadius': {value: 0.05},
-    'uReticleUVs': {value: new THREE.Vector4(0.5, 0.5, 0.5, 0.5)},
-    'uSelected': {value: new THREE.Vector2(0.0, 0.0)},
-    'uBorderWidth': {value: 0.1},
-    'uHighlightRadius': {value: 0.2},
-    'uOutlineWidth': {value: 0.01},
-    'uOpacity': {value: 1.0}
+    uBoxSize: {value: new THREE.Vector2(0.5, 0.5)},
+    uRadius: {value: 0.05},
+    uReticleUVs: {value: new THREE.Vector4(0.5, 0.5, 0.5, 0.5)},
+    uSelected: {value: new THREE.Vector2(0.0, 0.0)},
+    uBorderWidth: {value: 0.1},
+    uHighlightRadius: {value: 0.2},
+    uOutlineWidth: {value: 0.01},
+    uOpacity: {value: 1.0},
   },
 
   vertexShader: /* glsl */ `
@@ -132,5 +132,5 @@ export const SpatialPanelShader = {
 
       gl_FragColor = uOpacity * max(finalColor1, finalColor2);
     }
-  `
+  `,
 };

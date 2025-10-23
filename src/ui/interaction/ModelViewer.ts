@@ -10,7 +10,12 @@ import {BACK, LEFT} from '../../utils/HelperConstants';
 import {ModelLoader} from '../../utils/ModelLoader';
 import {getGroupBoundingBox} from '../../utils/ModelUtils';
 import type {Shader} from '../../utils/Types';
-import {Draggable, DragManager, DragMode, HasDraggingMode} from '../../ux/DragManager';
+import {
+  Draggable,
+  DragManager,
+  DragMode,
+  HasDraggingMode,
+} from '../../ux/DragManager';
 
 import {ModelViewerPlatform} from './ModelViewerPlatform';
 
@@ -42,8 +47,10 @@ export class SplatAnchor extends THREE.Object3D implements HasDraggingMode {
   draggingMode = DragMode.ROTATING;
 }
 
-export class RotationRaycastMesh extends
-    THREE.Mesh<THREE.BufferGeometry, THREE.Material> {
+export class RotationRaycastMesh extends THREE.Mesh<
+  THREE.BufferGeometry,
+  THREE.Material
+> {
   constructor(geometry: THREE.BufferGeometry, material: THREE.Material) {
     super(geometry, material);
   }
@@ -74,7 +81,7 @@ export class ModelViewer extends Script implements Draggable {
   startAnimationOnLoad = true;
   clipActions: THREE.AnimationAction[] = [];
 
-  private data?: GLTFData|SplatData;
+  private data?: GLTFData | SplatData;
   private clock = new THREE.Clock();
   private animationMixer?: THREE.AnimationMixer;
   private gltfMesh?: GLTF;
@@ -104,11 +111,16 @@ export class ModelViewer extends Script implements Draggable {
     this.raycastToChildren = raycastToChildren;
   }
 
-  async init({camera, depth, scene, renderer}: {
-    camera: THREE.Camera,
-    depth: Depth,
-    scene: THREE.Scene,
-    renderer: THREE.WebGLRenderer,
+  async init({
+    camera,
+    depth,
+    scene,
+    renderer,
+  }: {
+    camera: THREE.Camera;
+    depth: Depth;
+    scene: THREE.Scene;
+    renderer: THREE.WebGLRenderer;
   }) {
     this.camera = camera;
     this.depth = depth;
@@ -133,12 +145,12 @@ export class ModelViewer extends Script implements Draggable {
     setupRaycastBox = false,
     setupPlatform = true,
   }: {
-    data: SplatData,
-    onSceneLoaded?: (scene: THREE.Object3D) => void,
-    platformMargin?: THREE.Vector2,
-    setupRaycastCylinder?: boolean,
-    setupRaycastBox?: boolean,
-    setupPlatform?: boolean
+    data: SplatData;
+    onSceneLoaded?: (scene: THREE.Object3D) => void;
+    platformMargin?: THREE.Vector2;
+    setupRaycastCylinder?: boolean;
+    setupRaycastBox?: boolean;
+    setupPlatform?: boolean;
   }) {
     this.data = data;
     if (data.scale) {
@@ -148,16 +160,17 @@ export class ModelViewer extends Script implements Draggable {
     const splatMesh = await new ModelLoader().loadSplat({url: data.model});
     this.splatMesh = splatMesh;
     splatMesh.raycast = () => {};
-    this.splatAnchor = new SplatAnchor;
+    this.splatAnchor = new SplatAnchor();
 
     if (data.scale) {
       this.splatAnchor.scale.copy(data.scale);
     }
     if (data.rotation) {
       this.splatAnchor.rotation.set(
-          THREE.MathUtils.degToRad(data.rotation.x),
-          THREE.MathUtils.degToRad(data.rotation.y),
-          THREE.MathUtils.degToRad(data.rotation.z));
+        THREE.MathUtils.degToRad(data.rotation.x),
+        THREE.MathUtils.degToRad(data.rotation.y),
+        THREE.MathUtils.degToRad(data.rotation.z)
+      );
     }
     if (data.position) {
       this.splatAnchor.position.copy(data.position);
@@ -171,8 +184,9 @@ export class ModelViewer extends Script implements Draggable {
     }
 
     await this.setupBoundingBox(
-        data.verticallyAlignObject !== false,
-        data.horizontallyAlignObject !== false);
+      data.verticallyAlignObject !== false,
+      data.horizontallyAlignObject !== false
+    );
 
     if (setupRaycastCylinder) {
       this.setupRaycastCylinder();
@@ -198,23 +212,26 @@ export class ModelViewer extends Script implements Draggable {
     setupRaycastBox = false,
     setupPlatform = true,
     renderer = undefined,
-    addOcclusionToShader = false
+    addOcclusionToShader = false,
   }: {
-    data: GLTFData,
-    onSceneLoaded?: (scene: THREE.Object3D) => void,
-    platformMargin?: THREE.Vector2,
-    setupRaycastCylinder?: boolean,
-    setupRaycastBox?: boolean,
-    setupPlatform?: boolean,
-    renderer?: THREE.WebGLRenderer,
-    addOcclusionToShader?: boolean,
+    data: GLTFData;
+    onSceneLoaded?: (scene: THREE.Object3D) => void;
+    platformMargin?: THREE.Vector2;
+    setupRaycastCylinder?: boolean;
+    setupRaycastBox?: boolean;
+    setupPlatform?: boolean;
+    renderer?: THREE.WebGLRenderer;
+    addOcclusionToShader?: boolean;
   }) {
     this.data = data;
     if (data.scale) {
       this.initialScale.copy(data.scale);
     }
-    const gltf = await new ModelLoader().loadGLTF(
-        {path: data.path, url: data.model, renderer: renderer});
+    const gltf = await new ModelLoader().loadGLTF({
+      path: data.path,
+      url: data.model,
+      renderer: renderer,
+    });
     const animationMixer = new THREE.AnimationMixer(gltf.scene);
     gltf.animations.forEach((clip) => {
       if (this.startAnimationOnLoad) {
@@ -224,7 +241,7 @@ export class ModelViewer extends Script implements Draggable {
       }
     });
     (gltf.scene as unknown as HasDraggingMode).draggingMode =
-        DragManager.ROTATING;
+      DragManager.ROTATING;
     this.gltfMesh = gltf;
     this.animationMixer = animationMixer;
     // Set the initial scale
@@ -233,19 +250,21 @@ export class ModelViewer extends Script implements Draggable {
     }
     if (data.rotation) {
       gltf.scene.rotation.set(
-          THREE.MathUtils.degToRad(data.rotation.x),
-          THREE.MathUtils.degToRad(data.rotation.y),
-          THREE.MathUtils.degToRad(data.rotation.z));
+        THREE.MathUtils.degToRad(data.rotation.x),
+        THREE.MathUtils.degToRad(data.rotation.y),
+        THREE.MathUtils.degToRad(data.rotation.z)
+      );
     }
     if (data.position) {
       gltf.scene.position.copy(data.position);
     }
     (gltf.scene as unknown as HasDraggingMode).draggingMode =
-        DragManager.ROTATING;
+      DragManager.ROTATING;
     this.add(gltf.scene);
     await this.setupBoundingBox(
-        data.verticallyAlignObject !== false,
-        data.horizontallyAlignObject !== false);
+      data.verticallyAlignObject !== false,
+      data.horizontallyAlignObject !== false
+    );
     if (setupRaycastCylinder) {
       this.setupRaycastCylinder();
     } else if (setupRaycastBox) {
@@ -264,15 +283,16 @@ export class ModelViewer extends Script implements Draggable {
           material.userData.shader = shader;
           this.occludableShaders.add(shader);
           this.depth?.occludableShaders.add(shader);
-        }
+        };
       }
       this.platform?.layers.enable(OCCLUDABLE_ITEMS_LAYER);
       gltf.scene.traverse((child) => {
         if ((child as Partial<THREE.Mesh>).isMesh) {
           const mesh = child as THREE.Mesh;
-          (mesh.material instanceof Array ? mesh.material : [
-            mesh.material
-          ]).forEach((material) => {
+          (mesh.material instanceof Array
+            ? mesh.material
+            : [mesh.material]
+          ).forEach((material) => {
             material.transparent = true;
             material.onBeforeCompile = (shader) => {
               OcclusionUtils.addOcclusionToShader(shader);
@@ -289,7 +309,9 @@ export class ModelViewer extends Script implements Draggable {
   }
 
   async setupBoundingBox(
-      verticallyAlignObject = true, horizontallyAlignObject = true) {
+    verticallyAlignObject = true,
+    horizontallyAlignObject = true
+  ) {
     if (this.splatMesh) {
       const localBbox = await this.splatMesh.getBoundingBox(false);
       if (localBbox.isEmpty()) {
@@ -297,12 +319,14 @@ export class ModelViewer extends Script implements Draggable {
         return;
       }
       this.splatAnchor!.updateMatrix();
-      const localBboxOfTransformedMesh =
-          localBbox.clone().applyMatrix4(this.splatAnchor!.matrix);
+      const localBboxOfTransformedMesh = localBbox
+        .clone()
+        .applyMatrix4(this.splatAnchor!.matrix);
 
       const translationAmount = new THREE.Vector3();
-      localBboxOfTransformedMesh.getCenter(translationAmount)
-          .multiplyScalar(-1);
+      localBboxOfTransformedMesh
+        .getCenter(translationAmount)
+        .multiplyScalar(-1);
       if (verticallyAlignObject) {
         translationAmount.y = -localBboxOfTransformedMesh.min.y;
       } else {
@@ -316,8 +340,11 @@ export class ModelViewer extends Script implements Draggable {
       this.bbox = localBboxOfTransformedMesh.translate(translationAmount);
     } else {
       const contentChildren = this.children.filter(
-          (c) => c !== this.platform && c !== this.rotationRaycastMesh &&
-              c !== this.controlBar);
+        (c) =>
+          c !== this.platform &&
+          c !== this.rotationRaycastMesh &&
+          c !== this.controlBar
+      );
       this.bbox = getGroupBoundingBox(contentChildren);
       if (this.bbox.isEmpty()) {
         return;
@@ -347,8 +374,9 @@ export class ModelViewer extends Script implements Draggable {
 
     const radius = 0.05 + 0.5 * Math.min(bboxSize.x, bboxSize.z);
     const rotationRaycastMesh = new RotationRaycastMesh(
-        new THREE.CylinderGeometry(radius, radius, bboxSize.y),
-        new THREE.MeshBasicMaterial({color: 0x990000, wireframe: true}));
+      new THREE.CylinderGeometry(radius, radius, bboxSize.y),
+      new THREE.MeshBasicMaterial({color: 0x990000, wireframe: true})
+    );
     this.bbox.getCenter(rotationRaycastMesh.position);
     this.rotationRaycastMesh = rotationRaycastMesh;
     this.rotationRaycastMesh.visible = false;
@@ -365,8 +393,9 @@ export class ModelViewer extends Script implements Draggable {
     this.bbox.getSize(bboxSize);
 
     const rotationRaycastMesh = new RotationRaycastMesh(
-        new THREE.BoxGeometry(bboxSize.x, bboxSize.y, bboxSize.z),
-        new THREE.MeshBasicMaterial({color: 0x990000, wireframe: true}));
+      new THREE.BoxGeometry(bboxSize.x, bboxSize.y, bboxSize.z),
+      new THREE.MeshBasicMaterial({color: 0x990000, wireframe: true})
+    );
     this.bbox.getCenter(rotationRaycastMesh.position);
     this.rotationRaycastMesh = rotationRaycastMesh;
     this.rotationRaycastMesh.visible = false;
@@ -378,8 +407,11 @@ export class ModelViewer extends Script implements Draggable {
     this.bbox.getSize(bboxSize);
     const width = bboxSize.x + platformMargin.x;
     const depth = bboxSize.z + platformMargin.y;
-    this.platform =
-        new ModelViewerPlatform(width, depth, this.platformThickness);
+    this.platform = new ModelViewerPlatform(
+      width,
+      depth,
+      this.platformThickness
+    );
     const center = new THREE.Vector3();
     this.bbox.getCenter(center);
     this.platform.position.set(center.x, -this.platformThickness / 2, center.z);
@@ -391,8 +423,10 @@ export class ModelViewer extends Script implements Draggable {
       // Synchronize the splat mesh's transform with its anchor
       this.updateMatrixWorld(true);
       this.splatAnchor.matrixWorld.decompose(
-          this.splatMesh.position, this.splatMesh.quaternion,
-          this.splatMesh.scale);
+        this.splatMesh.position,
+        this.splatMesh.quaternion,
+        this.splatMesh.scale
+      );
     }
     const delta = this.clock.getDelta();
     if (this.animationMixer) {
@@ -402,26 +436,34 @@ export class ModelViewer extends Script implements Draggable {
       this.platform.update(delta);
     }
     const camera = this.camera;
-    if (this.controlBar != null && this.controlBar.parent == this &&
-        camera != null) {
-      const directionToCamera =
-          vector3.copy(camera.position).sub(this.position);
+    if (
+      this.controlBar != null &&
+      this.controlBar.parent == this &&
+      camera != null
+    ) {
+      const directionToCamera = vector3
+        .copy(camera.position)
+        .sub(this.position);
       const distanceToCamera = directionToCamera.length();
       const pitchAngleRadians = Math.asin(directionToCamera.normalize().y);
       directionToCamera.y = 0;
       directionToCamera.normalize();
       // Make the button face the camera.
       quaternion.copy(this.quaternion).invert();
-      this.controlBar.quaternion.setFromAxisAngle(LEFT, pitchAngleRadians)
-          .premultiply(quaternion2.setFromUnitVectors(BACK, directionToCamera))
-          .premultiply(quaternion);
-      this.controlBar.position.setScalar(0)
-          .addScaledVector(directionToCamera, 0.5)
-          .applyQuaternion(quaternion);
+      this.controlBar.quaternion
+        .setFromAxisAngle(LEFT, pitchAngleRadians)
+        .premultiply(quaternion2.setFromUnitVectors(BACK, directionToCamera))
+        .premultiply(quaternion);
+      this.controlBar.position
+        .setScalar(0)
+        .addScaledVector(directionToCamera, 0.5)
+        .applyQuaternion(quaternion);
       this.controlBar.position.y = 0.0;
       this.controlBar.scale.set(
-          distanceToCamera / this.scale.x, distanceToCamera / this.scale.y,
-          distanceToCamera / this.scale.z);
+        distanceToCamera / this.scale.x,
+        distanceToCamera / this.scale.y,
+        distanceToCamera / this.scale.z
+      );
     }
   }
 
@@ -455,8 +497,11 @@ export class ModelViewer extends Script implements Draggable {
     if (this.raycastToChildren && content) {
       const childRaycasts: THREE.Intersection[] = [];
       for (const child of this.children) {
-        if (child != this.rotationRaycastMesh && child != this.platform &&
-            child != this.controlBar) {
+        if (
+          child != this.rotationRaycastMesh &&
+          child != this.platform &&
+          child != this.controlBar
+        ) {
           raycaster.intersectObject(child, true, childRaycasts);
         }
       }
@@ -496,7 +541,7 @@ export class ModelViewer extends Script implements Draggable {
   setCastShadow(castShadow: boolean) {
     this.castShadow = castShadow;
     if (this.gltfMesh) {
-      this.gltfMesh.scene.traverse(function(child) {
+      this.gltfMesh.scene.traverse(function (child) {
         child.castShadow = castShadow;
       });
     }
@@ -508,7 +553,7 @@ export class ModelViewer extends Script implements Draggable {
   setReceiveShadow(receiveShadow: boolean) {
     this.receiveShadow = receiveShadow;
     if (this.gltfMesh) {
-      this.gltfMesh.scene.traverse(function(child) {
+      this.gltfMesh.scene.traverse(function (child) {
         child.receiveShadow = receiveShadow;
       });
     }
@@ -549,11 +594,12 @@ export class ModelViewer extends Script implements Draggable {
     const {SparkRenderer} = await import('@sparkjsdev/spark');
     let sparkRendererExists = false;
     this.scene!.traverse((child) => {
-      sparkRendererExists ||= (child instanceof SparkRenderer);
+      sparkRendererExists ||= child instanceof SparkRenderer;
     });
     if (!sparkRendererExists) {
-      this.scene!.add(new SparkRenderer(
-          {renderer: this.renderer!, maxStdDev: Math.sqrt(5)}));
+      this.scene!.add(
+        new SparkRenderer({renderer: this.renderer!, maxStdDev: Math.sqrt(5)})
+      );
     }
   }
 }

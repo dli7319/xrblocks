@@ -7,6 +7,8 @@ export abstract class BaseAIModel {
 
   abstract isAvailable(): boolean;
 
-  abstract query(_input: object, _tools: []):
-      Promise<GeminiResponse|string|null>;
+  abstract query(
+    _input: object,
+    _tools: []
+  ): Promise<GeminiResponse | string | null>;
 }

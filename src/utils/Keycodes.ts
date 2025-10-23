@@ -14,15 +14,15 @@ export enum Keycodes {
   RIGHT = 'ArrowRight',
 
   // --- Vertical Movement / Elevation ---
-  Q_CODE = 'KeyQ',  // Often used for 'down' or 'strafe left'
-  E_CODE = 'KeyE',  // Often used for 'up' or 'strafe right'
+  Q_CODE = 'KeyQ', // Often used for 'down' or 'strafe left'
+  E_CODE = 'KeyE', // Often used for 'up' or 'strafe right'
   PAGE_UP = 'PageUp',
   PAGE_DOWN = 'PageDown',
 
   // --- Action & Interaction Keys ---
   SPACE_CODE = 'Space',
   ENTER_CODE = 'Enter',
-  T_CODE = 'KeyT',  // General purpose 'toggle' or 'tool' key
+  T_CODE = 'KeyT', // General purpose 'toggle' or 'tool' key
 
   // --- Modifier Keys ---
   LEFT_SHIFT_CODE = 'ShiftLeft',

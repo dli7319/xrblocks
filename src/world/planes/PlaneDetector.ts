@@ -31,12 +31,20 @@ export class PlaneDetector extends Script {
   /**
    * Initializes the PlaneDetector.
    */
-  override init({options, renderer}:
-                    {options: WorldOptions, renderer: THREE.WebGLRenderer}) {
+  override init({
+    options,
+    renderer,
+  }: {
+    options: WorldOptions;
+    renderer: THREE.WebGLRenderer;
+  }) {
     this.renderer = renderer;
     if (options.planes.showDebugVisualizations) {
-      this._debugMaterial = new THREE.MeshBasicMaterial(
-          {color: 0xffff00, wireframe: true, side: THREE.DoubleSide});
+      this._debugMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffff00,
+        wireframe: true,
+        side: THREE.DoubleSide,
+      });
     }
   }
 
@@ -47,7 +55,7 @@ export class PlaneDetector extends Script {
     if (!frame || !frame.detectedPlanes) return;
 
     this._xrRefSpace =
-        this._xrRefSpace || this.renderer.xr.getReferenceSpace() || undefined;
+      this._xrRefSpace || this.renderer.xr.getReferenceSpace() || undefined;
 
     if (!this._xrRefSpace) return;
 
@@ -55,14 +63,16 @@ export class PlaneDetector extends Script {
     const planesToRemove = new Set(this._detectedPlanes.keys());
 
     for (const xrPlane of detectedPlanesInFrame) {
-      planesToRemove.delete(xrPlane);  // This plane is still active.
+      planesToRemove.delete(xrPlane); // This plane is still active.
 
       const existingPlaneMesh = this._detectedPlanes.get(xrPlane);
 
       if (existingPlaneMesh) {
         // Plane already exists, check if it needs an update.
-        if (xrPlane.lastChangedTime >
-            (existingPlaneMesh.xrPlane.lastChangedTime || 0)) {
+        if (
+          xrPlane.lastChangedTime >
+          (existingPlaneMesh.xrPlane.lastChangedTime || 0)
+        ) {
           this._updatePlaneMesh(frame, existingPlaneMesh, xrPlane);
         }
       } else {
@@ -84,7 +94,7 @@ export class PlaneDetector extends Script {
    */
   private _addPlaneMesh(frame: XRFrame, xrPlane: XRPlane) {
     const material =
-        this._debugMaterial || new THREE.MeshBasicMaterial({visible: false});
+      this._debugMaterial || new THREE.MeshBasicMaterial({visible: false});
     const planeMesh = new DetectedPlane(xrPlane, material);
 
     this._updatePlanePose(frame, planeMesh, xrPlane);
@@ -100,15 +110,18 @@ export class PlaneDetector extends Script {
    * @param xrPlane - The updated plane data.
    */
   private _updatePlaneMesh(
-      frame: XRFrame, planeMesh: DetectedPlane, xrPlane: XRPlane) {
+    frame: XRFrame,
+    planeMesh: DetectedPlane,
+    xrPlane: XRPlane
+  ) {
     // Recreate geometry from the new polygon.
-    const newVertices = xrPlane.polygon.map(p => new THREE.Vector2(p.x, p.z));
+    const newVertices = xrPlane.polygon.map((p) => new THREE.Vector2(p.x, p.z));
     const newShape = new THREE.Shape(newVertices);
     const newGeometry = new THREE.ShapeGeometry(newShape);
 
     planeMesh.geometry.dispose();
     planeMesh.geometry = newGeometry;
-    planeMesh.xrPlane = xrPlane;  // Update the reference.
+    planeMesh.xrPlane = xrPlane; // Update the reference.
 
     this._updatePlanePose(frame, planeMesh, xrPlane);
   }
@@ -134,7 +147,10 @@ export class PlaneDetector extends Script {
    * @param xrPlane - The plane data with the pose.
    */
   private _updatePlanePose(
-      frame: XRFrame, planeMesh: DetectedPlane, xrPlane: XRPlane) {
+    frame: XRFrame,
+    planeMesh: DetectedPlane,
+    xrPlane: XRPlane
+  ) {
     const pose = frame.getPose(xrPlane.planeSpace, this._xrRefSpace!);
     if (pose) {
       planeMesh.position.copy(pose.transform.position);
@@ -157,7 +173,7 @@ export class PlaneDetector extends Script {
     if (!label) {
       return allPlanes;
     }
-    return allPlanes.filter(plane => plane.label === label);
+    return allPlanes.filter((plane) => plane.label === label);
   }
 
   /**

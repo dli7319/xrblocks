@@ -1,5 +1,5 @@
 import {deepMerge} from '../utils/OptionsUtils';
-import {DeepPartial} from '../utils/Types'
+import {DeepPartial} from '../utils/Types';
 
 import {ObjectsOptions} from './objects/ObjectsOptions';
 import {PlanesOptions} from './planes/PlanesOptions';

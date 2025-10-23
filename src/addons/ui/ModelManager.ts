@@ -1,4 +1,3 @@
-
 import * as THREE from 'three';
 import * as xb from 'xrblocks';
 
@@ -8,8 +7,8 @@ export class ModelManager extends xb.Script {
   currentModelIndex = 0;
 
   constructor(
-      public modelsData: xb.GLTFData[],
-      private enableOcclusion = false,
+    public modelsData: xb.GLTFData[],
+    private enableOcclusion = false
   ) {
     super();
     this.modelsData = modelsData;
@@ -39,7 +38,9 @@ export class ModelManager extends xb.Script {
   }
 
   positionModelAtIntersection(
-      intersection: THREE.Intersection, camera: THREE.Object3D) {
+    intersection: THREE.Intersection,
+    camera: THREE.Object3D
+  ) {
     const model = this.getCurrentModel();
     model.position.copy(intersection.point);
     xb.extractYaw(camera.quaternion, model.quaternion);

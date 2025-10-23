@@ -2,7 +2,7 @@ import type {DragMode} from '../../ux/DragManager';
 
 import type {ViewOptions} from './ViewOptions';
 
-export type PanelOptions = ViewOptions&{
+export type PanelOptions = ViewOptions & {
   backgroundColor?: string;
   draggable?: boolean;
   draggingMode?: DragMode;

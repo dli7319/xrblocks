@@ -12,8 +12,8 @@ import * as THREE from 'three';
 export const ReticleShader = {
   name: 'ReticleShader',
   uniforms: {
-    'uColor': {value: new THREE.Color().setHex(0xFFFFFF)},
-    'uPressed': {value: 0.0},
+    uColor: {value: new THREE.Color().setHex(0xffffff)},
+    uPressed: {value: 0.0},
   },
 
   vertexShader: /* glsl */ `
@@ -89,5 +89,5 @@ export const ReticleShader = {
     // Converts to straight alpha.
     gl_FragColor.rgb = gl_FragColor.rgb / max(gl_FragColor.a, 0.001);
   }
-`
+`,
 };

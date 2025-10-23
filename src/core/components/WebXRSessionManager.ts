@@ -6,9 +6,9 @@ export const IMMERSIVE_VR = 'immersive-vr';
 declare global {
   interface XRSystem {
     offerSession?: (
-        mode: XRSessionMode,
-        sessionInit?: XRSessionInit,
-        ) => Promise<XRSession>;
+      mode: XRSessionMode,
+      sessionInit?: XRSessionInit
+    ) => Promise<XRSession>;
   }
 }
 
@@ -20,30 +20,29 @@ export enum WebXRSessionEventType {
   SESSION_END = 'sessionend',
 }
 
-export type WebXRSessionManagerEventMap = THREE.Object3DEventMap&{
+export type WebXRSessionManagerEventMap = THREE.Object3DEventMap & {
   [WebXRSessionEventType.UNSUPPORTED]: object;
   [WebXRSessionEventType.READY]: {sessionOptions: XRSessionInit};
   [WebXRSessionEventType.SESSION_START]: {session: XRSession};
   [WebXRSessionEventType.SESSION_END]: object;
-}
+};
 
 /**
  * Manages the WebXR session lifecycle by extending THREE.EventDispatcher
  * to broadcast its state to any listener.
  */
-export class WebXRSessionManager extends
-    THREE.EventDispatcher<WebXRSessionManagerEventMap> {
+export class WebXRSessionManager extends THREE.EventDispatcher<WebXRSessionManagerEventMap> {
   public currentSession?: XRSession;
   private sessionOptions?: XRSessionInit;
   private onSessionEndedBound = this.onSessionEndedInternal.bind(this);
   private xrModeSupported?: boolean;
 
   constructor(
-      private renderer: THREE.WebGLRenderer,
-      private sessionInit: XRSessionInit,
-      private mode: XRSessionMode,
+    private renderer: THREE.WebGLRenderer,
+    private sessionInit: XRSessionInit,
+    private mode: XRSessionMode
   ) {
-    super();  // Initialize the EventDispatcher
+    super(); // Initialize the EventDispatcher
   }
 
   /**
@@ -62,7 +61,7 @@ export class WebXRSessionManager extends
     let modeSupported = false;
     try {
       modeSupported =
-          (await navigator.xr!.isSessionSupported(this.mode)) || false;
+        (await navigator.xr!.isSessionSupported(this.mode)) || false;
     } catch (e) {
       console.error('Error getting isSessionSupported', e);
       this.xrModeSupported = false;
@@ -89,10 +88,10 @@ export class WebXRSessionManager extends
       // Automatically start session if 'offerSession' is available
       if (navigator.xr!.offerSession !== undefined) {
         navigator.xr!.offerSession!(this.mode, this.sessionOptions)
-            .then(this.onSessionStartedInternal.bind(this))
-            .catch((err) => {
-              console.warn(err);
-            });
+          .then(this.onSessionStartedInternal.bind(this))
+          .catch((err) => {
+            console.warn(err);
+          });
       }
     } else {
       console.log(`${this.mode} not supported`);
@@ -112,8 +111,9 @@ export class WebXRSessionManager extends
     } else if (this.currentSession) {
       throw new Error('Session already started');
     }
-    navigator.xr!.requestSession(this.mode, this.sessionOptions)
-        .then(this.onSessionStartedInternal.bind(this));
+    navigator
+      .xr!.requestSession(this.mode, this.sessionOptions)
+      .then(this.onSessionStartedInternal.bind(this));
   }
 
   /**

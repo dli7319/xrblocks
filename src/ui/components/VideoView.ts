@@ -10,25 +10,25 @@ import {ViewOptions} from '../core/ViewOptions';
  * THREE.VideoTexture, and the XR Blocks `VideoStream` class. It automatically
  * handles aspect ratio correction to prevent distortion.
  */
-export type VideoViewOptions = ViewOptions&{
+export type VideoViewOptions = ViewOptions & {
   src?: string;
   muted?: boolean;
   loop?: boolean;
   autoplay?: boolean;
   playsInline?: boolean;
   crossOrigin?: string;
-  mode?: 'center'|'stretch';
+  mode?: 'center' | 'stretch';
 };
 
 export class VideoView extends View {
   /** Default description of this view in Three.js DevTools. */
   name: string = 'VideoView';
   /** The display mode for the video ('center' preserves aspect ratio). */
-  mode: 'center'|'stretch' = 'center';
+  mode: 'center' | 'stretch' = 'center';
   /** The underlying HTMLVideoElement being used for playback. */
   video?: HTMLVideoElement;
   /** The URL source of the video, if loaded from a URL. */
-  src?: string
+  src?: string;
   /** VideoView resides in a panel by default. */
   isRoot = false;
 
@@ -50,10 +50,9 @@ export class VideoView extends View {
 
   private stream_?: VideoStream;
   private streamReadyCallback_?: (event: {
-    details?:
-        VideoStreamDetails&{
-          aspectRatio?: number
-        }
+    details?: VideoStreamDetails & {
+      aspectRatio?: number;
+    };
   }) => void;
 
   private texture?: THREE.Texture;
@@ -72,7 +71,9 @@ export class VideoView extends View {
       // `map` will be set based on options.texture or during load
     });
     this.mesh = new THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>(
-        videoGeometry, videoMaterial);
+      videoGeometry,
+      videoMaterial
+    );
     this.material = videoMaterial;
     this.add(this.mesh);
 
@@ -88,10 +89,12 @@ export class VideoView extends View {
    * Initializes the component, loading from `src` if provided in options.
    */
   init() {
-    super.init();  // Calls View's init method.
+    super.init(); // Calls View's init method.
 
-    if (this.material.map instanceof THREE.VideoTexture &&
-        this.material.map.image) {
+    if (
+      this.material.map instanceof THREE.VideoTexture &&
+      this.material.map.image
+    ) {
       this.loadFromVideoTexture(this.material.map);
     } else if (this.src) {
       this.load(this.src);
@@ -104,7 +107,7 @@ export class VideoView extends View {
    * @param source - The video source (URL, HTMLVideoElement, VideoTexture, or
    * VideoStream).
    */
-  load(source: string|HTMLVideoElement|THREE.VideoTexture|VideoStream) {
+  load(source: string | HTMLVideoElement | THREE.VideoTexture | VideoStream) {
     if (source instanceof HTMLVideoElement) {
       this.loadFromVideoElement(source);
     } else if (source instanceof THREE.VideoTexture) {
@@ -142,8 +145,9 @@ export class VideoView extends View {
 
     if (this.stream_.loaded) {
       // If the stream is already loaded, manually trigger the handler
-      this.streamReadyCallback_(
-          {details: {aspectRatio: this.stream_.aspectRatio!}});
+      this.streamReadyCallback_({
+        details: {aspectRatio: this.stream_.aspectRatio!},
+      });
     } else {
       // Otherwise, wait for the 'ready' event
       this.stream_.addEventListener('statechange', this.streamReadyCallback_);
@@ -174,7 +178,7 @@ export class VideoView extends View {
     this.video = videoElement;
 
     if (this.video.autoplay && this.video.paused) {
-      this.video.play().catch(error => {
+      this.video.play().catch((error) => {
         console.warn('VideoView: Autoplay prevented for video element.', error);
       });
     }
@@ -182,25 +186,26 @@ export class VideoView extends View {
     const videoTextureInstance = new THREE.VideoTexture(this.video);
     videoTextureInstance.colorSpace = THREE.SRGBColorSpace;
 
-    this.texture = videoTextureInstance;  // Update internal texture reference
+    this.texture = videoTextureInstance; // Update internal texture reference
     this.material.map = this.texture;
 
     const onLoadedMetadata = () => {
       if (this.video!.videoWidth && this.video!.videoHeight) {
         this.videoAspectRatio =
-            this.video!.videoWidth / this.video!.videoHeight;
+          this.video!.videoWidth / this.video!.videoHeight;
       } else {
         console.warn('VideoView: Video metadata loaded but dimensions are 0.');
-        this.videoAspectRatio = 0;  // Invalid aspect ratio
+        this.videoAspectRatio = 0; // Invalid aspect ratio
       }
-      this.updateLayout();  // Update layout now that aspect ratio is known
+      this.updateLayout(); // Update layout now that aspect ratio is known
     };
 
     if (this.video.readyState >= this.video.HAVE_METADATA) {
       onLoadedMetadata();
     } else {
-      this.video.addEventListener(
-          'loadedmetadata', onLoadedMetadata, {once: true});
+      this.video.addEventListener('loadedmetadata', onLoadedMetadata, {
+        once: true,
+      });
     }
   }
 
@@ -211,24 +216,29 @@ export class VideoView extends View {
   loadFromVideoTexture(videoTextureInstance: THREE.VideoTexture) {
     this.texture = videoTextureInstance;
     this.material.map = this.texture;
-    this.video = this.texture.image;  // Underlying HTMLVideoElement
+    this.video = this.texture.image; // Underlying HTMLVideoElement
 
     if (this.video && this.video.videoWidth && this.video.videoHeight) {
       this.videoAspectRatio = this.video.videoWidth / this.video.videoHeight;
       this.updateLayout();
     } else if (this.video) {
-      this.video.addEventListener('loadedmetadata', () => {
-        if (this.video!.videoWidth && this.video!.videoHeight) {
-          this.videoAspectRatio =
+      this.video.addEventListener(
+        'loadedmetadata',
+        () => {
+          if (this.video!.videoWidth && this.video!.videoHeight) {
+            this.videoAspectRatio =
               this.video!.videoWidth / this.video!.videoHeight;
-        } else {
-          this.videoAspectRatio = 0;
-        }
-        this.updateLayout();
-      }, {once: true});
+          } else {
+            this.videoAspectRatio = 0;
+          }
+          this.updateLayout();
+        },
+        {once: true}
+      );
     } else {
       console.warn(
-          'VideoView: VideoTexture does not have a valid underlying video element.');
+        'VideoView: VideoTexture does not have a valid underlying video element.'
+      );
       this.videoAspectRatio = 0;
       this.updateLayout();
     }
@@ -237,8 +247,9 @@ export class VideoView extends View {
   /** Starts video playback. */
   play() {
     if (this.video && this.video.paused) {
-      this.video.play().catch(
-          e => console.warn('VideoView: Error playing video:', e));
+      this.video
+        .play()
+        .catch((e) => console.warn('VideoView: Error playing video:', e));
     }
   }
 
@@ -252,7 +263,9 @@ export class VideoView extends View {
   private disposeStreamListener_() {
     if (this.stream_ && this.streamReadyCallback_) {
       this.stream_.removeEventListener(
-          'statechange', this.streamReadyCallback_);
+        'statechange',
+        this.streamReadyCallback_
+      );
       this.stream_ = undefined;
       this.streamReadyCallback_ = undefined;
     }
@@ -284,12 +297,17 @@ export class VideoView extends View {
    */
   updateLayout() {
     super.updateLayout();
-    if (this.mode === 'stretch' || this.videoAspectRatio <= 0 ||
-        !this.material.map) {
+    if (
+      this.mode === 'stretch' ||
+      this.videoAspectRatio <= 0 ||
+      !this.material.map
+    ) {
       return;
     }
     this.mesh.scale.set(
-        Math.min(this.rangeX, this.videoAspectRatio * this.rangeY),
-        Math.min(this.rangeY, this.rangeX / this.videoAspectRatio), 1);
+      Math.min(this.rangeX, this.videoAspectRatio * this.rangeY),
+      Math.min(this.rangeY, this.rangeX / this.videoAspectRatio),
+      1
+    );
   }
 }

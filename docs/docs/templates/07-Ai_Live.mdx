@@ -1,6 +1,7 @@
 ---
 title: AI Live
 ---
+
 This template features a live connection to Gemini. The AI management is handled by GeminiManager.js, which creates a live session and handles events.
 It requires an API key to work.
 
@@ -12,13 +13,15 @@ To get started, you'll need a Gemini API key. You can create one for free at [Go
 
 To use the demo, you can add your API key to the input box below.\
 During local development, one can add API key as a URL param:
+
 ```
 ?key=YOUR_API_KEY_HERE
 ```
+
 For deployment, please set up a proper server and avoid exposing API keys externally.
 
-import { DocsIFrame } from '../DocsIFrame.jsx';
-import { DocsSource } from '../DocsSource.jsx';
+import {DocsIFrame} from '../DocsIFrame.jsx';
+import {DocsSource} from '../DocsSource.jsx';
 
 <DocsIFrame template="7_ai_live" requiresApiKey={true}></DocsIFrame>
 <DocsSource template="7_ai_live"></DocsSource>

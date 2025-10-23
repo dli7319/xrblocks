@@ -35,18 +35,18 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Spatial UI',
       collapsed: false,
-      items: [
-        'samples/ModelViewer',
-        'samples/UI',
-      ],
+      items: ['samples/ModelViewer', 'samples/UI'],
     },
     {
       type: 'category',
       label: 'XR Realism',
       collapsed: false,
       items: [
-        'samples/Occlusion', 'samples/DepthMap', 'samples/DepthMesh',
-        'samples/Reticle', 'samples/Lighting'
+        'samples/Occlusion',
+        'samples/DepthMap',
+        'samples/DepthMesh',
+        'samples/Reticle',
+        'samples/Lighting',
       ],
     },
     {
@@ -74,9 +74,15 @@ const sidebars: SidebarsConfig = {
       label: 'Advanced Demos',
       collapsed: false,
       items: [
-        'samples/Ballpit', 'samples/Paint', 'samples/Splash', 'samples/Rain',
-        'samples/ScreenWiper', 'samples/Drone', 'samples/Math-Tutor',
-        'samples/AI-Simulator', 'samples/Virtual-Screens'
+        'samples/Ballpit',
+        'samples/Paint',
+        'samples/Splash',
+        'samples/Rain',
+        'samples/ScreenWiper',
+        'samples/Drone',
+        'samples/Math-Tutor',
+        'samples/AI-Simulator',
+        'samples/Virtual-Screens',
       ],
     },
   ],

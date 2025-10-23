@@ -48,4 +48,4 @@ export class DetectedPlane extends THREE.Mesh {
     this.label = xrPlane.semanticLabel || 'unknown';
     this.orientation = xrPlane.orientation;
   }
-};
+}

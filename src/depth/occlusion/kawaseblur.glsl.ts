@@ -1,9 +1,9 @@
 export const KawaseBlurShader = {
-    name: 'KawaseBlurShader',
-    defines: {
-        MODE: "0"
-    },
-    vertexShader: /* glsl */ `
+  name: 'KawaseBlurShader',
+  defines: {
+    MODE: '0',
+  },
+  vertexShader: /* glsl */ `
     uniform float uBlurSize;
     uniform vec2 uTexelSize;
     varying vec2 vTexCoord;
@@ -94,5 +94,5 @@ export const KawaseBlurShader = {
             gl_FragColor = fragUpsample();
         }
     }
-`
+`,
 };

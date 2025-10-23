@@ -4,7 +4,7 @@ import {Handedness} from '../input/Hands';
 import {Input} from '../input/Input';
 import {Keycodes} from '../utils/Keycodes';
 
-import {SimulatorControllerMode} from './controlModes/SimulatorControllerMode'
+import {SimulatorControllerMode} from './controlModes/SimulatorControllerMode';
 import {SimulatorControlMode} from './controlModes/SimulatorControlMode';
 import {SimulatorPoseMode} from './controlModes/SimulatorPoseMode';
 import {SimulatorUserMode} from './controlModes/SimulatorUserMode';
@@ -13,15 +13,19 @@ import {SimulatorRenderMode} from './SimulatorConstants';
 import {SimulatorControllerState} from './SimulatorControllerState';
 import {SimulatorHands} from './SimulatorHands';
 import {SimulatorInterface} from './SimulatorInterface';
-import {NEXT_SIMULATOR_MODE, SimulatorMode, SimulatorOptions} from './SimulatorOptions';
+import {
+  NEXT_SIMULATOR_MODE,
+  SimulatorMode,
+  SimulatorOptions,
+} from './SimulatorOptions';
 
 function preventDefault(event: Event) {
   event.preventDefault();
 }
 
-export type SimulatorModeIndicatorElement = HTMLElement&{
+export type SimulatorModeIndicatorElement = HTMLElement & {
   simulatorMode: SimulatorMode;
-}
+};
 
 export class SimulatorControls {
   pointerDown = false;
@@ -49,23 +53,36 @@ export class SimulatorControls {
    * @param userInterface - The simulator user interface manager.
    */
   constructor(
-      public simulatorControllerState: SimulatorControllerState,
-      public hands: SimulatorHands,
-      setStereoRenderMode: (_: SimulatorRenderMode) => void,
-      private userInterface: SimulatorInterface) {
+    public simulatorControllerState: SimulatorControllerState,
+    public hands: SimulatorHands,
+    setStereoRenderMode: (_: SimulatorRenderMode) => void,
+    private userInterface: SimulatorInterface
+  ) {
     const toggleUserInterface = () => {
       this.userInterface.toggleInterfaceVisible();
     };
     this.simulatorModes = {
       [SimulatorMode.USER]: new SimulatorUserMode(
-          this.simulatorControllerState, this.downKeys, hands,
-          setStereoRenderMode, toggleUserInterface),
+        this.simulatorControllerState,
+        this.downKeys,
+        hands,
+        setStereoRenderMode,
+        toggleUserInterface
+      ),
       [SimulatorMode.POSE]: new SimulatorPoseMode(
-          this.simulatorControllerState, this.downKeys, hands,
-          setStereoRenderMode, toggleUserInterface),
+        this.simulatorControllerState,
+        this.downKeys,
+        hands,
+        setStereoRenderMode,
+        toggleUserInterface
+      ),
       [SimulatorMode.CONTROLLER]: new SimulatorControllerMode(
-          this.simulatorControllerState, this.downKeys, hands,
-          setStereoRenderMode, toggleUserInterface),
+        this.simulatorControllerState,
+        this.downKeys,
+        hands,
+        setStereoRenderMode,
+        toggleUserInterface
+      ),
     };
 
     this.simulatorModeControls = this.simulatorModes[this.simulatorMode];
@@ -74,12 +91,18 @@ export class SimulatorControls {
   /**
    * Initialize the simulator controls.
    */
-  init({camera, input, timer, renderer, simulatorOptions}: {
-    camera: THREE.Camera,
-    input: Input,
-    timer: THREE.Timer,
-    renderer: THREE.WebGLRenderer,
-    simulatorOptions: SimulatorOptions
+  init({
+    camera,
+    input,
+    timer,
+    renderer,
+    simulatorOptions,
+  }: {
+    camera: THREE.Camera;
+    input: Input;
+    timer: THREE.Timer;
+    renderer: THREE.WebGLRenderer;
+    simulatorOptions: SimulatorOptions;
   }) {
     for (const mode in this.simulatorModes) {
       this.simulatorModes[mode].init({camera, input, timer});
@@ -87,7 +110,7 @@ export class SimulatorControls {
     this.renderer = renderer;
     this.setSimulatorMode(simulatorOptions.defaultMode);
     this.simulatorControllerState.currentControllerIndex =
-        simulatorOptions.defaultHand === Handedness.LEFT ? 0 : 1;
+      simulatorOptions.defaultHand === Handedness.LEFT ? 0 : 1;
     this.connect();
   }
 
@@ -104,7 +127,6 @@ export class SimulatorControls {
   update() {
     this.simulatorModeControls.update();
   }
-
 
   onPointerMove(event: MouseEvent) {
     this.simulatorModeControls.onPointerMove(event);

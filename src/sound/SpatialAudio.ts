@@ -5,9 +5,9 @@ import {Script} from '../core/Script.js';
 import {CategoryVolumes} from './CategoryVolumes.js';
 
 const spatialSoundLibrary = {
-  'ambient': 'musicLibrary/AmbientLoop.opus',
-  'buttonHover': 'musicLibrary/ButtonHover.opus',
-  'paintOneShot1': 'musicLibrary/PaintOneShot1.opus',
+  ambient: 'musicLibrary/AmbientLoop.opus',
+  buttonHover: 'musicLibrary/ButtonHover.opus',
+  paintOneShot1: 'musicLibrary/PaintOneShot1.opus',
 } as const;
 
 let soundIdCounter = 0;
@@ -38,8 +38,9 @@ export class SpatialAudio extends Script {
   private defaultRolloffFactor = 1;
 
   constructor(
-      private listener: THREE.AudioListener,
-      private categoryVolumes: CategoryVolumes) {
+    private listener: THREE.AudioListener,
+    private categoryVolumes: CategoryVolumes
+  ) {
     super();
   }
 
@@ -55,11 +56,14 @@ export class SpatialAudio extends Script {
    *     if failed.
    */
   playSoundAtObject(
-      soundKey: keyof typeof spatialSoundLibrary, targetObject: THREE.Object3D,
-      options: PlaySoundOptions = {}) {
+    soundKey: keyof typeof spatialSoundLibrary,
+    targetObject: THREE.Object3D,
+    options: PlaySoundOptions = {}
+  ) {
     if (!this.listener || !this.audioLoader || !targetObject) {
       console.error(
-          'SpatialAudio not properly initialized or targetObject missing.');
+        'SpatialAudio not properly initialized or targetObject missing.'
+      );
       return null;
     }
 
@@ -71,69 +75,85 @@ export class SpatialAudio extends Script {
 
     const soundId = ++soundIdCounter;
     const specificVolume =
-        options.volume !== undefined ? options.volume : this.specificVolume;
+      options.volume !== undefined ? options.volume : this.specificVolume;
     const loop = options.loop || false;
-    const refDistance = options.refDistance !== undefined ?
-        options.refDistance :
-        this.defaultRefDistance;
-    const rolloffFactor = options.rolloffFactor !== undefined ?
-        options.rolloffFactor :
-        this.defaultRolloffFactor;
+    const refDistance =
+      options.refDistance !== undefined
+        ? options.refDistance
+        : this.defaultRefDistance;
+    const rolloffFactor =
+      options.rolloffFactor !== undefined
+        ? options.rolloffFactor
+        : this.defaultRolloffFactor;
 
     console.log(`SpatialAudio: Loading sound "${soundKey}" (${soundPath})`);
 
     this.audioLoader.load(
-        soundPath,
-        (buffer) => {
-          console.log(`SpatialAudio: Successfully loaded "${soundKey}"`);
-          if (!this.listener) {
-            console.error('SpatialAudio: Listener lost during load.');
-            return;
-          }
-          const audio = new THREE.PositionalAudio(this.listener);
-          audio.setBuffer(buffer);
-          audio.setLoop(loop);
-          audio.setRefDistance(refDistance);
-          audio.setRolloffFactor(rolloffFactor);
+      soundPath,
+      (buffer) => {
+        console.log(`SpatialAudio: Successfully loaded "${soundKey}"`);
+        if (!this.listener) {
+          console.error('SpatialAudio: Listener lost during load.');
+          return;
+        }
+        const audio = new THREE.PositionalAudio(this.listener);
+        audio.setBuffer(buffer);
+        audio.setLoop(loop);
+        audio.setRefDistance(refDistance);
+        audio.setRolloffFactor(rolloffFactor);
 
-          const effectiveVolume = this.categoryVolumes.getEffectiveVolume(
-              this.category, specificVolume);
-          audio.setVolume(effectiveVolume);
+        const effectiveVolume = this.categoryVolumes.getEffectiveVolume(
+          this.category,
+          specificVolume
+        );
+        audio.setVolume(effectiveVolume);
 
-          targetObject.add(audio);
-          this.activeSounds.set(
-              soundId, {audio: audio, target: targetObject, options: options});
-
-          // Set up cleanup for non-looping sounds
-          if (!loop) {
-            audio.onEnded = () => {
-              console.log(
-                  `SpatialAudio: Sound "${soundKey}" (ID: ${soundId}) ended.`);
-              this._cleanupSound(soundId);
-              if (options.onEnded && typeof options.onEnded === 'function') {
-                options.onEnded();
-              }
-              // Important: Clear the onEnded handler after it runs once
-              // to prevent issues if the object is reused.
-              audio.onEnded = () => {};
-            };
-          }
-
-          audio.play();
-          console.log(
-              `SpatialAudio: Playing "${soundKey}" (ID: ${soundId}) at object ${
-                  targetObject.name ||
-                  targetObject.uuid}, Volume: ${effectiveVolume}`);
-        },
-        (xhr) => {
-          console.log(`SpatialAudio: Loading "${soundKey}" - ${
-              (xhr.loaded / xhr.total * 100).toFixed(0)}% loaded`);
-        },
-        (error) => {
-          console.error(
-              `SpatialAudio: Error loading sound "${soundKey}":`, error);
-          this.activeSounds.delete(soundId);  // Clean up if loading failed
+        targetObject.add(audio);
+        this.activeSounds.set(soundId, {
+          audio: audio,
+          target: targetObject,
+          options: options,
         });
+
+        // Set up cleanup for non-looping sounds
+        if (!loop) {
+          audio.onEnded = () => {
+            console.log(
+              `SpatialAudio: Sound "${soundKey}" (ID: ${soundId}) ended.`
+            );
+            this._cleanupSound(soundId);
+            if (options.onEnded && typeof options.onEnded === 'function') {
+              options.onEnded();
+            }
+            // Important: Clear the onEnded handler after it runs once
+            // to prevent issues if the object is reused.
+            audio.onEnded = () => {};
+          };
+        }
+
+        audio.play();
+        console.log(
+          `SpatialAudio: Playing "${soundKey}" (ID: ${soundId}) at object ${
+            targetObject.name || targetObject.uuid
+          }, Volume: ${effectiveVolume}`
+        );
+      },
+      (xhr) => {
+        console.log(
+          `SpatialAudio: Loading "${soundKey}" - ${(
+            (xhr.loaded / xhr.total) *
+            100
+          ).toFixed(0)}% loaded`
+        );
+      },
+      (error) => {
+        console.error(
+          `SpatialAudio: Error loading sound "${soundKey}":`,
+          error
+        );
+        this.activeSounds.delete(soundId); // Clean up if loading failed
+      }
+    );
 
     return soundId;
   }
@@ -185,7 +205,8 @@ export class SpatialAudio extends Script {
   setVolume(level: number) {
     this.specificVolume = THREE.MathUtils.clamp(level, 0.0, 1.0);
     console.log(
-        `SpatialAudio default specific volume set to: ${this.specificVolume}`);
+      `SpatialAudio default specific volume set to: ${this.specificVolume}`
+    );
   }
 
   /**
@@ -194,14 +215,20 @@ export class SpatialAudio extends Script {
    */
   updateAllVolumes() {
     if (!this.categoryVolumes) return;
-    console.log(`SpatialAudio: Updating volumes for ${
-        this.activeSounds.size} active sounds.`);
+    console.log(
+      `SpatialAudio: Updating volumes for ${
+        this.activeSounds.size
+      } active sounds.`
+    );
     this.activeSounds.forEach((soundData) => {
-      const specificVolume = soundData.options.volume !== undefined ?
-          soundData.options.volume :
-          this.specificVolume;
+      const specificVolume =
+        soundData.options.volume !== undefined
+          ? soundData.options.volume
+          : this.specificVolume;
       const effectiveVolume = this.categoryVolumes.getEffectiveVolume(
-          this.category, specificVolume);
+        this.category,
+        specificVolume
+      );
       soundData.audio.setVolume(effectiveVolume);
     });
   }
@@ -209,7 +236,7 @@ export class SpatialAudio extends Script {
   destroy() {
     console.log('SpatialAudio Destroying...');
     const idsToStop = Array.from(this.activeSounds.keys());
-    idsToStop.forEach(id => this.stopSound(id));
+    idsToStop.forEach((id) => this.stopSound(id));
 
     this.activeSounds.clear();
     console.log('SpatialAudio Destroyed.');

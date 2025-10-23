@@ -21,7 +21,7 @@ import type {Row, RowOptions} from './Row';
  * declaratively build complex layouts. Children are positioned based on the
  * order they are added and their respective `weight` properties.
  */
-export type GridOptions = ViewOptions&{
+export type GridOptions = ViewOptions & {
   weight?: number;
 };
 
@@ -63,8 +63,11 @@ export class Grid extends View {
    * @param OrbiterClass - The class for panels.
    */
   static init(
-      RowClass: typeof Row, ColClass: typeof Col, PanelClass: typeof Panel,
-      OrbiterClass: typeof Orbiter) {
+    RowClass: typeof Row,
+    ColClass: typeof Col,
+    PanelClass: typeof Panel,
+    OrbiterClass: typeof Orbiter
+  ) {
     Grid.RowClass = RowClass;
     Grid.ColClass = ColClass;
     Grid.PanelClass = PanelClass;

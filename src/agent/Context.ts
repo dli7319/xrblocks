@@ -23,16 +23,20 @@ export class Context {
    */
   build(memory: Memory, tools: Tool[]): string {
     const history = memory.getShortTerm();
-    const formattedHistory =
-        history.map(entry => this.formatEntry(entry)).join('\n');
+    const formattedHistory = history
+      .map((entry) => this.formatEntry(entry))
+      .join('\n');
 
-    const toolDescriptions =
-        tools.map(tool => `- ${tool.name}: ${tool.description}`).join('\n');
+    const toolDescriptions = tools
+      .map((tool) => `- ${tool.name}: ${tool.description}`)
+      .join('\n');
 
     return `${this.instructions} You have access to the following tools: ${
-        toolDescriptions}
+      toolDescriptions
+    }
         Current Conversation history: ${
-        formattedHistory}. You should reply to the user or call a tool as needed.`;
+          formattedHistory
+        }. You should reply to the user or call a tool as needed.`;
   }
 
   private formatEntry(entry: MemoryEntry): string {

@@ -5,19 +5,22 @@ import {Script} from '../core/Script.js';
 import {SoundOptions, SpeechRecognizerOptions} from './SoundOptions.js';
 import {SoundSynthesizer} from './SoundSynthesizer.js';
 
-type WindowWithSpeechRecognition = Window&typeof globalThis&{
-  SpeechRecognition?: SpeechRecognition;
-  webkitSpeechRecognition?: SpeechRecognition;
-};
+type WindowWithSpeechRecognition = Window &
+  typeof globalThis & {
+    SpeechRecognition?: SpeechRecognition;
+    webkitSpeechRecognition?: SpeechRecognition;
+  };
 
 interface SpeechRecognizerEventMap extends THREE.Object3DEventMap {
   start: object;
   error: {error: string};
   end: object;
   result: {
-    originalEvent: SpeechRecognitionEvent; transcript: string;
+    originalEvent: SpeechRecognitionEvent;
+    transcript: string;
     confidence: number;
-    command?: string; isFinal: boolean;
+    command?: string;
+    isFinal: boolean;
   };
 }
 
@@ -45,11 +48,12 @@ export class SpeechRecognizer extends Script<SpeechRecognizerEventMap> {
   override init({soundOptions}: {soundOptions: SoundOptions}) {
     this.options = soundOptions.speechRecognizer;
     const SpeechRecognitionAPI =
-        (window as WindowWithSpeechRecognition).SpeechRecognition ||
-        (window as WindowWithSpeechRecognition).webkitSpeechRecognition;
+      (window as WindowWithSpeechRecognition).SpeechRecognition ||
+      (window as WindowWithSpeechRecognition).webkitSpeechRecognition;
     if (!SpeechRecognitionAPI) {
       console.warn(
-          'SpeechRecognizer: Speech Recognition API not supported in this browser.');
+        'SpeechRecognizer: Speech Recognition API not supported in this browser.'
+      );
       this.error = 'API not supported';
       return;
     }
@@ -154,11 +158,14 @@ export class SpeechRecognizer extends Script<SpeechRecognizerEventMap> {
     if (finalTranscript && this.options.commands.length > 0) {
       const upperTranscript = finalTranscript.trim().toUpperCase();
       for (const command of this.options.commands) {
-        if (upperTranscript.includes(command.toUpperCase()) &&
-            this.lastConfidence >= this.options.commandConfidenceThreshold) {
+        if (
+          upperTranscript.includes(command.toUpperCase()) &&
+          this.lastConfidence >= this.options.commandConfidenceThreshold
+        ) {
           this.lastCommand = command;
           console.debug(
-              `SpeechRecognizer Detected Command: ${this.lastCommand}`);
+            `SpeechRecognizer Detected Command: ${this.lastCommand}`
+          );
           break;
         }
       }
@@ -171,7 +178,7 @@ export class SpeechRecognizer extends Script<SpeechRecognizerEventMap> {
       transcript: this.lastTranscript,
       confidence: this.lastConfidence,
       command: this.lastCommand,
-      isFinal: !!finalTranscript
+      isFinal: !!finalTranscript,
     });
   }
 
@@ -180,8 +187,11 @@ export class SpeechRecognizer extends Script<SpeechRecognizerEventMap> {
     this.isListening = false;
     this.dispatchEvent({type: 'end'});
 
-    if (this.options.continuous && this.error !== 'aborted' &&
-        this.error !== 'no-speech') {
+    if (
+      this.options.continuous &&
+      this.error !== 'aborted' &&
+      this.error !== 'no-speech'
+    ) {
       console.debug('SpeechRecognizer: Restarting continuous listening...');
       setTimeout(() => this.start(), 100);
     } else if (this.playActivationSounds) {

@@ -53,8 +53,11 @@ export class Lighting {
    * @param depth - Depth manager.
    */
   init(
-      lightingOptions: LightingOptions, renderer: THREE.WebGLRenderer,
-      scene: THREE.Scene, depth?: Depth) {
+    lightingOptions: LightingOptions,
+    renderer: THREE.WebGLRenderer,
+    scene: THREE.Scene,
+    depth?: Depth
+  ) {
     this.options = lightingOptions;
     this.depth = depth;
 
@@ -110,8 +113,9 @@ export class Lighting {
   update() {
     // Update lights from WebXR estimated light.
     if (this.options.enabled) {
-      this.dirLight.position.copy(this.xrLight!.directionalLight.position)
-          .multiplyScalar(20.0);
+      this.dirLight.position
+        .copy(this.xrLight!.directionalLight.position)
+        .multiplyScalar(20.0);
       this.dirLight.target.position.setScalar(0.0);
       this.dirLight.color = this.xrLight!.directionalLight.color;
       this.dirLight.intensity = this.xrLight!.directionalLight.intensity;
@@ -126,43 +130,54 @@ export class Lighting {
         this.dirLight.color.setHex(0xffffff);
         this.dirLight.intensity = 3.8;
         this.ambientProbe.sh.fromArray([
-          0.22636516392230988,  0.2994415760040283,    0.2827182114124298,
-          0.03430574759840965,  0.029604531824588776,  -0.002050594426691532,
-          0.016114741563796997, 0.004344218410551548,  0.07621686905622482,
-          0.024204734712839127, -0.02397896535694599,  -0.07645703107118607,
-          0.15790101885795593,  0.16706973314285278,   0.18418270349502563,
-          -0.13088643550872803, -0.1461198776960373,   -0.1411236822605133,
-          0.04788218438625336,  0.08909443765878677,   0.10185115039348602,
+          0.22636516392230988, 0.2994415760040283, 0.2827182114124298,
+          0.03430574759840965, 0.029604531824588776, -0.002050594426691532,
+          0.016114741563796997, 0.004344218410551548, 0.07621686905622482,
+          0.024204734712839127, -0.02397896535694599, -0.07645703107118607,
+          0.15790101885795593, 0.16706973314285278, 0.18418270349502563,
+          -0.13088643550872803, -0.1461198776960373, -0.1411236822605133,
+          0.04788218438625336, 0.08909443765878677, 0.10185115039348602,
           0.020251473411917686, -0.002100071171298623, -0.06455840915441513,
-          -0.12393051385879517, -0.05158703774213791,  -0.00532124936580658
+          -0.12393051385879517, -0.05158703774213791, -0.00532124936580658,
         ]);
         this.ambientProbe.intensity = 1.0;
         this.ambientLight.copy(this.ambientProbe.sh.coefficients[0]);
       }
 
-      if (this.options.castDirectionalLightShadow &&
-          this.options.useDynamicSoftShadow) {
+      if (
+        this.options.castDirectionalLightShadow &&
+        this.options.useDynamicSoftShadow
+      ) {
         const ambientLightIntensity = this.ambientLight;
-        const ambientMonoIntensity = 0.21 * ambientLightIntensity.x +
-            0.72 * ambientLightIntensity.y + 0.07 * ambientLightIntensity.z;
-        const mainLightIntensity =
-            new THREE
-                .Vector3(
-                    this.dirLight.color.r, this.dirLight.color.g,
-                    this.dirLight.color.b)
-                .multiplyScalar(this.dirLight.intensity);
-        const mainMonoIntensity = 0.21 * mainLightIntensity.x +
-            0.72 * mainLightIntensity.y + 0.07 * mainLightIntensity.z;
+        const ambientMonoIntensity =
+          0.21 * ambientLightIntensity.x +
+          0.72 * ambientLightIntensity.y +
+          0.07 * ambientLightIntensity.z;
+        const mainLightIntensity = new THREE.Vector3(
+          this.dirLight.color.r,
+          this.dirLight.color.g,
+          this.dirLight.color.b
+        ).multiplyScalar(this.dirLight.intensity);
+        const mainMonoIntensity =
+          0.21 * mainLightIntensity.x +
+          0.72 * mainLightIntensity.y +
+          0.07 * mainLightIntensity.z;
         const ambientToMain = ambientMonoIntensity / mainMonoIntensity;
-        this.dirLight.shadow.radius =
-            Math.min(Math.max(1.0, ambientToMain * 30), 10.0);
-        this.shadowOpacity =
-            Math.max(Math.min((10.0 - ambientToMain * 30) * 0.7, 0.7), 0.3);
+        this.dirLight.shadow.radius = Math.min(
+          Math.max(1.0, ambientToMain * 30),
+          10.0
+        );
+        this.shadowOpacity = Math.max(
+          Math.min((10.0 - ambientToMain * 30) * 0.7, 0.7),
+          0.3
+        );
 
         // Override depth material opacity with shadowOpacity
-        if (this.depth?.options?.enabled &&
-            this.depth.options.depthMesh.enabled &&
-            this.depth.depthMesh?.material instanceof THREE.ShadowMaterial) {
+        if (
+          this.depth?.options?.enabled &&
+          this.depth.options.depthMesh.enabled &&
+          this.depth.depthMesh?.material instanceof THREE.ShadowMaterial
+        ) {
           this.depth.depthMesh.material.opacity = this.shadowOpacity;
         }
       }
@@ -181,4 +196,4 @@ export class Lighting {
     console.log('Lighting.ambientProbe', this.ambientProbe);
     console.log('Lighting.ambientLight', this.ambientLight);
   }
-};
+}

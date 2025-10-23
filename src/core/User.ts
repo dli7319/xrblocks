@@ -8,8 +8,8 @@ import {objectIsDescendantOf} from '../utils/SceneGraphUtils';
 
 import {ObjectGrabEvent, ObjectTouchEvent, Script, SelectEvent} from './Script';
 
-type MaybeXRScript = THREE.Object3D&{isXRScript?: boolean};
-type MaybeView = THREE.Object3D&{isView?: boolean};
+type MaybeXRScript = THREE.Object3D & {isXRScript?: boolean};
+type MaybeView = THREE.Object3D & {isView?: boolean};
 type MaybeHasIgnoreReticleRaycast = {
   ignoreReticleRaycast?: boolean;
 };
@@ -67,7 +67,7 @@ export class User extends Script {
   /**
    * The angle of a newly spawned object from the user in radians.
    */
-  objectAngle = -18.0 / 180.0 * Math.PI;
+  objectAngle = (-18.0 / 180.0) * Math.PI;
 
   /**
    * An array of pivot objects. Pivot are sphere at the **starting** tip of
@@ -83,7 +83,7 @@ export class User extends Script {
   /**
    * Maps a controller to the object it is currently hovering over.
    */
-  hoveredObjectsForController = new Map<Controller, THREE.Object3D|null>();
+  hoveredObjectsForController = new Map<Controller, THREE.Object3D | null>();
 
   /**
    * Maps a controller to the object it has currently selected.
@@ -115,7 +115,7 @@ export class User extends Script {
   /**
    * Initializes the User.
    */
-  init({input, scene}: {input: Input, scene: THREE.Scene}) {
+  init({input, scene}: {input: Input; scene: THREE.Scene}) {
     this.input = input;
     this.controllers = input.controllers;
     this.scene = scene;
@@ -293,22 +293,26 @@ export class User extends Script {
    */
   onSelectStart(event: SelectEvent) {
     const controller = event.target;
-    const intersections =
-        this.input.intersectionsForController.get(controller)!.filter(
-            intersection => {
-              let target: THREE.Object3D|null = intersection.object;
-              while (target) {
-                if ((target as MaybeHasIgnoreReticleRaycast)
-                        .ignoreReticleRaycast === true) {
-                  return false;
-                }
-                target = target.parent;
-              }
-              return true;
-            });
+    const intersections = this.input.intersectionsForController
+      .get(controller)!
+      .filter((intersection) => {
+        let target: THREE.Object3D | null = intersection.object;
+        while (target) {
+          if (
+            (target as MaybeHasIgnoreReticleRaycast).ignoreReticleRaycast ===
+            true
+          ) {
+            return false;
+          }
+          target = target.parent;
+        }
+        return true;
+      });
     if (intersections && intersections.length > 0) {
       this.selectedObjectsForController.set(
-          controller, intersections[0].object);
+        controller,
+        intersections[0].object
+      );
       this.callObjectSelectStart(event, intersections[0].object);
     }
   }
@@ -324,7 +328,7 @@ export class User extends Script {
       const selectedObject = this.selectedObjectsForController.get(controller);
       this.callObjectSelectEnd(event, selectedObject || null);
       this.selectedObjectsForController.delete(controller);
-      let ancestor: THREE.Object3D|null = selectedObject || null;
+      let ancestor: THREE.Object3D | null = selectedObject || null;
       while (ancestor) {
         if ((ancestor as MaybeView).isView && ancestor.visible) {
           (ancestor as View).onTriggered(controller.userData.id);
@@ -375,16 +379,19 @@ export class User extends Script {
       const isPinching = this.isSelecting(i);
       const touchedMeshes = this.touchedObjects.get(i) || new Set<THREE.Mesh>();
 
-      const currentlyGrabbedMeshes =
-          isPinching ? touchedMeshes : new Set<THREE.Mesh>();
+      const currentlyGrabbedMeshes = isPinching
+        ? touchedMeshes
+        : new Set<THREE.Mesh>();
       const previouslyGrabbedMeshesMap =
-          this.grabbedObjects.get(i) || new Map();
+        this.grabbedObjects.get(i) || new Map();
 
       const newlyGrabbedMeshes = [...currentlyGrabbedMeshes].filter(
-          mesh => !previouslyGrabbedMeshesMap.has(mesh));
+        (mesh) => !previouslyGrabbedMeshesMap.has(mesh)
+      );
 
       const releasedMeshes = [...previouslyGrabbedMeshesMap.keys()].filter(
-          mesh => !currentlyGrabbedMeshes.has(mesh));
+        (mesh) => !currentlyGrabbedMeshes.has(mesh)
+      );
 
       for (const mesh of newlyGrabbedMeshes) {
         const hand = this.hands.getWrist(i);
@@ -444,9 +451,11 @@ export class User extends Script {
       const currentMeshesSet = new Set(currentlyTouchedMeshes);
 
       const newlyTouchedMeshes = currentlyTouchedMeshes.filter(
-          mesh => !previouslyTouchedMeshes.has(mesh));
+        (mesh) => !previouslyTouchedMeshes.has(mesh)
+      );
       const removedMeshes = [...previouslyTouchedMeshes].filter(
-          mesh => !currentMeshesSet.has(mesh));
+        (mesh) => !currentMeshesSet.has(mesh)
+      );
 
       const touchingEvent = {handIndex: i, touchPosition: indexTipPosition};
 
@@ -480,11 +489,11 @@ export class User extends Script {
    */
   updateForController(controller: Controller) {
     const intersections =
-        this.input.intersectionsForController.get(controller)!;
+      this.input.intersectionsForController.get(controller)!;
     const currentHoverTarget =
-        intersections.length > 0 ? intersections[0].object : null;
+      intersections.length > 0 ? intersections[0].object : null;
     const previousHoverTarget =
-        this.hoveredObjectsForController.get(controller);
+      this.hoveredObjectsForController.get(controller);
     if (previousHoverTarget !== currentHoverTarget) {
       this.callHoverExit(controller, previousHoverTarget || null);
       this.hoveredObjectsForController.set(controller, currentHoverTarget);
@@ -499,7 +508,7 @@ export class User extends Script {
    * @param controller - The controller exiting hover.
    * @param target - The object being exited.
    */
-  callHoverExit(controller: Controller, target: THREE.Object3D|null) {
+  callHoverExit(controller: Controller, target: THREE.Object3D | null) {
     if (target == null) return;
     if ((target as MaybeXRScript).isXRScript) {
       (target as Script).onHoverExit(controller);
@@ -512,7 +521,7 @@ export class User extends Script {
    * @param controller - The controller entering hover.
    * @param target - The object being entered.
    */
-  callHoverEnter(controller: Controller, target: THREE.Object3D|null) {
+  callHoverEnter(controller: Controller, target: THREE.Object3D | null) {
     if (target == null) return;
     if ((target as MaybeXRScript).isXRScript) {
       (target as Script).onHoverEnter(controller);
@@ -525,7 +534,7 @@ export class User extends Script {
    * @param controller - The controller hovering.
    * @param target - The object being entered.
    */
-  callOnHovering(controller: Controller, target: THREE.Object3D|null) {
+  callOnHovering(controller: Controller, target: THREE.Object3D | null) {
     if (target == null) return;
     if ((target as MaybeXRScript).isXRScript) {
       (target as Script).onHovering(controller);
@@ -539,10 +548,12 @@ export class User extends Script {
    * @param event - The original select start event.
    * @param target - The object being selected.
    */
-  callObjectSelectStart(event: SelectEvent, target: THREE.Object3D|null) {
+  callObjectSelectStart(event: SelectEvent, target: THREE.Object3D | null) {
     if (target == null) return;
-    if ((target as MaybeXRScript).isXRScript &&
-        (target as Script).onObjectSelectStart(event)) {
+    if (
+      (target as MaybeXRScript).isXRScript &&
+      (target as Script).onObjectSelectStart(event)
+    ) {
       // The event was handled already so do not propagate up.
       return;
     }
@@ -555,10 +566,12 @@ export class User extends Script {
    * @param event - The original select end event.
    * @param target - The object being un-selected.
    */
-  callObjectSelectEnd(event: SelectEvent, target: THREE.Object3D|null) {
+  callObjectSelectEnd(event: SelectEvent, target: THREE.Object3D | null) {
     if (target == null) return;
-    if ((target as MaybeXRScript).isXRScript &&
-        (target as Script).onObjectSelectEnd(event)) {
+    if (
+      (target as MaybeXRScript).isXRScript &&
+      (target as Script).onObjectSelectEnd(event)
+    ) {
       // The event was handled already so do not propagate up.
       return;
     }
@@ -570,7 +583,7 @@ export class User extends Script {
    * @param event - The original touch start event.
    * @param target - The object being touched.
    */
-  callObjectTouchStart(event: ObjectTouchEvent, target: THREE.Object3D|null) {
+  callObjectTouchStart(event: ObjectTouchEvent, target: THREE.Object3D | null) {
     if (target == null) return;
     if ((target as MaybeXRScript).isXRScript) {
       (target as Script).onObjectTouchStart(event);
@@ -583,7 +596,7 @@ export class User extends Script {
    * @param event - The original touch event.
    * @param target - The object being touched.
    */
-  callObjectTouching(event: ObjectTouchEvent, target: THREE.Object3D|null) {
+  callObjectTouching(event: ObjectTouchEvent, target: THREE.Object3D | null) {
     if (target == null) return;
     if ((target as MaybeXRScript).isXRScript) {
       (target as Script).onObjectTouching(event);
@@ -596,7 +609,7 @@ export class User extends Script {
    * @param event - The original touch end event.
    * @param target - The object being un-touched.
    */
-  callObjectTouchEnd(event: ObjectTouchEvent, target: THREE.Object3D|null) {
+  callObjectTouchEnd(event: ObjectTouchEvent, target: THREE.Object3D | null) {
     if (target == null) return;
     if ((target as MaybeXRScript).isXRScript) {
       (target as Script).onObjectTouchEnd(event);
@@ -609,7 +622,7 @@ export class User extends Script {
    * @param event - The original grab start event.
    * @param target - The object being grabbed.
    */
-  callObjectGrabStart(event: ObjectGrabEvent, target: THREE.Object3D|null) {
+  callObjectGrabStart(event: ObjectGrabEvent, target: THREE.Object3D | null) {
     if (target == null) return;
     if ((target as MaybeXRScript).isXRScript) {
       (target as Script).onObjectGrabStart(event);
@@ -622,7 +635,7 @@ export class User extends Script {
    * @param event - The original grabbing event.
    * @param target - The object being grabbed.
    */
-  callObjectGrabbing(event: ObjectGrabEvent, target: THREE.Object3D|null) {
+  callObjectGrabbing(event: ObjectGrabEvent, target: THREE.Object3D | null) {
     if (target == null) return;
     if ((target as MaybeXRScript).isXRScript) {
       (target as Script).onObjectGrabbing(event);
@@ -635,7 +648,7 @@ export class User extends Script {
    * @param event - The original grab end event.
    * @param target - The object being released.
    */
-  callObjectGrabEnd(event: ObjectGrabEvent, target: THREE.Object3D|null) {
+  callObjectGrabEnd(event: ObjectGrabEvent, target: THREE.Object3D | null) {
     if (target == null) return;
     if ((target as MaybeXRScript).isXRScript) {
       (target as Script).onObjectGrabEnd(event);
@@ -652,9 +665,10 @@ export class User extends Script {
    */
   select(obj: THREE.Object3D, controller: THREE.Object3D) {
     const intersections = this.input.intersectionsForController.get(controller);
-    return intersections && intersections.length > 0 &&
-            objectIsDescendantOf(intersections[0].object, obj) ?
-        intersections[0] :
-        null;
+    return intersections &&
+      intersections.length > 0 &&
+      objectIsDescendantOf(intersections[0].object, obj)
+      ? intersections[0]
+      : null;
   }
-};
+}

@@ -22,8 +22,7 @@ export class ObjectsOptions {
     /** The active backend to use for detection. */
     activeBackend: 'gemini' as 'gemini' | 'mediapipe',
     gemini: {
-      systemInstruction:
-          `Please provide me with the bounding box coordinates for the primary objects in the given image, prioritizing objects that are nearby. For each bounding box, include ymin, xmin, ymax, and xmax. These coordinates should be absolute values ranging from 0 to 1000, corresponding to the image as if it were resized to 1000x1000 pixels. The origin (xmin:0; ymin:0) is the top-left corner of the image, and (xmax:1000; ymax:1000) is the bottom-right corner. List a maximum of 5 objects. Ignore hands and other human body parts, as well as any UI elements attached to them (e.g., a blue circle attached to a finger).`,
+      systemInstruction: `Please provide me with the bounding box coordinates for the primary objects in the given image, prioritizing objects that are nearby. For each bounding box, include ymin, xmin, ymax, and xmax. These coordinates should be absolute values ranging from 0 to 1000, corresponding to the image as if it were resized to 1000x1000 pixels. The origin (xmin:0; ymin:0) is the top-left corner of the image, and (xmax:1000; ymax:1000) is the bottom-right corner. List a maximum of 5 objects. Ignore hands and other human body parts, as well as any UI elements attached to them (e.g., a blue circle attached to a finger).`,
       responseSchema: {
         type: 'ARRAY',
         items: {
@@ -42,7 +41,6 @@ export class ObjectsOptions {
     /** Placeholder for a future MediaPipe backend configuration. */
     mediapipe: {},
   };
-
 
   constructor(options?: DeepPartial<ObjectsOptions>) {
     if (options) {

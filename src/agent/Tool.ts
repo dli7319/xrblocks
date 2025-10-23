@@ -22,7 +22,10 @@ export interface ToolResult<T = unknown> {
 
 // Identical to GoogleGenAITypes.Schema but replaces the Type enum with actual
 // strings so tools don't need to import the types from @google/genai.
-export type ToolSchema = Omit<GoogleGenAITypes.Schema, 'type'|'properties'>&{
+export type ToolSchema = Omit<
+  GoogleGenAITypes.Schema,
+  'type' | 'properties'
+> & {
   properties?: Record<string, ToolSchema>;
   type?: keyof typeof GoogleGenAITypes.Type;
 };
@@ -69,16 +72,17 @@ export class Tool {
         return {
           success: true,
           data: result,
-          metadata: {executedAt: Date.now(), toolName: this.name}
+          metadata: {executedAt: Date.now(), toolName: this.name},
         };
       }
       throw new Error(
-          'The execute method must be implemented by a subclass or onTriggered must be provided.');
+        'The execute method must be implemented by a subclass or onTriggered must be provided.'
+      );
     } catch (error) {
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
-        metadata: {executedAt: Date.now(), toolName: this.name}
+        metadata: {executedAt: Date.now(), toolName: this.name},
       };
     }
   }

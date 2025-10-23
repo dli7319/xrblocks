@@ -7,7 +7,6 @@ import {ViewOptions} from '../core/ViewOptions';
 
 import {FONT_FAMILIES} from './utils/FontFamilies';
 
-
 // --- Dynamic Import of Troika Three Text and its dependencies ---
 
 /** Enum for the status of the Troika dynamic import. */
@@ -20,7 +19,7 @@ enum TroikaImportStatus {
 // --- Troika Dependency Management ---
 let Text: typeof TroikaThreeText.Text;
 let troikaImportStatus = TroikaImportStatus.PENDING;
-let troikaImportError: Error|undefined;
+let troikaImportError: Error | undefined;
 
 async function importTroika() {
   if (Text) return true;
@@ -36,13 +35,13 @@ async function importTroika() {
     troikaImportStatus = TroikaImportStatus.FAILED;
     return false;
   }
-};
+}
 
 interface TextViewEventMap extends THREE.Object3DEventMap {
   synccomplete: object;
 }
 
-export type TextViewOptions = ViewOptions&{
+export type TextViewOptions = ViewOptions & {
   useSDFText?: boolean;
   font?: string;
   fontSize?: number;
@@ -51,13 +50,21 @@ export type TextViewOptions = ViewOptions&{
    * coordinates.
    */
   fontSizeDp?: number;
-  fontColor?: string|number;
+  fontColor?: string | number;
   maxWidth?: number;
-  mode?: 'fitWidth'|'center';
-  anchorX?: number|'left'|'center'|'right'|`${number}%`;
-  anchorY?: number|'top'|'top-baseline'|'top-cap'|'top-ex'|'middle'|
-      'bottom-baseline'|'bottom'|`${number}%`;
-  textAlign?: 'left'|'center'|'right';
+  mode?: 'fitWidth' | 'center';
+  anchorX?: number | 'left' | 'center' | 'right' | `${number}%`;
+  anchorY?:
+    | number
+    | 'top'
+    | 'top-baseline'
+    | 'top-cap'
+    | 'top-ex'
+    | 'middle'
+    | 'bottom-baseline'
+    | 'bottom'
+    | `${number}%`;
+  textAlign?: 'left' | 'center' | 'right';
   imageOverlay?: string;
   imageOffsetX?: number;
   imageOffsetY?: number;
@@ -83,14 +90,14 @@ export class TextView extends View<TextViewEventMap> {
   name = 'TextView';
 
   /** The underlying renderable object (either a Troika Text or a Plane. */
-  textObj?: TroikaThreeText.Text|THREE.Mesh;
+  textObj?: TroikaThreeText.Text | THREE.Mesh;
   /** The font file to use. Defaults to Roboto. */
   font = FONT_FAMILIES.Roboto;
   /** The size of the font in world units. */
   fontSize?: number;
   fontSizeDp?: number;
   /** The color of the font. */
-  fontColor: string|number = 0xFFFFFF;
+  fontColor: string | number = 0xffffff;
   /**
    * The maximum width the text can occupy before wrapping.
    * To fit a long TextView within a container, this value should be its
@@ -100,10 +107,18 @@ export class TextView extends View<TextViewEventMap> {
   /** Layout mode. 'fitWidth' scales text to fit the view's width. */
   mode = 'fitWidth';
   /** Horizontal anchor point ('left', 'center', 'right'). */
-  anchorX: number|'left'|'center'|'right'|`${number}%` = 'center';
+  anchorX: number | 'left' | 'center' | 'right' | `${number}%` = 'center';
   /** Vertical anchor point ('top', 'middle', 'bottom'). */
-  anchorY: number|'top'|'top-baseline'|'top-cap'|'top-ex'|'middle'|
-      'bottom-baseline'|'bottom'|`${number}%` = 'middle';
+  anchorY:
+    | number
+    | 'top'
+    | 'top-baseline'
+    | 'top-cap'
+    | 'top-ex'
+    | 'middle'
+    | 'bottom-baseline'
+    | 'bottom'
+    | `${number}%` = 'middle';
   /** Horizontal alignment ('left', 'center', 'right'). */
   textAlign = 'center';
   /** An optional image URL to use as an overlay texture on the text. */
@@ -154,8 +169,10 @@ export class TextView extends View<TextViewEventMap> {
    * @param material - Optional material for the view's background mesh.
    */
   constructor(
-      options: TextViewOptions = {}, geometry?: THREE.BufferGeometry,
-      material?: THREE.Material) {
+    options: TextViewOptions = {},
+    geometry?: THREE.BufferGeometry,
+    material?: THREE.Material
+  ) {
     super(options, geometry, material);
 
     this.useSDFText = options.useSDFText ?? this.useSDFText;
@@ -180,7 +197,7 @@ export class TextView extends View<TextViewEventMap> {
    * and then creates the text object, sets up aspect ratio, and loads overlays.
    */
   override async init(_?: object) {
-    this.useSDFText = this.useSDFText && await importTroika();
+    this.useSDFText = this.useSDFText && (await importTroika());
     this._initializeText();
   }
 
@@ -219,7 +236,7 @@ export class TextView extends View<TextViewEventMap> {
    */
   protected createTextSDF() {
     const obj =
-        Text && this.textObj instanceof Text ? this.textObj : new Text();
+      Text && this.textObj instanceof Text ? this.textObj : new Text();
     obj.text = this.text;
     obj.color = getColorHex(this.fontColor);
     obj.font = this.font;
@@ -278,12 +295,12 @@ export class TextView extends View<TextViewEventMap> {
     canvas!.height = this.height * resolution;
 
     ctx.clearRect(0, 0, canvas!.width, canvas!.height);
-    const fontSize = this.fontSizeDp !== undefined ?
-        this.dpToLocalUnits(this.fontSizeDp) :
-        this.fontSize ?? 0.06;
+    const fontSize =
+      this.fontSizeDp !== undefined
+        ? this.dpToLocalUnits(this.fontSizeDp)
+        : (this.fontSize ?? 0.06);
     ctx.font = `${fontSize * resolution}px ${this.font}`;
-    ctx.fillStyle =
-        `#${getColorHex(this.fontColor).toString(16).padStart(6, '0')}`;
+    ctx.fillStyle = `#${getColorHex(this.fontColor).toString(16).padStart(6, '0')}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     // TODO: add line-break for canvas-based text.
@@ -299,8 +316,11 @@ export class TextView extends View<TextViewEventMap> {
    * It captures layout data like total height and line count.
    */
   onSyncComplete() {
-    if (!this.useSDFText || !(this.textObj instanceof Text) ||
-        !this.textObj.textRenderInfo) {
+    if (
+      !this.useSDFText ||
+      !(this.textObj instanceof Text) ||
+      !this.textObj.textRenderInfo
+    ) {
       return;
     }
     const caretPositions = this.textObj.textRenderInfo.caretPositions;
@@ -318,7 +338,7 @@ export class TextView extends View<TextViewEventMap> {
       }
     }
     this.lineHeight =
-        numberOfChars > 0 ? (firstBottom - lastBottom) / lineCount : 0;
+      numberOfChars > 0 ? (firstBottom - lastBottom) / lineCount : 0;
     this.lineCount = lineCount;
     this.dispatchEvent({type: 'synccomplete'});
   }
@@ -337,8 +357,10 @@ export class TextView extends View<TextViewEventMap> {
       // If the import failed, log a warning.
       if (troikaImportStatus === TroikaImportStatus.FAILED) {
         console.warn(
-            'Failed to import `troika-three-text`. For 3D text rendering, please ensure `troika-three-text`, `troika-three-utils`, `troika-worker-utils`, `bidi-js`, and `webgl-sdf-generator` are included in your importmap or installed via npm. Refer to templates/1_ui for an example. Falling back to HTML-based text rendering.',
-            'Error details:', troikaImportError?.message);
+          'Failed to import `troika-three-text`. For 3D text rendering, please ensure `troika-three-text`, `troika-three-utils`, `troika-worker-utils`, `bidi-js`, and `webgl-sdf-generator` are included in your importmap or installed via npm. Refer to templates/1_ui for an example. Falling back to HTML-based text rendering.',
+          'Error details:',
+          troikaImportError?.message
+        );
         // Clear the error so we don't log it repeatedly.
         troikaImportError = undefined;
       }
@@ -348,11 +370,13 @@ export class TextView extends View<TextViewEventMap> {
     // Applies settings that require the textObj to exist.
     if (this.useSDFText && Text && this.textObj instanceof Text) {
       this.textObj.addEventListener(
-          // @ts-expect-error Missing type in Troika
-          'synccomplete', this.onSyncComplete.bind(this));
+        // @ts-expect-error Missing type in Troika
+        'synccomplete',
+        this.onSyncComplete.bind(this)
+      );
 
       if (this.imageOverlay) {
-        (new THREE.TextureLoader()).load(this.imageOverlay, (texture) => {
+        new THREE.TextureLoader().load(this.imageOverlay, (texture) => {
           texture.colorSpace = THREE.SRGBColorSpace;
           texture.offset.x = this.imageOffsetX;
           const textObj = this.textObj as unknown as TroikaThreeText.Text;
@@ -380,11 +404,17 @@ export class TextView extends View<TextViewEventMap> {
    * Disposes of resources used by the TextView, such as event listeners.
    */
   override dispose() {
-    if (this.useSDFText && this.textObj && Text &&
-        this.textObj instanceof Text) {
+    if (
+      this.useSDFText &&
+      this.textObj &&
+      Text &&
+      this.textObj instanceof Text
+    ) {
       this.textObj.removeEventListener(
-          // @ts-expect-error Missing type in Troika
-          'synccomplete', this.onSyncComplete.bind(this));
+        // @ts-expect-error Missing type in Troika
+        'synccomplete',
+        this.onSyncComplete.bind(this)
+      );
     }
     super.dispose();
   }

@@ -1,5 +1,5 @@
 export interface MemoryEntry {
-  role: 'user'|'ai'|'tool';
+  role: 'user' | 'ai' | 'tool';
   content: string;
 }
 

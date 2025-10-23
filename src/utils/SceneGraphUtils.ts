@@ -14,10 +14,11 @@ import * as THREE from 'three';
  *     `parent`.
  */
 export function objectIsDescendantOf(
-    child?: Readonly<THREE.Object3D>|null,
-    parent?: Readonly<THREE.Object3D>|null) {
+  child?: Readonly<THREE.Object3D> | null,
+  parent?: Readonly<THREE.Object3D> | null
+) {
   // Starts the search from the child object.
-  let currentNode: Readonly<THREE.Object3D>|undefined|null = child;
+  let currentNode: Readonly<THREE.Object3D> | undefined | null = child;
 
   // Traverses up the scene graph hierarchy until we reach the top (null parent)
   // or find the target parent.
@@ -49,7 +50,9 @@ export function objectIsDescendantOf(
  * @returns Whether the callback returned true for any node.
  */
 export function traverseUtil(
-    node: THREE.Object3D, callback: (node: THREE.Object3D) => boolean) {
+  node: THREE.Object3D,
+  callback: (node: THREE.Object3D) => boolean
+) {
   if (callback(node)) {
     return true;
   }

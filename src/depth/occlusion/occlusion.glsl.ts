@@ -27,5 +27,5 @@ void main(void) {
 
   gl_FragColor = sRGBTransferOETF( gl_FragColor );
 }
-`
+`,
 };

@@ -3,7 +3,6 @@ import * as THREE from 'three';
 import type {Shader} from '../../utils/Types';
 import {getVec4ByColorString} from '../../utils/utils';
 
-
 /**
  * A specialized `THREE.Mesh` designed for rendering UI panel
  * backgrounds. It utilizes a custom shader to draw rounded rectangles
@@ -11,8 +10,10 @@ import {getVec4ByColorString} from '../../utils/utils';
  * such as aspect ratio and size. This class is a core building block for
  * `Panel` components.
  */
-export class PanelMesh extends
-    THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial> {
+export class PanelMesh extends THREE.Mesh<
+  THREE.PlaneGeometry,
+  THREE.ShaderMaterial
+> {
   /** Text description of the PanelMesh */
   name = 'PanelMesh';
 
@@ -70,6 +71,9 @@ export class PanelMesh extends
    */
   setAspectRatio(aspectRatio: number) {
     this.scale.set(
-        Math.max(aspectRatio, 1.0), Math.max(1.0 / aspectRatio, 1.0), 1.0);
+      Math.max(aspectRatio, 1.0),
+      Math.max(1.0 / aspectRatio, 1.0),
+      1.0
+    );
   }
 }

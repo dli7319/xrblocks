@@ -1,6 +1,9 @@
 import {onDesktopUserAgent} from '../../utils/BrowserUtils';
 
-import {WebXRSessionEventType, WebXRSessionManager} from './WebXRSessionManager';
+import {
+  WebXRSessionEventType,
+  WebXRSessionManager,
+} from './WebXRSessionManager';
 
 const XRBUTTON_WRAPPER_ID = 'XRButtonWrapper';
 const XRBUTTON_CLASS = 'XRButton';
@@ -11,38 +14,39 @@ export class XRButton {
   public xrButtonElement = document.createElement('button');
 
   constructor(
-      private sessionManager: WebXRSessionManager,
-      private startText = 'ENTER XR',
-      private endText = 'END XR',
-      private invalidText = 'XR NOT SUPPORTED',
-      private startSimulatorText = 'START SIMULATOR',
-      enableSimulator = false,
-      showSimulatorButtonOnMobile = false,
-      public startSimulator = () => {},
+    private sessionManager: WebXRSessionManager,
+    private startText = 'ENTER XR',
+    private endText = 'END XR',
+    private invalidText = 'XR NOT SUPPORTED',
+    private startSimulatorText = 'START SIMULATOR',
+    enableSimulator = false,
+    showSimulatorButtonOnMobile = false,
+    public startSimulator = () => {}
   ) {
     this.domElement.id = XRBUTTON_WRAPPER_ID;
     this.createXRButtonElement();
 
-    if (enableSimulator &&
-        (onDesktopUserAgent() || showSimulatorButtonOnMobile)) {
+    if (
+      enableSimulator &&
+      (onDesktopUserAgent() || showSimulatorButtonOnMobile)
+    ) {
       this.createSimulatorButton();
     }
 
     this.sessionManager.addEventListener(
-        WebXRSessionEventType.UNSUPPORTED,
-        this.showXRNotSupported.bind(this),
+      WebXRSessionEventType.UNSUPPORTED,
+      this.showXRNotSupported.bind(this)
+    );
+    this.sessionManager.addEventListener(WebXRSessionEventType.READY, () =>
+      this.onSessionReady()
     );
     this.sessionManager.addEventListener(
-        WebXRSessionEventType.READY,
-        () => this.onSessionReady(),
+      WebXRSessionEventType.SESSION_START,
+      () => this.onSessionStarted()
     );
     this.sessionManager.addEventListener(
-        WebXRSessionEventType.SESSION_START,
-        () => this.onSessionStarted(),
-    );
-    this.sessionManager.addEventListener(
-        WebXRSessionEventType.SESSION_END,
-        this.onSessionEnded.bind(this),
+      WebXRSessionEventType.SESSION_END,
+      this.onSessionEnded.bind(this)
     );
   }
 

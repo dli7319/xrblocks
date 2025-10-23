@@ -116,5 +116,5 @@ void main() {
     saturate((depth - uMinDepth) / (uMaxDepth - uMinDepth));
   gl_FragColor = uOpacity * vec4(TurboColormap(normalized_depth), 1.0);
 }
-`
+`,
 };

@@ -14,7 +14,7 @@ const DEFAULT_DEPTH_WIDTH = 160;
 const DEFAULT_DEPTH_HEIGHT = DEFAULT_DEPTH_WIDTH;
 const clipSpacePosition = new THREE.Vector3();
 
-export type DepthArray = Float32Array|Uint16Array;
+export type DepthArray = Float32Array | Uint16Array;
 
 export class Depth {
   static instance?: Depth;
@@ -24,7 +24,7 @@ export class Depth {
   private renderer!: THREE.WebGLRenderer;
   private scene!: THREE.Scene;
   private projectionMatrixInverse = new THREE.Matrix4();
-  private xrRefSpace?: XRReferenceSpace|XRBoundedReferenceSpace;
+  private xrRefSpace?: XRReferenceSpace | XRBoundedReferenceSpace;
 
   view: XRView[] = [];
   cpuDepthData: XRCPUDepthInformation[] = [];
@@ -38,7 +38,6 @@ export class Depth {
   rawValueToMeters = 0.0010000000474974513;
   occludableShaders = new Set<Shader>();
   private occlusionPass?: OcclusionPass;
-
 
   // Whether we're counting the number of depth clients.
   private depthClientsInitialized = false;
@@ -59,8 +58,12 @@ export class Depth {
    * Initialize Depth manager.
    */
   init(
-      camera: THREE.PerspectiveCamera, options: DepthOptions,
-      renderer: THREE.WebGLRenderer, registry: Registry, scene: THREE.Scene) {
+    camera: THREE.PerspectiveCamera,
+    options: DepthOptions,
+    renderer: THREE.WebGLRenderer,
+    registry: Registry,
+    scene: THREE.Scene
+  ) {
     this.camera = camera;
     this.options = options;
     this.renderer = renderer;
@@ -72,8 +75,12 @@ export class Depth {
     }
 
     if (this.options.depthMesh.enabled) {
-      this.depthMesh =
-          new DepthMesh(options, this.width, this.height, this.depthTextures);
+      this.depthMesh = new DepthMesh(
+        options,
+        this.width,
+        this.height,
+        this.depthTextures
+      );
       registry.register(this.depthMesh);
       if (this.options.depthMesh.renderShadow) {
         this.renderer.shadowMap.enabled = true;
@@ -97,8 +104,9 @@ export class Depth {
   getDepth(u: number, v: number) {
     if (!this.depthArray[0]) return 0.0;
     const depthX = Math.round(clamp(u * this.width, 0, this.width - 1));
-    const depthY =
-        Math.round(clamp((1.0 - v) * this.height, 0, this.height - 1));
+    const depthY = Math.round(
+      clamp((1.0 - v) * this.height, 0, this.height - 1)
+    );
     const rawDepth = this.depthArray[0][depthY * this.width + depthX];
     return this.rawValueToMeters * rawDepth;
   }
@@ -109,11 +117,14 @@ export class Depth {
    * @param position - The world position to project.
    */
   getProjectedDepthViewPositionFromWorldPosition(
-      position: THREE.Vector3, target = new THREE.Vector3()) {
+    position: THREE.Vector3,
+    target = new THREE.Vector3()
+  ) {
     const camera = this.renderer.xr?.getCamera?.()?.cameras?.[0] || this.camera;
-    clipSpacePosition.copy(position)
-        .applyMatrix4(camera.matrixWorldInverse)
-        .applyMatrix4(camera.projectionMatrix);
+    clipSpacePosition
+      .copy(position)
+      .applyMatrix4(camera.matrixWorldInverse)
+      .applyMatrix4(camera.projectionMatrix);
     const u = 0.5 * (clipSpacePosition.x + 1.0);
     const v = 0.5 * (clipSpacePosition.y + 1.0);
     const depth = this.getDepth(u, v);
@@ -133,12 +144,16 @@ export class Depth {
     if (!this.depthArray[0]) return null;
 
     const depthX = Math.round(clamp(u * this.width, 0, this.width - 1));
-    const depthY =
-        Math.round(clamp((1.0 - v) * this.height, 0, this.height - 1));
+    const depthY = Math.round(
+      clamp((1.0 - v) * this.height, 0, this.height - 1)
+    );
     const rawDepth = this.depthArray[0][depthY * this.width + depthX];
     const depth = this.rawValueToMeters * rawDepth;
-    const vertexPosition =
-        new THREE.Vector3(2.0 * (u - 0.5), 2.0 * (v - 0.5), -1);
+    const vertexPosition = new THREE.Vector3(
+      2.0 * (u - 0.5),
+      2.0 * (v - 0.5),
+      -1
+    );
     vertexPosition.applyMatrix4(this.projectionMatrixInverse);
     vertexPosition.multiplyScalar(-depth / vertexPosition.z);
     return vertexPosition;
@@ -154,16 +169,18 @@ export class Depth {
 
     // Updates Depth Array.
     if (this.depthArray[view_id] == null) {
-      this.depthArray[view_id] = this.options.useFloat32 ?
-          new Float32Array(depthData.data) :
-          new Uint16Array(depthData.data);
+      this.depthArray[view_id] = this.options.useFloat32
+        ? new Float32Array(depthData.data)
+        : new Uint16Array(depthData.data);
       this.width = depthData.width;
       this.height = depthData.height;
     } else {
       // Copies the data from an ArrayBuffer to the existing TypedArray.
       this.depthArray[view_id].set(
-          this.options.useFloat32 ? new Float32Array(depthData.data) :
-                                    new Uint16Array(depthData.data));
+        this.options.useFloat32
+          ? new Float32Array(depthData.data)
+          : new Uint16Array(depthData.data)
+      );
     }
 
     // Updates Depth Texture.
@@ -187,21 +204,24 @@ export class Depth {
     // For now, assume that we need cpu depth only if depth mesh is enabled.
     // In the future, add a separate option.
     const needCpuDepth = this.options.depthMesh.enabled;
-    const cpuDepth = needCpuDepth && this.depthMesh ?
-        this.depthMesh.convertGPUToGPU(depthData) :
-        null;
+    const cpuDepth =
+      needCpuDepth && this.depthMesh
+        ? this.depthMesh.convertGPUToGPU(depthData)
+        : null;
     if (cpuDepth) {
       if (this.depthArray[view_id] == null) {
-        this.depthArray[view_id] = this.options.useFloat32 ?
-            new Float32Array(cpuDepth.data) :
-            new Uint16Array(cpuDepth.data);
+        this.depthArray[view_id] = this.options.useFloat32
+          ? new Float32Array(cpuDepth.data)
+          : new Uint16Array(cpuDepth.data);
         this.width = cpuDepth.width;
         this.height = cpuDepth.height;
       } else {
         // Copies the data from an ArrayBuffer to the existing TypedArray.
         this.depthArray[view_id].set(
-            this.options.useFloat32 ? new Float32Array(cpuDepth.data) :
-                                      new Uint16Array(cpuDepth.data));
+          this.options.useFloat32
+            ? new Float32Array(cpuDepth.data)
+            : new Uint16Array(cpuDepth.data)
+        );
       }
     }
 
@@ -300,16 +320,22 @@ export class Depth {
     const leftDepthTexture = this.getTexture(0);
     if (leftDepthTexture) {
       this.occlusionPass!.setDepthTexture(
-          leftDepthTexture, this.rawValueToMeters, 0,
-          (this.gpuDepthData[0] as unknown as {depthNear: number} | undefined)
-              ?.depthNear);
+        leftDepthTexture,
+        this.rawValueToMeters,
+        0,
+        (this.gpuDepthData[0] as unknown as {depthNear: number} | undefined)
+          ?.depthNear
+      );
     }
     const rightDepthTexture = this.getTexture(1);
     if (rightDepthTexture) {
       this.occlusionPass!.setDepthTexture(
-          rightDepthTexture, this.rawValueToMeters, 1,
-          (this.gpuDepthData[1] as unknown as {depthNear: number} | undefined)
-              ?.depthNear);
+        rightDepthTexture,
+        this.rawValueToMeters,
+        1,
+        (this.gpuDepthData[1] as unknown as {depthNear: number} | undefined)
+          ?.depthNear
+      );
     }
     const xrIsPresenting = this.renderer.xr.isPresenting;
     this.renderer.xr.isPresenting = false;
@@ -317,7 +343,9 @@ export class Depth {
     this.renderer.xr.isPresenting = xrIsPresenting;
     for (const shader of this.occludableShaders) {
       this.occlusionPass!.updateOcclusionMapUniforms(
-          shader.uniforms, this.renderer);
+        shader.uniforms,
+        this.renderer
+      );
     }
   }
 
@@ -325,8 +353,9 @@ export class Depth {
     const arrayBuffer = this.cpuDepthData[0].data;
     const uint8Array = new Uint8Array(arrayBuffer);
     // Convert Uint8Array to a string where each character represents a byte
-    const binaryString =
-        Array.from(uint8Array, byte => String.fromCharCode(byte)).join('');
+    const binaryString = Array.from(uint8Array, (byte) =>
+      String.fromCharCode(byte)
+    ).join('');
     // Convert binary string to base64
     const data_str = btoa(binaryString);
     console.log(data_str);
@@ -341,4 +370,4 @@ export class Depth {
     this.depthClientsInitialized = true;
     this.depthClients.delete(client);
   }
-};
+}

@@ -18,7 +18,7 @@ export class LightingOptions {
   /**
    * Adjust hardness of shadows according to relative brightness of main light.
    */
-  useDynamicSoftShadow = false;  // experimental
+  useDynamicSoftShadow = false; // experimental
 
   constructor(options?: DeepReadonly<DeepPartial<LightingOptions>>) {
     deepMerge(this, options);

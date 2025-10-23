@@ -12,7 +12,7 @@ export class DepthMeshOptions {
   patchHolesUpper = false;
   // Opacity of the debug material.
   opacity = 1.0;
-  useDualCollider = false
+  useDualCollider = false;
   // Use downsampled geometry for raycast and collisions
   useDownsampledGeometry = true;
   // Whether to always update the full resolution geometry.
@@ -39,66 +39,71 @@ export class DepthOptions {
   }
 }
 
-export const xrDepthMeshOptions = deepFreeze(new DepthOptions({
-  enabled: true,
-  depthMesh: {
+export const xrDepthMeshOptions = deepFreeze(
+  new DepthOptions({
     enabled: true,
-    updateVertexNormals: false,
-    showDebugTexture: false,
-    useDepthTexture: false,
-    renderShadow: false,
-    shadowOpacity: 0.25,
-    patchHoles: true,
-    // Use downsampled geometry for raycast and collisions
-    useDownsampledGeometry: true,
-    // Whether to always update the full resolution geometry.
-    updateFullResolutionGeometry: false,
-    colliderUpdateFps: 5,
-  }
-}));
+    depthMesh: {
+      enabled: true,
+      updateVertexNormals: false,
+      showDebugTexture: false,
+      useDepthTexture: false,
+      renderShadow: false,
+      shadowOpacity: 0.25,
+      patchHoles: true,
+      // Use downsampled geometry for raycast and collisions
+      useDownsampledGeometry: true,
+      // Whether to always update the full resolution geometry.
+      updateFullResolutionGeometry: false,
+      colliderUpdateFps: 5,
+    },
+  })
+);
 
+export const xrDepthMeshVisualizationOptions = deepFreeze(
+  new DepthOptions({
+    enabled: true,
+    depthMesh: {
+      enabled: true,
+      updateVertexNormals: true,
+      showDebugTexture: true,
+      useDepthTexture: true,
+      renderShadow: false,
+      shadowOpacity: 0.25,
+      patchHoles: true,
+      opacity: 0.1,
+      // Use downsampled geometry for raycast and collisions
+      useDownsampledGeometry: true,
+      // Whether to always update the full resolution geometry.
+      updateFullResolutionGeometry: true,
+      colliderUpdateFps: 5,
+    },
+    depthTexture: {
+      enabled: true,
+      constantKernel: true,
+      applyGaussianBlur: true,
+      applyKawaseBlur: true,
+    },
+  })
+);
 
-export const xrDepthMeshVisualizationOptions = deepFreeze(new DepthOptions({
-  enabled: true,
-  depthMesh: {
+export const xrDepthMeshPhysicsOptions = deepFreeze(
+  new DepthOptions({
     enabled: true,
-    updateVertexNormals: true,
-    showDebugTexture: true,
-    useDepthTexture: true,
-    renderShadow: false,
-    shadowOpacity: 0.25,
-    patchHoles: true,
-    opacity: 0.1,
-    // Use downsampled geometry for raycast and collisions
-    useDownsampledGeometry: true,
-    // Whether to always update the full resolution geometry.
-    updateFullResolutionGeometry: true,
-    colliderUpdateFps: 5,
-  },
-  depthTexture: {
-    enabled: true,
-    constantKernel: true,
-    applyGaussianBlur: true,
-    applyKawaseBlur: true,
-  },
-}));
-
-export const xrDepthMeshPhysicsOptions = deepFreeze(new DepthOptions({
-  enabled: true,
-  depthMesh: {
-    enabled: true,
-    updateVertexNormals: false,
-    showDebugTexture: false,
-    useDepthTexture: false,
-    renderShadow: true,
-    shadowOpacity: 0.25,
-    patchHoles: true,
-    patchHolesUpper: true,
-    useDualCollider: false,
-    // Use downsampled geometry for raycast and collisions
-    useDownsampledGeometry: true,
-    // Whether to always update the full resolution geometry.
-    updateFullResolutionGeometry: false,
-    colliderUpdateFps: 5,
-  },
-}));
+    depthMesh: {
+      enabled: true,
+      updateVertexNormals: false,
+      showDebugTexture: false,
+      useDepthTexture: false,
+      renderShadow: true,
+      shadowOpacity: 0.25,
+      patchHoles: true,
+      patchHolesUpper: true,
+      useDualCollider: false,
+      // Use downsampled geometry for raycast and collisions
+      useDownsampledGeometry: true,
+      // Whether to always update the full resolution geometry.
+      updateFullResolutionGeometry: false,
+      colliderUpdateFps: 5,
+    },
+  })
+);

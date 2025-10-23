@@ -12,7 +12,7 @@ import {OcclusionMapMeshMaterial} from './OcclusionMapMeshMaterial';
 enum KawaseBlurMode {
   COPY = 0,
   DOWN = 1,
-  UP = 2
+  UP = 2,
 }
 
 /**
@@ -36,16 +36,21 @@ export class OcclusionPass extends Pass {
   private kawaseBlurTargets: THREE.WebGLRenderTarget[];
   private occlusionUniforms: ShaderUniforms;
   private occlusionQuad: FullScreenQuad;
-  private depthNear: (number|undefined)[] = [];
+  private depthNear: (number | undefined)[] = [];
 
   constructor(
-      private scene: THREE.Scene, private camera: THREE.PerspectiveCamera,
-      useFloatDepth = true, public renderToScreen = false,
-      private occludableItemsLayer = OCCLUDABLE_ITEMS_LAYER) {
+    private scene: THREE.Scene,
+    private camera: THREE.PerspectiveCamera,
+    useFloatDepth = true,
+    public renderToScreen = false,
+    private occludableItemsLayer = OCCLUDABLE_ITEMS_LAYER
+  ) {
     super();
 
-    this.occlusionMeshMaterial =
-        new OcclusionMapMeshMaterial(camera, useFloatDepth);
+    this.occlusionMeshMaterial = new OcclusionMapMeshMaterial(
+      camera,
+      useFloatDepth
+    );
 
     this.occlusionMapUniforms = {
       uDepthTexture: {value: null},
@@ -61,44 +66,60 @@ export class OcclusionPass extends Pass {
       cameraFar: {value: camera.far},
       cameraNear: {value: camera.near},
     };
-    this.occlusionMapQuad = new FullScreenQuad(new THREE.ShaderMaterial({
-      name: 'OcclusionMapShader',
-      uniforms: this.occlusionMapUniforms,
-      vertexShader: OcclusionMapShader.vertexShader,
-      fragmentShader: OcclusionMapShader.fragmentShader,
-    }));
+    this.occlusionMapQuad = new FullScreenQuad(
+      new THREE.ShaderMaterial({
+        name: 'OcclusionMapShader',
+        uniforms: this.occlusionMapUniforms,
+        vertexShader: OcclusionMapShader.vertexShader,
+        fragmentShader: OcclusionMapShader.fragmentShader,
+      })
+    );
     this.occlusionMapTexture = new THREE.WebGLRenderTarget();
 
     this.kawaseBlurTargets = [
-      new THREE.WebGLRenderTarget(),  // 1/2 resolution
-      new THREE.WebGLRenderTarget(),  // 1/4 resolution
-      new THREE.WebGLRenderTarget(),  // 1/8 resolution
+      new THREE.WebGLRenderTarget(), // 1/2 resolution
+      new THREE.WebGLRenderTarget(), // 1/4 resolution
+      new THREE.WebGLRenderTarget(), // 1/8 resolution
     ];
     this.kawaseBlurQuads = [
       this.setupKawaseBlur(
-          KawaseBlurMode.DOWN, this.occlusionMapTexture.texture),
+        KawaseBlurMode.DOWN,
+        this.occlusionMapTexture.texture
+      ),
       this.setupKawaseBlur(
-          KawaseBlurMode.DOWN, this.kawaseBlurTargets[0].texture),
+        KawaseBlurMode.DOWN,
+        this.kawaseBlurTargets[0].texture
+      ),
       this.setupKawaseBlur(
-          KawaseBlurMode.DOWN, this.kawaseBlurTargets[1].texture),
+        KawaseBlurMode.DOWN,
+        this.kawaseBlurTargets[1].texture
+      ),
       this.setupKawaseBlur(
-          KawaseBlurMode.UP, this.kawaseBlurTargets[2].texture),
+        KawaseBlurMode.UP,
+        this.kawaseBlurTargets[2].texture
+      ),
       this.setupKawaseBlur(
-          KawaseBlurMode.UP, this.kawaseBlurTargets[1].texture),
+        KawaseBlurMode.UP,
+        this.kawaseBlurTargets[1].texture
+      ),
       this.setupKawaseBlur(
-          KawaseBlurMode.UP, this.kawaseBlurTargets[0].texture),
+        KawaseBlurMode.UP,
+        this.kawaseBlurTargets[0].texture
+      ),
     ];
 
     this.occlusionUniforms = {
       tDiffuse: {value: null},
       tOcclusionMap: {value: this.occlusionMapTexture.texture},
     };
-    this.occlusionQuad = new FullScreenQuad(new THREE.ShaderMaterial({
-      name: 'OcclusionShader',
-      uniforms: this.occlusionUniforms,
-      vertexShader: OcclusionShader.vertexShader,
-      fragmentShader: OcclusionShader.fragmentShader,
-    }));
+    this.occlusionQuad = new FullScreenQuad(
+      new THREE.ShaderMaterial({
+        name: 'OcclusionShader',
+        uniforms: this.occlusionUniforms,
+        vertexShader: OcclusionShader.vertexShader,
+        fragmentShader: OcclusionShader.fragmentShader,
+      })
+    );
 
     this.occludableItemsLayer = occludableItemsLayer;
   }
@@ -107,25 +128,28 @@ export class OcclusionPass extends Pass {
     const uniforms = {
       uBlurSize: {value: 7.0},
       uTexelSize: {value: new THREE.Vector2()},
-      tDiffuse: {value: inputTexture}
+      tDiffuse: {value: inputTexture},
     };
     const kawase1Material = new THREE.ShaderMaterial({
       name: 'Kawase',
       uniforms: uniforms,
       vertexShader: KawaseBlurShader.vertexShader,
       fragmentShader: KawaseBlurShader.fragmentShader,
-      defines: {MODE: mode}
+      defines: {MODE: mode},
     });
     return new FullScreenQuad(kawase1Material);
   }
 
   setDepthTexture(
-      depthTexture: THREE.Texture, rawValueToMeters: number, viewId: number,
-      depthNear?: number) {
+    depthTexture: THREE.Texture,
+    rawValueToMeters: number,
+    viewId: number,
+    depthNear?: number
+  ) {
     this.depthTextures[viewId] = depthTexture;
     this.occlusionMapUniforms.uRawValueToMeters.value = rawValueToMeters;
     this.occlusionMeshMaterial.uniforms.uRawValueToMeters.value =
-        rawValueToMeters;
+      rawValueToMeters;
     this.depthNear[viewId] = depthNear;
     depthTexture.needsUpdate = true;
   }
@@ -138,15 +162,22 @@ export class OcclusionPass extends Pass {
    * @param viewId - The view to render.
    */
   render(
-      renderer: THREE.WebGLRenderer, writeBuffer?: THREE.WebGLRenderTarget,
-      readBuffer?: THREE.WebGLRenderTarget, viewId = 0) {
+    renderer: THREE.WebGLRenderer,
+    writeBuffer?: THREE.WebGLRenderTarget,
+    readBuffer?: THREE.WebGLRenderTarget,
+    viewId = 0
+  ) {
     const originalRenderTarget = renderer.getRenderTarget();
     const dimensions = new THREE.Vector2();
     if (readBuffer == null) {
       this.renderOcclusionMapFromScene(renderer, dimensions, viewId);
     } else {
       this.renderOcclusionMapFromReadBuffer(
-          renderer, readBuffer, dimensions, viewId);
+        renderer,
+        readBuffer,
+        dimensions,
+        viewId
+      );
     }
 
     // Blur the occlusion map
@@ -158,18 +189,21 @@ export class OcclusionPass extends Pass {
   }
 
   renderOcclusionMapFromScene(
-      renderer: THREE.WebGLRenderer, dimensions: THREE.Vector2,
-      viewId: number) {
+    renderer: THREE.WebGLRenderer,
+    dimensions: THREE.Vector2,
+    viewId: number
+  ) {
     // Compute our own read buffer.
     const texture = this.depthTextures[viewId];
     const isTextureArray = texture instanceof THREE.ExternalTexture;
-    this.occlusionMeshMaterial.uniforms.uIsTextureArray.value =
-        isTextureArray ? 1.0 : 0;
+    this.occlusionMeshMaterial.uniforms.uIsTextureArray.value = isTextureArray
+      ? 1.0
+      : 0;
     this.occlusionMeshMaterial.uniforms.uViewId.value = viewId;
     if (isTextureArray) {
       this.occlusionMeshMaterial.uniforms.uDepthTextureArray.value = texture;
       this.occlusionMeshMaterial.uniforms.uDepthNear.value =
-          this.depthNear[viewId];
+        this.depthNear[viewId];
     } else {
       this.occlusionMeshMaterial.uniforms.uDepthTexture.value = texture;
     }
@@ -179,34 +213,38 @@ export class OcclusionPass extends Pass {
     const renderTarget = this.occlusionMapTexture;
     renderer.setRenderTarget(renderTarget);
     const camera = renderer.xr.getCamera().cameras[viewId] || this.camera;
-    const originalCameraLayers =
-        Array.from(Array(32).keys())
-            .filter(element => camera.layers.isEnabled(element));
+    const originalCameraLayers = Array.from(Array(32).keys()).filter(
+      (element) => camera.layers.isEnabled(element)
+    );
     camera.layers.set(this.occludableItemsLayer);
     renderer.render(this.scene, camera);
     camera.layers.disableAll();
-    originalCameraLayers.forEach(element => {
+    originalCameraLayers.forEach((element) => {
       camera.layers.enable(element);
     });
     this.scene.overrideMaterial = null;
   }
 
   renderOcclusionMapFromReadBuffer(
-      renderer: THREE.WebGLRenderer, readBuffer: THREE.RenderTarget,
-      dimensions: THREE.Vector2, viewId: number) {
+    renderer: THREE.WebGLRenderer,
+    readBuffer: THREE.RenderTarget,
+    dimensions: THREE.Vector2,
+    viewId: number
+  ) {
     // Convert the readBuffer into an occlusion map.
     // Render depth into texture
     this.occlusionMapUniforms.tDiffuse.value = readBuffer.texture;
     this.occlusionMapUniforms.tDepth.value = readBuffer.depthTexture;
     const texture = this.depthTextures[viewId];
     const isTextureArray = texture instanceof THREE.ExternalTexture;
-    this.occlusionMeshMaterial.uniforms.uIsTextureArray.value =
-        isTextureArray ? 1.0 : 0;
+    this.occlusionMeshMaterial.uniforms.uIsTextureArray.value = isTextureArray
+      ? 1.0
+      : 0;
     this.occlusionMeshMaterial.uniforms.uViewId.value = viewId;
     if (isTextureArray) {
       this.occlusionMeshMaterial.uniforms.uDepthTextureArray.value = texture;
       this.occlusionMeshMaterial.uniforms.uDepthNear.value =
-          this.depthNear[viewId];
+        this.depthNear[viewId];
     } else {
       this.occlusionMeshMaterial.uniforms.uDepthTexture.value = texture;
     }
@@ -220,17 +258,24 @@ export class OcclusionPass extends Pass {
   blurOcclusionMap(renderer: THREE.WebGLRenderer, dimensions: THREE.Vector2) {
     for (let i = 0; i < 3; i++) {
       this.kawaseBlurTargets[i].setSize(
-          dimensions.x / (2 ** i), dimensions.y / (2 ** i));
+        dimensions.x / 2 ** i,
+        dimensions.y / 2 ** i
+      );
     }
     for (let i = 0; i < 3; i++) {
-      (this.kawaseBlurQuads[i].material as THREE.ShaderMaterial)
-          .uniforms.uTexelSize.value.set(
-              1 / (dimensions.x / (2 ** i)), 1 / (dimensions.y / (2 ** i)));
-      (this.kawaseBlurQuads[this.kawaseBlurQuads.length - 1 - i].material as
-       THREE.ShaderMaterial)
-          .uniforms.uTexelSize.value.set(
-              1 / (dimensions.x / (2 ** (i - 1))),
-              1 / (dimensions.y / (2 ** (i - 1))));
+      (
+        this.kawaseBlurQuads[i].material as THREE.ShaderMaterial
+      ).uniforms.uTexelSize.value.set(
+        1 / (dimensions.x / 2 ** i),
+        1 / (dimensions.y / 2 ** i)
+      );
+      (
+        this.kawaseBlurQuads[this.kawaseBlurQuads.length - 1 - i]
+          .material as THREE.ShaderMaterial
+      ).uniforms.uTexelSize.value.set(
+        1 / (dimensions.x / 2 ** (i - 1)),
+        1 / (dimensions.y / 2 ** (i - 1))
+      );
     }
     renderer.setRenderTarget(this.kawaseBlurTargets[0]);
     this.kawaseBlurQuads[0].render(renderer);
@@ -247,12 +292,15 @@ export class OcclusionPass extends Pass {
   }
 
   applyOcclusionMapToRenderedImage(
-      renderer: THREE.WebGLRenderer, readBuffer?: THREE.WebGLRenderTarget,
-      writeBuffer?: THREE.WebGLRenderTarget) {
+    renderer: THREE.WebGLRenderer,
+    readBuffer?: THREE.WebGLRenderTarget,
+    writeBuffer?: THREE.WebGLRenderTarget
+  ) {
     if (readBuffer && (this.renderToScreen || writeBuffer)) {
       this.occlusionUniforms.tDiffuse.value = readBuffer.texture;
       renderer.setRenderTarget(
-          writeBuffer && !this.renderToScreen ? writeBuffer : null);
+        writeBuffer && !this.renderToScreen ? writeBuffer : null
+      );
       this.occlusionQuad.render(renderer);
     }
   }
@@ -266,10 +314,13 @@ export class OcclusionPass extends Pass {
   }
 
   updateOcclusionMapUniforms(
-      uniforms: ShaderUniforms, renderer: THREE.WebGLRenderer) {
+    uniforms: ShaderUniforms,
+    renderer: THREE.WebGLRenderer
+  ) {
     const camera = renderer.xr.getCamera().cameras[0] || this.camera;
     uniforms.tOcclusionMap.value = this.occlusionMapTexture.texture;
-    uniforms.uOcclusionClipFromWorld.value.copy(camera.projectionMatrix)
-        .multiply(camera.matrixWorldInverse);
+    uniforms.uOcclusionClipFromWorld.value
+      .copy(camera.projectionMatrix)
+      .multiply(camera.matrixWorldInverse);
   }
 }

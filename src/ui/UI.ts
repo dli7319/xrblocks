@@ -28,16 +28,26 @@ import {SpatialPanel, SpatialPanelOptions} from './layouts/SpatialPanel';
 Grid.init(Row, Col, Panel, Orbiter);
 
 export type UIJsonNodeOptions =
-    |PanelOptions|TextViewOptions|IconViewOptions|ImageViewOptions|
-    LabelViewOptions|TextButtonOptions|VideoViewOptions|ColOptions|GridOptions|
-    RowOptions|OrbiterOptions|SpatialPanelOptions|IconButtonOptions;
+  | PanelOptions
+  | TextViewOptions
+  | IconViewOptions
+  | ImageViewOptions
+  | LabelViewOptions
+  | TextButtonOptions
+  | VideoViewOptions
+  | ColOptions
+  | GridOptions
+  | RowOptions
+  | OrbiterOptions
+  | SpatialPanelOptions
+  | IconButtonOptions;
 
 export type UIJsonNode = {
-  type: string,
-  options?: UIJsonNodeOptions,
-  position?: {x: number, y: number, z: number},
-  rotation?: {x: number, y: number, z: number},
-  children?: Array<UIJsonNode>
+  type: string;
+  options?: UIJsonNodeOptions;
+  position?: {x: number; y: number; z: number};
+  rotation?: {x: number; y: number; z: number};
+  children?: Array<UIJsonNode>;
 };
 
 /**
@@ -61,7 +71,9 @@ export class UI extends Script {
    * @param componentClass - The class constructor of the UI component.
    */
   static registerComponent(
-      typeName: string, componentClass: Constructor<View>) {
+    typeName: string,
+    componentClass: Constructor<View>
+  ) {
     if (UI.ComponentRegistry.has(typeName)) {
       console.warn(`UI: Component type "${typeName}" is being overwritten.`);
     }
@@ -75,7 +87,7 @@ export class UI extends Script {
    * @param json - The JSON object defining the UI structure.
    * @returns The root view of the composed UI, or null if composition fails.
    */
-  compose(json: UIJsonNode): View|null {
+  compose(json: UIJsonNode): View | null {
     const rootComponent = this._composeNode(json);
     if (rootComponent) {
       this.add(rootComponent);
@@ -93,19 +105,20 @@ export class UI extends Script {
    * @param nodeJson - The JSON node for a single UI element.
    * @returns The composed UI object for this node, or null on error.
    */
-  private _composeNode(nodeJson: UIJsonNode): View|null {
+  private _composeNode(nodeJson: UIJsonNode): View | null {
     const {
       type,
       options = {},
       position = {x: 0, y: 0, z: 0},
       rotation = {x: 0, y: 0, z: 0},
-      children = []
+      children = [],
     } = nodeJson;
     const ComponentClass = UI.ComponentRegistry.get(type);
 
     if (!ComponentClass) {
-      console.error(`UI Error: Unknown component type "${
-          type}". Make sure it's registered.`);
+      console.error(
+        `UI Error: Unknown component type "${type}". Make sure it's registered.`
+      );
       return null;
     }
 

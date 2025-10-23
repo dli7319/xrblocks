@@ -1,18 +1,23 @@
 import {SimulatorCamera} from '../simulator/SimulatorCamera';
 import {SimulatorMediaDeviceInfo} from '../simulator/SimulatorMediaDeviceInfo';
-import {StreamState, VideoStream, VideoStreamDetails} from '../video/VideoStream';
+import {
+  StreamState,
+  VideoStream,
+  VideoStreamDetails,
+} from '../video/VideoStream';
 
 import {DeviceCameraOptions} from './CameraOptions';
 
 export type MediaOrSimulatorMediaDeviceInfo =
-    MediaDeviceInfo|SimulatorMediaDeviceInfo;
+  | MediaDeviceInfo
+  | SimulatorMediaDeviceInfo;
 
-type XRDeviceCameraDetails = VideoStreamDetails&{
+type XRDeviceCameraDetails = VideoStreamDetails & {
   width?: number;
   height?: number;
   aspectRatio?: number;
   device?: MediaOrSimulatorMediaDeviceInfo;
-}
+};
 
 /**
  * Handles video capture from a device camera, manages the device list,
@@ -31,7 +36,7 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
    */
   constructor({
     videoConstraints = {facingMode: 'environment'},
-    willCaptureFrequently = false
+    willCaptureFrequently = false,
   }: Partial<DeviceCameraOptions> = {}) {
     super({willCaptureFrequently});
     this.videoConstraints_ = {...videoConstraints};
@@ -45,16 +50,18 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
   async getAvailableVideoDevices() {
     if (!navigator.mediaDevices?.enumerateDevices) {
       console.warn(
-          'navigator.mediaDevices.enumerateDevices() is not supported.');
+        'navigator.mediaDevices.enumerateDevices() is not supported.'
+      );
       return [];
     }
-    const devices: MediaOrSimulatorMediaDeviceInfo[] =
-        [...await navigator.mediaDevices.enumerateDevices()];
+    const devices: MediaOrSimulatorMediaDeviceInfo[] = [
+      ...(await navigator.mediaDevices.enumerateDevices()),
+    ];
     if (this.simulatorCamera) {
       const simulatorDevices = await this.simulatorCamera.enumerateDevices();
       devices.push(...simulatorDevices);
     }
-    return devices.filter(device => device.kind === 'videoinput');
+    return devices.filter((device) => device.kind === 'videoinput');
   }
 
   /**
@@ -93,20 +100,25 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
     this.currentDeviceIndex_ = -1;
     try {
       console.debug(
-          'Requesting media stream with constraints:', this.videoConstraints_);
+        'Requesting media stream with constraints:',
+        this.videoConstraints_
+      );
       let stream = null;
 
       const deviceIdConstraint = this.videoConstraints_.deviceId;
-      const targetDeviceId = typeof deviceIdConstraint === 'string' ?
-          deviceIdConstraint :
-          Array.isArray(deviceIdConstraint) ? deviceIdConstraint[0] :
-                                              deviceIdConstraint?.exact;
+      const targetDeviceId =
+        typeof deviceIdConstraint === 'string'
+          ? deviceIdConstraint
+          : Array.isArray(deviceIdConstraint)
+            ? deviceIdConstraint[0]
+            : deviceIdConstraint?.exact;
 
-      const useSimulatorCamera = !!this.simulatorCamera &&
-          ((targetDeviceId &&
-            this.availableDevices_.find(d => d.deviceId === targetDeviceId)
-                    ?.groupId === 'simulator') ||
-           (!targetDeviceId &&
+      const useSimulatorCamera =
+        !!this.simulatorCamera &&
+        ((targetDeviceId &&
+          this.availableDevices_.find((d) => d.deviceId === targetDeviceId)
+            ?.groupId === 'simulator') ||
+          (!targetDeviceId &&
             this.videoConstraints_.facingMode === 'environment'));
 
       if (useSimulatorCamera) {
@@ -116,8 +128,9 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
         }
       } else {
         // Otherwise, request the stream from the browser.
-        stream = await navigator.mediaDevices.getUserMedia(
-            {video: this.videoConstraints_});
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: this.videoConstraints_,
+        });
       }
 
       const videoTracks = stream?.getVideoTracks() || [];
@@ -133,15 +146,16 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
 
       if (this.currentTrackSettings_.deviceId) {
         this.currentDeviceIndex_ = this.availableDevices_.findIndex(
-            device => device.deviceId === this.currentTrackSettings_!.deviceId);
+          (device) => device.deviceId === this.currentTrackSettings_!.deviceId
+        );
       } else {
         console.warn('Stream started without deviceId as it was unavailable');
       }
 
-      this.stop_();  // Stop any previous stream before starting new one
+      this.stop_(); // Stop any previous stream before starting new one
       this.stream_ = stream;
       this.video_.srcObject = stream;
-      this.video_.src = '';  // Required for some browsers to reset the src
+      this.video_.src = ''; // Required for some browsers to reset the src
 
       await new Promise<void>((resolve, reject) => {
         this.video_.onloadedmetadata = () => {
@@ -180,7 +194,8 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
    */
   async setDeviceId(deviceId: string) {
     const newIndex = this.availableDevices_.findIndex(
-        device => device.deviceId === deviceId);
+      (device) => device.deviceId === deviceId
+    );
     if (newIndex === -1) {
       throw new Error(`Device with ID ${deviceId} not found.`);
     }

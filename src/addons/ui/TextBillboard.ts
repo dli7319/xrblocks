@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {Font, FontLoader} from 'three/addons/loaders/FontLoader.js';
 
 const DEFAULT_FONT_PATH =
-    'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r180/examples/fonts/droid/droid_sans_regular.typeface.json';
+  'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r180/examples/fonts/droid/droid_sans_regular.typeface.json';
 const vector3 = new THREE.Vector3();
 
 export class TextBillboard extends THREE.Object3D {
@@ -17,10 +17,13 @@ export class TextBillboard extends THREE.Object3D {
    * @param font - Font to use. If not provided, a default font will be loaded.
    */
   constructor(
-      private text = '', material?: THREE.Material, private font?: Font) {
+    private text = '',
+    material?: THREE.Material,
+    private font?: Font
+  ) {
     super();
     this.textMaterial =
-        material ?? new THREE.MeshBasicMaterial({color: 0xFFFFFF});
+      material ?? new THREE.MeshBasicMaterial({color: 0xffffff});
     if (!font) {
       new FontLoader().load(DEFAULT_FONT_PATH, (font) => {
         this.font = font;

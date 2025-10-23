@@ -33,8 +33,11 @@ export class Agent {
   isSessionActive = false;
 
   constructor(
-      ai: AI, tools: Tool[] = [], instruction: string = '',
-      callbacks?: AgentLifecycleCallbacks) {
+    ai: AI,
+    tools: Tool[] = [],
+    instruction: string = '',
+    callbacks?: AgentLifecycleCallbacks
+  ) {
     this.ai = ai;
     this.tools = tools;
     this.memory = new Memory();
@@ -66,9 +69,9 @@ export class Agent {
     while (true) {
       const context = this.contextBuilder.build(this.memory, this.tools);
 
-      const response: GeminiResponse|null =
-          await (this.ai.model as Gemini)
-              .query({type: 'text', text: context}, this.tools);
+      const response: GeminiResponse | null = await (
+        this.ai.model as Gemini
+      ).query({type: 'text', text: context}, this.tools);
 
       this.memory.addShortTerm({role: 'ai', content: JSON.stringify(response)});
 
@@ -78,8 +81,10 @@ export class Agent {
 
         if (tool) {
           const result = await tool.execute(response.toolCall.args);
-          this.memory.addShortTerm(
-              {role: 'tool', content: JSON.stringify(result)});
+          this.memory.addShortTerm({
+            role: 'tool',
+            content: JSON.stringify(result),
+          });
         } else {
           const errorMsg = `Error: Tool "${response.toolCall.name}" not found.`;
           console.error(errorMsg);
@@ -96,8 +101,8 @@ export class Agent {
     }
   }
 
-  findTool(name: string): Tool|undefined {
-    return this.tools.find(tool => tool.name === name);
+  findTool(name: string): Tool | undefined {
+    return this.tools.find((tool) => tool.name === name);
   }
 
   /**

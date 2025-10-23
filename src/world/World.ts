@@ -66,8 +66,13 @@ export class World extends Script {
    * Initializes the world-sensing modules based on the provided configuration.
    * This method is called automatically by the XRCore.
    */
-  override async init({options, camera}:
-                          {options: WorldOptions, camera: THREE.Camera}) {
+  override async init({
+    options,
+    camera,
+  }: {
+    options: WorldOptions;
+    camera: THREE.Camera;
+  }) {
     this.options = options;
     this.camera = camera;
 
@@ -85,7 +90,6 @@ export class World extends Script {
       this.objects = new ObjectDetector();
       this.add(this.objects);
     }
-
 
     // TODO: Initialize other modules as they are available & implemented.
     /*
@@ -156,7 +160,7 @@ export class World extends Script {
 
     const allPlanes = this.planes.get();
     if (allPlanes.length === 0) {
-      return false;  // No surfaces to cast against.
+      return false; // No surfaces to cast against.
     }
 
     this.raycaster.setFromXRController(controller as THREE.XRTargetRaySpace);
@@ -166,7 +170,10 @@ export class World extends Script {
     if (intersections.length > 0) {
       const intersection = intersections[0];
       placeObjectAtIntersectionFacingTarget(
-          objectToPlace, intersection, this.camera);
+        objectToPlace,
+        intersection,
+        this.camera
+      );
       return true;
     }
 

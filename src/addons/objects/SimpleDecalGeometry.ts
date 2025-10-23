@@ -13,8 +13,11 @@ export class SimpleDecalGeometry extends THREE.BufferGeometry {
    * @param scale - The scale of the decal.
    */
   constructor(
-      mesh: THREE.Mesh, position: THREE.Vector3, orientation: THREE.Quaternion,
-      scale: THREE.Vector3) {
+    mesh: THREE.Mesh,
+    position: THREE.Vector3,
+    orientation: THREE.Quaternion,
+    scale: THREE.Vector3
+  ) {
     super();
 
     // Copies the geometry from the mesh and applies the world matrix of the
@@ -28,8 +31,7 @@ export class SimpleDecalGeometry extends THREE.BufferGeometry {
     projectorMatrix.makeRotationFromQuaternion(orientation);
     projectorMatrix.setPosition(position);
     projectorMatrix.scale(scale);
-    projectorMatrix
-        .invert();  // Inverts the matrix for projection calculations.
+    projectorMatrix.invert(); // Inverts the matrix for projection calculations.
 
     // Accesses the vertices, UVs, and indices from the geometry attributes.
     const vertices = this.attributes.position.array;
@@ -46,7 +48,11 @@ export class SimpleDecalGeometry extends THREE.BufferGeometry {
       // Sets the vector with the current vertex position and applies the
       // projector matrix.
       vector4.set(
-          vertices[3 * i], vertices[3 * i + 1], vertices[3 * i + 2], 1.0);
+        vertices[3 * i],
+        vertices[3 * i + 1],
+        vertices[3 * i + 2],
+        1.0
+      );
       vector4.applyMatrix4(projectorMatrix);
 
       // Performs perspective divide by w component.
@@ -58,8 +64,13 @@ export class SimpleDecalGeometry extends THREE.BufferGeometry {
 
       // Checks if the vertex is within the -0.5 to 0.5 range in all dimensions.
       vertexBounded[i] = Number(
-          vector4.x >= -0.5 && vector4.x <= 0.5 && vector4.y >= -0.5 &&
-          vector4.y <= 0.5 && vector4.z >= -0.5 && vector4.z <= 0.5);
+        vector4.x >= -0.5 &&
+          vector4.x <= 0.5 &&
+          vector4.y >= -0.5 &&
+          vector4.y <= 0.5 &&
+          vector4.z >= -0.5 &&
+          vector4.z <= 0.5
+      );
     }
 
     // Creates a list of indices that correspond to bounded vertices only.
@@ -67,8 +78,11 @@ export class SimpleDecalGeometry extends THREE.BufferGeometry {
     for (let i = 0; i < indices.length / 3; ++i) {
       // Adds the triangle indices if any of its vertices are inside the
       // bounding box.
-      if (vertexBounded[indices[3 * i]] || vertexBounded[indices[3 * i + 1]] ||
-          vertexBounded[indices[3 * i + 2]]) {
+      if (
+        vertexBounded[indices[3 * i]] ||
+        vertexBounded[indices[3 * i + 1]] ||
+        vertexBounded[indices[3 * i + 2]]
+      ) {
         goodIndices.push(indices[3 * i]);
         goodIndices.push(indices[3 * i + 1]);
         goodIndices.push(indices[3 * i + 2]);

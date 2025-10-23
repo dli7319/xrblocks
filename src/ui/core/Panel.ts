@@ -23,7 +23,7 @@ const DEFAULT_WIDTH_M = DEFAULT_WIDTH_DP * DP_TO_DMM * 0.001;
 // Default panel height in meters, calculated from DP for root panels.
 const DEFAULT_HEIGHT_M = DEFAULT_HEIGHT_DP * DP_TO_DMM * 0.001;
 
-export type PanelFadeState = 'idle'|'fading-in'|'fading-out';
+export type PanelFadeState = 'idle' | 'fading-in' | 'fading-out';
 
 /**
  * A fundamental UI container that displays content on a 2D quad in
@@ -122,7 +122,7 @@ export class Panel extends View implements Draggable, Partial<HasDraggingMode> {
 
     const isDraggable = options.draggable ?? this.draggable;
 
-    const useBorderlessShader = options.useBorderlessShader ?? (!isDraggable);
+    const useBorderlessShader = options.useBorderlessShader ?? !isDraggable;
     // Draggable panels have a larger geometry for interaction padding.
     const panelScale = useBorderlessShader ? 1.0 : 1.3;
     // Use SpatialPanelShader for SpatialPanel, while developers can choose
@@ -134,18 +134,19 @@ export class Panel extends View implements Draggable, Partial<HasDraggingMode> {
     // Applies user-provided options or default options.
     this.backgroundColor = options.backgroundColor ?? this.backgroundColor;
     this.draggable = isDraggable;
-    this.draggingMode = options.draggingMode ?? this.draggable ?
-        DragMode.TRANSLATING :
-        DragMode.DO_NOT_DRAG;
+    this.draggingMode =
+      (options.draggingMode ?? this.draggable)
+        ? DragMode.TRANSLATING
+        : DragMode.DO_NOT_DRAG;
     this.touchable = options.touchable ?? this.touchable;
     this.isRoot = options.isRoot ?? true;
     this.width = options.width ?? (this.isRoot ? DEFAULT_WIDTH_M : 1);
     this.height = options.height ?? (this.isRoot ? DEFAULT_HEIGHT_M : 1);
     this.showHighlights = options.showHighlights ?? this.showHighlights;
     this.useDefaultPosition =
-        options.useDefaultPosition ?? this.useDefaultPosition;
+      options.useDefaultPosition ?? this.useDefaultPosition;
     this.useBorderlessShader =
-        options.useBorderlessShader ?? this.useBorderlessShader;
+      options.useBorderlessShader ?? this.useBorderlessShader;
 
     this.mesh = new PanelMesh(shader, this.backgroundColor, panelScale);
     this.add(this.mesh);
@@ -156,25 +157,33 @@ export class Panel extends View implements Draggable, Partial<HasDraggingMode> {
   /**
    * Initializes the panel, setting its default position if applicable.
    */
-  init({user, timer}: {user: User; timer: THREE.Timer;}) {
+  init({user, timer}: {user: User; timer: THREE.Timer}) {
     super.init();
     this.selectable = true;
     this.timer = timer;
 
     // A manual position set in .position.set() will override the
     // default position to create the SpatialPanel.
-    if (this.position.x !== 0 || this.position.y !== 0 ||
-        this.position.z !== 0) {
+    if (
+      this.position.x !== 0 ||
+      this.position.y !== 0 ||
+      this.position.z !== 0
+    ) {
       this.useDefaultPosition = false;
     }
 
     if (this.isRoot && this.useDefaultPosition) {
       this.position.set(
-          this.x, user.height + this.y, -user.panelDistance + this.z);
+        this.x,
+        user.height + this.y,
+        -user.panelDistance + this.z
+      );
     } else {
       this.position.set(
-          this.position.x + this.x, this.position.y + this.y,
-          this.position.z + this.z);
+        this.position.x + this.x,
+        this.position.y + this.y,
+        this.position.z + this.z
+      );
     }
   }
 
@@ -204,7 +213,10 @@ export class Panel extends View implements Draggable, Partial<HasDraggingMode> {
    * Initiates a fade animation.
    */
   private _startFade(
-      targetOpacity: number, duration?: number, onComplete?: () => void) {
+    targetOpacity: number,
+    duration?: number,
+    onComplete?: () => void
+  ) {
     this._fadeDuration = duration ?? 0.2;
     this.onFadeComplete = onComplete;
     this._fadeTimer = 0;
@@ -224,9 +236,10 @@ export class Panel extends View implements Draggable, Partial<HasDraggingMode> {
   private _prepareMaterialsForFade() {
     this.traverse((child) => {
       if (child instanceof THREE.Mesh && child.material) {
-        const materials: THREE.Material[] =
-            Array.isArray(child.material) ? child.material : [child.material];
-        materials.forEach(material => {
+        const materials: THREE.Material[] = Array.isArray(child.material)
+          ? child.material
+          : [child.material];
+        materials.forEach((material) => {
           material.transparent = true;
         });
       }
@@ -240,9 +253,10 @@ export class Panel extends View implements Draggable, Partial<HasDraggingMode> {
     this.traverse((child) => {
       if (child instanceof View) child.opacity = opacityValue;
       if (child instanceof THREE.Mesh && child.material) {
-        const materials: THREE.Material[] =
-            Array.isArray(child.material) ? child.material : [child.material];
-        materials.forEach(material => {
+        const materials: THREE.Material[] = Array.isArray(child.material)
+          ? child.material
+          : [child.material];
+        materials.forEach((material) => {
           if (material instanceof THREE.ShaderMaterial) {
             material.uniforms.uOpacity.value = opacityValue;
           } else {
@@ -260,10 +274,8 @@ export class Panel extends View implements Draggable, Partial<HasDraggingMode> {
     this._currentOpacity = this._targetOpacity;
     this._applyOpacity(this._currentOpacity);
     this._fadeState = 'idle';
-    if (this._currentOpacity === 0)
-      this.hide();
-    else
-      this.show();
+    if (this._currentOpacity === 0) this.hide();
+    else this.show();
     this.onFadeComplete?.();
   }
 
@@ -275,7 +287,10 @@ export class Panel extends View implements Draggable, Partial<HasDraggingMode> {
       this._fadeTimer += this.timer.getDelta();
       const progress = Math.min(this._fadeTimer / this._fadeDuration, 1.0);
       this._currentOpacity = THREE.MathUtils.lerp(
-          this._startOpacity, this._targetOpacity, progress);
+        this._startOpacity,
+        this._targetOpacity,
+        progress
+      );
       this._applyOpacity(this._currentOpacity);
       if (progress >= 1.0) {
         this._completeFade();
@@ -300,10 +315,11 @@ export class Panel extends View implements Draggable, Partial<HasDraggingMode> {
     super.updateLayout();
     this.mesh.setAspectRatio(this.aspectRatio);
     const parentAspectRatio =
-        this.isRoot || !this.parent ? 1.0 : (this.parent as View).aspectRatio;
+      this.isRoot || !this.parent ? 1.0 : (this.parent as View).aspectRatio;
     this.mesh.setWidthHeight(
-        this.width * Math.max(parentAspectRatio, 1.0),
-        this.height * Math.max(1.0 / parentAspectRatio, 1.0));
+      this.width * Math.max(parentAspectRatio, 1.0),
+      this.height * Math.max(1.0 / parentAspectRatio, 1.0)
+    );
   }
 
   /**

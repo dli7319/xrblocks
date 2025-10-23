@@ -18,9 +18,11 @@ export class SpeechSynthesizer extends Script {
   private options!: SpeechSynthesizerOptions;
 
   constructor(
-      private categoryVolumes: CategoryVolumes,
-      private onStartCallback = () => {}, private onEndCallback = () => {},
-      private onErrorCallback = (_: Error) => {}) {
+    private categoryVolumes: CategoryVolumes,
+    private onStartCallback = () => {},
+    private onEndCallback = () => {},
+    private onErrorCallback = (_: Error) => {}
+  ) {
     super();
 
     if (!this.synth) {
@@ -33,7 +35,8 @@ export class SpeechSynthesizer extends Script {
     }
     if (!this.categoryVolumes && this.synth) {
       console.warn(
-          'SpeechSynthesizer: CategoryVolumes not found. Volume control will use specificVolume only.');
+        'SpeechSynthesizer: CategoryVolumes not found. Volume control will use specificVolume only.'
+      );
     }
   }
 
@@ -50,14 +53,16 @@ export class SpeechSynthesizer extends Script {
     if (this.debug) {
       console.log('SpeechSynthesizer: Voices loaded:', this.voices.length);
     }
-    this.selectedVoice = this.voices.find(
-                             voice => voice.name.includes('Google') &&
-                                 voice.lang.startsWith('en')) ||
-        this.voices.find(voice => voice.lang.startsWith('en'));
+    this.selectedVoice =
+      this.voices.find(
+        (voice) => voice.name.includes('Google') && voice.lang.startsWith('en')
+      ) || this.voices.find((voice) => voice.lang.startsWith('en'));
     if (this.selectedVoice) {
       if (this.debug) {
         console.log(
-            'SpeechSynthesizer: Selected voice:', this.selectedVoice.name);
+          'SpeechSynthesizer: Selected voice:',
+          this.selectedVoice.name
+        );
       }
     } else {
       console.warn('SpeechSynthesizer: No suitable default voice found.');
@@ -67,7 +72,8 @@ export class SpeechSynthesizer extends Script {
   setVolume(level: number) {
     this.specificVolume = THREE.MathUtils.clamp(level, 0.0, 1.0);
     console.log(
-        `SpeechSynthesizer specific volume set to: ${this.specificVolume}`);
+      `SpeechSynthesizer specific volume set to: ${this.specificVolume}`
+    );
   }
 
   speak(text: string, lang = 'en-US', pitch = 1.0, rate = 1.0) {
@@ -80,11 +86,12 @@ export class SpeechSynthesizer extends Script {
       if (this.isSpeaking) {
         if (this.options.allowInterruptions) {
           console.warn(
-              'SpeechSynthesizer: Already speaking. Interrupting current speech.');
+            'SpeechSynthesizer: Already speaking. Interrupting current speech.'
+          );
           this.cancel();
         } else {
           const errorMsg =
-              'Already speaking and interruptions are not allowed.';
+            'Already speaking and interruptions are not allowed.';
           console.warn(`SpeechSynthesizer: ${errorMsg}`);
           return reject(new Error(errorMsg));
         }
@@ -106,10 +113,13 @@ export class SpeechSynthesizer extends Script {
       };
 
       utterance.onerror = (event) => {
-        if (this.options.allowInterruptions &&
-            (event.error === 'interrupted' || event.error === 'canceled')) {
-          console.warn(`SpeechSynthesizer: Speech utterance interrupted: ${
-              event.error}`);
+        if (
+          this.options.allowInterruptions &&
+          (event.error === 'interrupted' || event.error === 'canceled')
+        ) {
+          console.warn(
+            `SpeechSynthesizer: Speech utterance interrupted: ${event.error}`
+          );
           return;
         }
 
@@ -117,30 +127,39 @@ export class SpeechSynthesizer extends Script {
         console.error('SpeechSynthesizer: Error occurred:', event.error);
         this.isSpeaking = false;
         this.onErrorCallback(
-            new Error(`Speech synthesis error code ${event.error}`));
+          new Error(`Speech synthesis error code ${event.error}`)
+        );
         reject(event.error);
       };
 
       // Find a suitable voice if not already selected or if lang changed
       let voice = this.selectedVoice;
       if (!voice || !voice.lang.startsWith(lang.substring(0, 2))) {
-        voice = this.voices.find(
-                    v => v.lang === lang && v.name.includes('Google')) ||
-            this.voices.find(
-                v => v.lang.startsWith(lang.substring(0, 2)) &&
-                    v.name.includes('Google')) ||
-            this.voices.find(v => v.lang === lang) ||
-            this.voices.find(v => v.lang.startsWith(lang.substring(0, 2)));
+        voice =
+          this.voices.find(
+            (v) => v.lang === lang && v.name.includes('Google')
+          ) ||
+          this.voices.find(
+            (v) =>
+              v.lang.startsWith(lang.substring(0, 2)) &&
+              v.name.includes('Google')
+          ) ||
+          this.voices.find((v) => v.lang === lang) ||
+          this.voices.find((v) => v.lang.startsWith(lang.substring(0, 2)));
       }
 
       if (voice) {
         utterance.voice = voice;
         console.log(
-            `SpeechSynthesizer: Using voice: ${voice.name} for lang ${lang}`);
+          `SpeechSynthesizer: Using voice: ${voice.name} for lang ${lang}`
+        );
       } else {
         utterance.lang = lang;
-        console.warn(`SpeechSynthesizer: No specific voice found for lang ${
-            lang}. Using browser default.`);
+        console.warn(
+          `SpeechSynthesizer: No specific voice found for lang ${
+            lang
+          }. Using browser default.`
+        );
       }
 
       utterance.pitch = THREE.MathUtils.clamp(pitch, 0, 2);
@@ -149,13 +168,16 @@ export class SpeechSynthesizer extends Script {
       let effectiveVolume = this.specificVolume;
       if (this.categoryVolumes) {
         effectiveVolume = this.categoryVolumes.getEffectiveVolume(
-            this.speechCategory, this.specificVolume);
+          this.speechCategory,
+          this.specificVolume
+        );
       } else {
         effectiveVolume = THREE.MathUtils.clamp(this.specificVolume, 0.0, 1.0);
       }
       utterance.volume = effectiveVolume;
       console.log(
-          `SpeechSynthesizer: Setting utterance volume to ${effectiveVolume}`);
+        `SpeechSynthesizer: Setting utterance volume to ${effectiveVolume}`
+      );
 
       this.synth.speak(utterance);
     });

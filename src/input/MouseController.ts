@@ -19,8 +19,10 @@ interface MouseControllerEventMap extends THREE.Object3DEventMap {
  * non-immersive context. It functions as a virtual controller that is always
  * aligned with the user's pointer.
  */
-export class MouseController extends Script<MouseControllerEventMap> implements
-    Controller {
+export class MouseController
+  extends Script<MouseControllerEventMap>
+  implements Controller
+{
   static dependencies = {
     camera: THREE.Camera,
   };

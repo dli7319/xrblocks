@@ -9,12 +9,12 @@ import {SquircleShader} from '../shaders/SquircleShader';
  * An interactive button with a rounded rectangle background and a
  * text label. It provides visual feedback for hover and selection states.
  */
-export type TextButtonOptions = TextViewOptions&{
-  backgroundColor?: string,
-  opacity?: number,
-  maxWidth?: number,
-  radius?: number,
-  boxSize?: number,
+export type TextButtonOptions = TextViewOptions & {
+  backgroundColor?: string;
+  opacity?: number;
+  maxWidth?: number;
+  radius?: number;
+  boxSize?: number;
 };
 
 export class TextButton extends TextView {
@@ -23,19 +23,19 @@ export class TextButton extends TextView {
   /** The font size of the text label. */
   fontSize = 0.05;
   /** The color of the text in its default state. */
-  fontColor: string|number = 0xFFFFFF;
+  fontColor: string | number = 0xffffff;
   /** The opacity multiplier of the button. */
   opacity = 1.0;
   /** The intrinsic opacity of the button. */
   defaultOpacity = 1.0;
 
   /** The color of the text when the button is hovered. */
-  hoverColor: string|number = 0xaaaaaa;
+  hoverColor: string | number = 0xaaaaaa;
   /** The opacity multiplier of the text when the button is hovered. */
   hoverOpacity = 0.2;
 
   /** The color of the text when the button is pressed. */
-  selectedFontColor: string|number = 0x999999;
+  selectedFontColor: string | number = 0x999999;
   /** The opacity multiplier of the text when the button is pressed. */
   selectedOpacity = 0.4;
 
@@ -59,13 +59,14 @@ export class TextButton extends TextView {
    */
   constructor(options: TextButtonOptions = {}) {
     const geometry = new THREE.PlaneGeometry(1, 1);
-    const colorVec4 =
-        getVec4ByColorString(options.backgroundColor ?? '#00000000');
+    const colorVec4 = getVec4ByColorString(
+      options.backgroundColor ?? '#00000000'
+    );
 
     const {
       opacity = 0.0,
       radius = SquircleShader.uniforms.uRadius.value,
-      boxSize = SquircleShader.uniforms.uBoxSize.value
+      boxSize = SquircleShader.uniforms.uBoxSize.value,
     } = options;
 
     const uniforms = {
@@ -74,14 +75,14 @@ export class TextButton extends TextView {
       uOpacity: {value: opacity},
       uAspect: {value: 1.0},
       uRadius: {value: radius},
-      uBoxSize: {value: boxSize}
+      uBoxSize: {value: boxSize},
     };
 
     const material = new THREE.ShaderMaterial({
       ...SquircleShader,
       transparent: true,
       uniforms: uniforms,
-      depthWrite: false
+      depthWrite: false,
     });
 
     super(options, geometry, material);
@@ -111,7 +112,7 @@ export class TextButton extends TextView {
     // Disable raycasting on the text part so it doesn't interfere
     // with the main button geometry's interaction.
     this.textObj!.raycast = () => {};
-  };
+  }
 
   // TODO: Implement onHoverOver() and onHoverOut().
   update() {
@@ -133,4 +134,4 @@ export class TextButton extends TextView {
       this.uniforms.uOpacity.value = this.defaultOpacity * this.opacity;
     }
   }
-};
+}

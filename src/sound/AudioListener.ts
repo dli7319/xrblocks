@@ -27,13 +27,13 @@ export class AudioListener extends Script {
   private sourceNode?: MediaStreamAudioSourceNode;
   private processorNode?: AudioWorkletNode;
   private isCapturing = false;
-  private latestAudioBuffer: ArrayBuffer|null = null;
+  private latestAudioBuffer: ArrayBuffer | null = null;
   private accumulatedChunks: ArrayBuffer[] = [];
   private isAccumulating = false;
   private registry!: Registry;
   aiService?: AI;
-  private onAudioData?: ((audioBuffer: ArrayBuffer) => void);
-  private onError?: ((error: Error) => void);
+  private onAudioData?: (audioBuffer: ArrayBuffer) => void;
+  private onError?: (error: Error) => void;
 
   constructor(options: AudioListenerOptions = {}) {
     super();
@@ -43,31 +43,33 @@ export class AudioListener extends Script {
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
-      ...options
+      ...options,
     };
   }
 
   /**
    * Init the AudioListener.
    */
-  init({registry}: {registry: Registry;}) {
+  init({registry}: {registry: Registry}) {
     this.registry = registry;
   }
 
-  async startCapture(callbacks: {
-    onAudioData?: (audioBuffer: ArrayBuffer) => void;
-    onError?: (error: Error) => void;
-    accumulate?: boolean;
-  } = {}) {
+  async startCapture(
+    callbacks: {
+      onAudioData?: (audioBuffer: ArrayBuffer) => void;
+      onError?: (error: Error) => void;
+      accumulate?: boolean;
+    } = {}
+  ) {
     if (this.isCapturing) return;
     this.onAudioData = callbacks.onAudioData;
     this.onError = callbacks.onError;
     this.isAccumulating = callbacks.accumulate || false;
-    
+
     if (this.isAccumulating) {
       this.accumulatedChunks = [];
     }
-    
+
     try {
       await this.setupAudioCapture();
       this.isCapturing = true;
@@ -85,28 +87,34 @@ export class AudioListener extends Script {
   }
 
   async setupAudioCapture() {
-    this.audioStream =
-        await navigator.mediaDevices.getUserMedia({audio: true, video: false});
+    this.audioStream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: false,
+    });
 
-    const actualSampleRate =
-        this.audioStream.getAudioTracks()[0].getSettings().sampleRate;
+    const actualSampleRate = this.audioStream
+      .getAudioTracks()[0]
+      .getSettings().sampleRate;
     this.audioContext = new AudioContext({sampleRate: actualSampleRate});
     await this.setupAudioWorklet();
 
-    this.sourceNode =
-        this.audioContext.createMediaStreamSource(this.audioStream);
-    this.processorNode =
-        new AudioWorkletNode(this.audioContext, 'audio-capture-processor');
+    this.sourceNode = this.audioContext.createMediaStreamSource(
+      this.audioStream
+    );
+    this.processorNode = new AudioWorkletNode(
+      this.audioContext,
+      'audio-capture-processor'
+    );
 
     this.processorNode.port.onmessage = (event) => {
       if (event.data.type === 'audioData') {
         this.latestAudioBuffer = event.data.data;
-        
+
         // Accumulate chunks if requested
         if (this.isAccumulating) {
           this.accumulatedChunks.push(event.data.data);
         }
-        
+
         this.onAudioData?.(event.data.data);
         this.streamToAI(event.data.data);
       }
@@ -149,9 +157,12 @@ export class AudioListener extends Script {
     if (!this.aiService?.sendRealtimeInput) return;
     const base64Audio = arrayBufferToBase64(audioBuffer);
     const actualSampleRate =
-        this.audioContext?.sampleRate || this.options.sampleRate;
+      this.audioContext?.sampleRate || this.options.sampleRate;
     this.aiService.sendRealtimeInput({
-      audio: {data: base64Audio, mimeType: `audio/pcm;rate=${actualSampleRate}`}
+      audio: {
+        data: base64Audio,
+        mimeType: `audio/pcm;rate=${actualSampleRate}`,
+      },
     });
   }
 
@@ -165,7 +176,7 @@ export class AudioListener extends Script {
     if (this.audioContext && this.audioContext.state !== 'closed') {
       this.audioContext.close();
     }
-    this.audioStream?.getTracks().forEach(track => track.stop());
+    this.audioStream?.getTracks().forEach((track) => track.stop());
     this.processorNode = undefined;
     this.sourceNode = undefined;
     this.audioContext = undefined;
@@ -197,20 +208,22 @@ export class AudioListener extends Script {
   /**
    * Gets all accumulated audio chunks as a single combined buffer
    */
-  getAccumulatedBuffer(): ArrayBuffer|null {
+  getAccumulatedBuffer(): ArrayBuffer | null {
     if (this.accumulatedChunks.length === 0) return null;
-    
+
     const totalLength = this.accumulatedChunks.reduce(
-        (sum, chunk) => sum + chunk.byteLength, 0);
+      (sum, chunk) => sum + chunk.byteLength,
+      0
+    );
     const combined = new ArrayBuffer(totalLength);
     const combinedArray = new Uint8Array(combined);
-    
+
     let offset = 0;
     for (const chunk of this.accumulatedChunks) {
       combinedArray.set(new Uint8Array(chunk), offset);
       offset += chunk.byteLength;
     }
-    
+
     return combined;
   }
 

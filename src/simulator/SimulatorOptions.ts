@@ -18,15 +18,15 @@ export const NEXT_SIMULATOR_MODE = {
 };
 
 export interface SimulatorCustomInstruction {
-  header: string|TemplateResult;
+  header: string | TemplateResult;
   videoSrc?: string;
-  description: string|TemplateResult;
+  description: string | TemplateResult;
 }
 
 export class SimulatorOptions {
   initialCameraPosition = {x: 0, y: 1.5, z: 0};
-  scenePath = XR_BLOCKS_ASSETS_PATH +
-      'simulator/scenes/XREmulatorsceneV5_livingRoom.glb';
+  scenePath =
+    XR_BLOCKS_ASSETS_PATH + 'simulator/scenes/XREmulatorsceneV5_livingRoom.glb';
   initialScenePosition = {x: -1.6, y: 0.3, z: 0};
   defaultMode = SimulatorMode.USER;
   defaultHand = Handedness.LEFT;
@@ -52,9 +52,9 @@ export class SimulatorOptions {
   // This is a temporary option until we figure out why splats look faded.
   renderToRenderTexture = true;
   // Blending mode when rendering the virtual scene.
-  blendingMode: 'normal'|'screen' = 'normal';
+  blendingMode: 'normal' | 'screen' = 'normal';
 
   constructor(options?: DeepReadonly<DeepPartial<SimulatorOptions>>) {
     deepMerge(this, options);
   }
-};
+}

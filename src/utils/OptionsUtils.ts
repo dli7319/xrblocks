@@ -8,7 +8,7 @@ import type {DeepReadonly} from './Types';
  */
 export function deepFreeze<T extends object>(obj: T): DeepReadonly<T> {
   Object.freeze(obj);
-  Object.getOwnPropertyNames(obj).forEach(name => {
+  Object.getOwnPropertyNames(obj).forEach((name) => {
     // We use `any` here because `T` is a generic and we can't be sure
     // what properties it has without more complex type manipulation.
     // The function's signature provides the necessary type safety for
@@ -30,7 +30,9 @@ export function deepFreeze<T extends object>(obj: T): DeepReadonly<T> {
  * @param obj2 - The source object to merge from.
  */
 export function deepMerge<T extends object, U extends object>(
-    obj1: T, obj2?: U) {
+  obj1: T,
+  obj2?: U
+) {
   if (obj2 == null) {
     return obj1 as T & U;
   }
@@ -43,8 +45,12 @@ export function deepMerge<T extends object, U extends object>(
       const val1 = merged[key];
       const val2 = obj2[key];
 
-      if (val1 && typeof val1 === 'object' && val2 &&
-          typeof val2 === 'object') {
+      if (
+        val1 &&
+        typeof val1 === 'object' &&
+        val2 &&
+        typeof val2 === 'object'
+      ) {
         // If both values are objects, recurse
         deepMerge(val1, val2);
       } else {

@@ -19,16 +19,25 @@ export class SimulatorControlMode {
    * Create a SimulatorControlMode
    */
   constructor(
-      protected simulatorControllerState: SimulatorControllerState,
-      protected downKeys: Set<Keycodes>, protected hands: SimulatorHands,
-      protected setStereoRenderMode: (_: SimulatorRenderMode) => void,
-      protected toggleUserInterface: () => void) {}
+    protected simulatorControllerState: SimulatorControllerState,
+    protected downKeys: Set<Keycodes>,
+    protected hands: SimulatorHands,
+    protected setStereoRenderMode: (_: SimulatorRenderMode) => void,
+    protected toggleUserInterface: () => void
+  ) {}
 
   /**
    * Initialize the simulator control mode.
    */
-  init({camera, input, timer}:
-           {camera: THREE.Camera, input: Input, timer: THREE.Timer}) {
+  init({
+    camera,
+    input,
+    timer,
+  }: {
+    camera: THREE.Camera;
+    input: Input;
+    timer: THREE.Timer;
+  }) {
     this.camera = camera;
     this.input = input;
     this.timer = timer;
@@ -60,13 +69,13 @@ export class SimulatorControlMode {
     const cameraPosition = this.camera.position;
     const downKeys = this.downKeys;
     vector3
-        .set(
-            Number(downKeys.has(D_CODE)) - Number(downKeys.has(A_CODE)),
-            Number(downKeys.has(Q_CODE)) - Number(downKeys.has(E_CODE)),
-            Number(downKeys.has(S_CODE)) - Number(downKeys.has(W_CODE)),
-            )
-        .multiplyScalar(deltaTime)
-        .applyQuaternion(cameraRotation)
+      .set(
+        Number(downKeys.has(D_CODE)) - Number(downKeys.has(A_CODE)),
+        Number(downKeys.has(Q_CODE)) - Number(downKeys.has(E_CODE)),
+        Number(downKeys.has(S_CODE)) - Number(downKeys.has(W_CODE))
+      )
+      .multiplyScalar(deltaTime)
+      .applyQuaternion(cameraRotation);
     cameraPosition.add(vector3);
   }
 
@@ -75,22 +84,24 @@ export class SimulatorControlMode {
     for (let i = 0; i < 2; i++) {
       const controller = this.input.controllers[i];
       controller.position
-          .copy(this.simulatorControllerState.localControllerPositions[i])
-          .applyMatrix4(this.camera.matrixWorld);
+        .copy(this.simulatorControllerState.localControllerPositions[i])
+        .applyMatrix4(this.camera.matrixWorld);
       controller.quaternion
-          .copy(this.simulatorControllerState.localControllerOrientations[i])
-          .premultiply(this.camera.quaternion);
+        .copy(this.simulatorControllerState.localControllerOrientations[i])
+        .premultiply(this.camera.quaternion);
       controller.updateMatrix();
       const mesh =
-          i == 0 ? this.hands.leftController : this.hands.rightController;
+        i == 0 ? this.hands.leftController : this.hands.rightController;
       mesh.position.copy(controller.position);
       mesh.quaternion.copy(controller.quaternion);
     }
   }
 
   rotateOnPointerMove(
-      event: MouseEvent, objectQuaternion: THREE.Quaternion,
-      multiplier = 0.002) {
+    event: MouseEvent,
+    objectQuaternion: THREE.Quaternion,
+    multiplier = 0.002
+  ) {
     euler.setFromQuaternion(objectQuaternion, 'YXZ');
     euler.y += event.movementX * multiplier;
     euler.x += event.movementY * multiplier;
@@ -108,12 +119,12 @@ export class SimulatorControlMode {
     this.input.dispatchEvent({
       type: 'connected',
       target: this.input.controllers[0],
-      data: {handedness: 'left'}
+      data: {handedness: 'left'},
     });
     this.input.dispatchEvent({
       type: 'connected',
       target: this.input.controllers[1],
-      data: {handedness: 'right'}
+      data: {handedness: 'right'},
     });
   }
 
@@ -122,12 +133,12 @@ export class SimulatorControlMode {
     this.input.dispatchEvent({
       type: 'disconnected',
       target: this.input.controllers[0],
-      data: {handedness: 'left'}
+      data: {handedness: 'left'},
     });
     this.input.dispatchEvent({
       type: 'disconnected',
       target: this.input.controllers[1],
-      data: {handedness: 'right'}
+      data: {handedness: 'right'},
     });
   }
 }

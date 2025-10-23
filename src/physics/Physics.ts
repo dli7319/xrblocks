@@ -61,4 +61,4 @@ export class Physics {
       this.blendedWorld.free();
     }
   }
-};
+}

@@ -18,9 +18,9 @@ const worldScale = new THREE.Vector3();
  * Each `View` is a `THREE.Object3D` and inherits lifecycle methods from
  * `Script`.
  */
-export class View<TEventMap extends THREE.Object3DEventMap =
-                                        THREE.Object3DEventMap> extends
-    Script<TEventMap> {
+export class View<
+  TEventMap extends THREE.Object3DEventMap = THREE.Object3DEventMap,
+> extends Script<TEventMap> {
   /** Text description of the view */
   name = 'View';
   /** Flag indicating View behaves as a 2D quad in layout calculations. */
@@ -96,8 +96,10 @@ export class View<TEventMap extends THREE.Object3DEventMap =
    * @param material - The material for the view's mesh.
    */
   constructor(
-      options: ViewOptions = {}, geometry?: THREE.BufferGeometry,
-      material?: THREE.Material) {
+    options: ViewOptions = {},
+    geometry?: THREE.BufferGeometry,
+    material?: THREE.Material
+  ) {
     super();
     if (geometry && material) {
       this.mesh = new THREE.Mesh(geometry, material);
@@ -154,12 +156,17 @@ export class View<TEventMap extends THREE.Object3DEventMap =
       // Child views are positioned relative to their parent with padding.
       // A small depth gap is added to prevent z-fighting between UI layers.
       this.position.set(
-          (this.x + this.paddingX) * this.parent.rangeX,
-          (this.y - this.paddingY) * this.parent.rangeY,
-          this.paddingZ + VIEW_DEPTH_GAP);
+        (this.x + this.paddingX) * this.parent.rangeX,
+        (this.y - this.paddingY) * this.parent.rangeY,
+        this.paddingZ + VIEW_DEPTH_GAP
+      );
       this.aspectRatio = (this.width / this.height) * this.parent.aspectRatio;
-      this.scale.setScalar(Math.min(
-          this.parent.rangeX * this.width, this.parent.rangeY * this.height));
+      this.scale.setScalar(
+        Math.min(
+          this.parent.rangeX * this.width,
+          this.parent.rangeY * this.height
+        )
+      );
 
       // Increment renderOrder to ensure children render on top of parents,
       // which is crucial for transparency.

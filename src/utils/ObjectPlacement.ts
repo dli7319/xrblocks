@@ -30,8 +30,10 @@ const matrix4 = new THREE.Matrix4();
  * @returns The modified `obj`.
  */
 export function placeObjectAtIntersectionFacingTarget(
-    obj: THREE.Object3D, intersection: THREE.Intersection,
-    target: THREE.Object3D) {
+  obj: THREE.Object3D,
+  intersection: THREE.Intersection,
+  target: THREE.Object3D
+) {
   // 1. Position the object at the intersection point.
   obj.position.copy(intersection.point);
 
@@ -42,14 +44,16 @@ export function placeObjectAtIntersectionFacingTarget(
   // 3. Determine the desired forward direction.
   // This is the vector from the object to the target, projected onto the
   // surface plane.
-  const worldNormal = vector3b.copy(intersection.normal!)
-                          .transformDirection(intersection.object.matrixWorld);
-  const forwardVector = target.getWorldPosition(vector3)
-                            .sub(obj.position)
-                            .cross(worldNormal)
-                            .cross(worldNormal)
-                            .multiplyScalar(-1)
-                            .normalize();
+  const worldNormal = vector3b
+    .copy(intersection.normal!)
+    .transformDirection(intersection.object.matrixWorld);
+  const forwardVector = target
+    .getWorldPosition(vector3)
+    .sub(obj.position)
+    .cross(worldNormal)
+    .cross(worldNormal)
+    .multiplyScalar(-1)
+    .normalize();
 
   // 4. Create an orthonormal basis (a new coordinate system).
   // The 'up' vector is the surface normal.

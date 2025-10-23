@@ -8,17 +8,17 @@ import {CategoryVolumes} from './CategoryVolumes';
 const MUSIC_LIBRARY_PATH = XR_BLOCKS_ASSETS_PATH + 'musicLibrary/';
 
 const musicLibrary = {
-  'ambient': MUSIC_LIBRARY_PATH + 'AmbientLoop.opus',
-  'background': MUSIC_LIBRARY_PATH + 'BackgroundMusic4.mp3',
-  'buttonHover': MUSIC_LIBRARY_PATH + 'ButtonHover.opus',
-  'buttonPress': MUSIC_LIBRARY_PATH + 'ButtonPress.opus',
-  'menuDismiss': MUSIC_LIBRARY_PATH + 'MenuDismiss.opus'
+  ambient: MUSIC_LIBRARY_PATH + 'AmbientLoop.opus',
+  background: MUSIC_LIBRARY_PATH + 'BackgroundMusic4.mp3',
+  buttonHover: MUSIC_LIBRARY_PATH + 'ButtonHover.opus',
+  buttonPress: MUSIC_LIBRARY_PATH + 'ButtonPress.opus',
+  menuDismiss: MUSIC_LIBRARY_PATH + 'MenuDismiss.opus',
 } as const;
 
 class BackgroundMusic extends Script {
   private audioLoader = new THREE.AudioLoader();
 
-  private currentAudio: THREE.Audio|null = null;
+  private currentAudio: THREE.Audio | null = null;
   private isPlaying = false;
   private musicLibrary = musicLibrary;
 
@@ -26,8 +26,9 @@ class BackgroundMusic extends Script {
   private musicCategory = 'music';
 
   constructor(
-      private listener: THREE.AudioListener,
-      private categoryVolumes: CategoryVolumes) {
+    private listener: THREE.AudioListener,
+    private categoryVolumes: CategoryVolumes
+  ) {
     super();
   }
 
@@ -36,10 +37,15 @@ class BackgroundMusic extends Script {
     this.specificVolume = THREE.MathUtils.clamp(level, 0.0, 1.0);
     if (this.currentAudio && this.isPlaying && this.categoryVolumes) {
       const effectiveVolume = this.categoryVolumes.getEffectiveVolume(
-          this.musicCategory, this.specificVolume);
+        this.musicCategory,
+        this.specificVolume
+      );
       this.currentAudio.setVolume(effectiveVolume);
-      console.log(`BackgroundMusic volume updated to: ${
-          effectiveVolume} (specific: ${this.specificVolume})`);
+      console.log(
+        `BackgroundMusic volume updated to: ${
+          effectiveVolume
+        } (specific: ${this.specificVolume})`
+      );
     }
   }
 
@@ -62,37 +68,52 @@ class BackgroundMusic extends Script {
     const listener = this.listener;
 
     this.audioLoader.load(
-        soundPath,
-        (buffer) => {
-          console.log(`BackgroundMusic: Successfully loaded ${soundPath}`);
-          const audio = new THREE.Audio(listener);
-          audio.setBuffer(buffer);
-          audio.setLoop(
-              this.musicCategory === 'music' ||
-              this.musicCategory === 'ambient');
+      soundPath,
+      (buffer) => {
+        console.log(`BackgroundMusic: Successfully loaded ${soundPath}`);
+        const audio = new THREE.Audio(listener);
+        audio.setBuffer(buffer);
+        audio.setLoop(
+          this.musicCategory === 'music' || this.musicCategory === 'ambient'
+        );
 
-          const effectiveVolume = this.categoryVolumes.getEffectiveVolume(
-              this.musicCategory, this.specificVolume);
-          audio.setVolume(effectiveVolume);
-          console.log(`BackgroundMusic: Setting volume for "${musicKey}" to ${
-              effectiveVolume}`);
+        const effectiveVolume = this.categoryVolumes.getEffectiveVolume(
+          this.musicCategory,
+          this.specificVolume
+        );
+        audio.setVolume(effectiveVolume);
+        console.log(
+          `BackgroundMusic: Setting volume for "${musicKey}" to ${
+            effectiveVolume
+          }`
+        );
 
-          audio.play();
-          this.currentAudio = audio;
-          this.isPlaying = true;
-          console.log(`BackgroundMusic: Playing "${musicKey}" in category "${
-              this.musicCategory}"`);
-        },
-        (xhr) => {
-          console.log(`BackgroundMusic: Loading ${soundPath} - ${
-              (xhr.loaded / xhr.total * 100).toFixed(0)}% loaded`);
-        },
-        (error) => {
-          console.error(
-              `BackgroundMusic: Error loading sound ${soundPath}:`, error);
-          this.currentAudio = null;
-          this.isPlaying = false;
-        });
+        audio.play();
+        this.currentAudio = audio;
+        this.isPlaying = true;
+        console.log(
+          `BackgroundMusic: Playing "${musicKey}" in category "${
+            this.musicCategory
+          }"`
+        );
+      },
+      (xhr) => {
+        console.log(
+          `BackgroundMusic: Loading ${soundPath} - ${(
+            (xhr.loaded / xhr.total) *
+            100
+          ).toFixed(0)}% loaded`
+        );
+      },
+      (error) => {
+        console.error(
+          `BackgroundMusic: Error loading sound ${soundPath}:`,
+          error
+        );
+        this.currentAudio = null;
+        this.isPlaying = false;
+      }
+    );
   }
 
   stopMusic() {

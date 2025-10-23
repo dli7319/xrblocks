@@ -7,8 +7,11 @@ import {clamp} from '../../utils/utils';
  */
 export class AnimatableNumber {
   constructor(
-      public value = 0, public minValue = 0, public maxValue = 1,
-      public speed = 1) {}
+    public value = 0,
+    public minValue = 0,
+    public maxValue = 1,
+    public speed = 1
+  ) {}
 
   /**
    * Updates the value based on the elapsed time.
@@ -17,7 +20,9 @@ export class AnimatableNumber {
    */
   update(deltaTimeSeconds: number) {
     this.value = clamp(
-        this.value + deltaTimeSeconds * this.speed, this.minValue,
-        this.maxValue);
+      this.value + deltaTimeSeconds * this.speed,
+      this.minValue,
+      this.maxValue
+    );
   }
 }

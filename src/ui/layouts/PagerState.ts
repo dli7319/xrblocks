@@ -30,12 +30,13 @@ export class PagerState extends Script {
       return false;
     }
     const velocity = Math.sin(Math.PI * (this.currentPage % 1));
-    const direction = ((this.currentPage % 1) >= 0.5 ? 1 : -1) *
-        Number(Math.abs(velocity) > 0.01);
+    const direction =
+      (this.currentPage % 1 >= 0.5 ? 1 : -1) *
+      Number(Math.abs(velocity) > 0.01);
     const targetPage = clamp(this.currentPage + direction, 0, this.pages - 1);
     const remainingDelta = Math.abs(targetPage - this.currentPage);
     this.currentPage +=
-        direction * clamp(velocity * this.timer.getDelta(), 0, remainingDelta);
+      direction * clamp(velocity * this.timer.getDelta(), 0, remainingDelta);
   }
 
   addPage() {

@@ -51,13 +51,20 @@ export class ObjectDetector extends Script {
    * Initializes the ObjectDetector.
    * @override
    */
-  init({options, ai, aiOptions, deviceCamera, depth, camera}: {
-    options: WorldOptions,
-    ai: AI,
-    aiOptions: AIOptions,
-    deviceCamera: XRDeviceCamera,
-    depth: Depth,
-    camera: THREE.Camera,
+  init({
+    options,
+    ai,
+    aiOptions,
+    deviceCamera,
+    depth,
+    camera,
+  }: {
+    options: WorldOptions;
+    ai: AI;
+    aiOptions: AIOptions;
+    deviceCamera: XRDeviceCamera;
+    depth: Depth;
+    camera: THREE.Camera;
   }) {
     this.options = options;
     this.ai = ai;
@@ -81,7 +88,7 @@ export class ObjectDetector extends Script {
    * array of detected `DetectedObject` instances.
    */
   async runDetection() {
-    this.clear();  // Clear previous results before starting a new detection.
+    this.clear(); // Clear previous results before starting a new detection.
 
     switch (this.options.objects.backendConfig.activeBackend) {
       case 'gemini':
@@ -90,9 +97,11 @@ export class ObjectDetector extends Script {
       // case 'mediapipe':
       //   return this._runMediaPipeDetection();
       default:
-        console.warn(`ObjectDetector backend '${
-            this.options.objects.backendConfig
-                .activeBackend}' is not supported.`);
+        console.warn(
+          `ObjectDetector backend '${
+            this.options.objects.backendConfig.activeBackend
+          }' is not supported.`
+        );
         return [];
     }
   }
@@ -106,9 +115,9 @@ export class ObjectDetector extends Script {
       return [];
     }
 
-    const base64Image =
-        this.deviceCamera.getSnapshot({outputFormat: 'base64'}) as string |
-        null;
+    const base64Image = this.deviceCamera.getSnapshot({
+      outputFormat: 'base64',
+    }) as string | null;
     if (!base64Image) {
       console.warn('Could not get device camera snapshot.');
       return [];
@@ -130,8 +139,8 @@ export class ObjectDetector extends Script {
         type: 'multiPart',
         parts: [
           {inlineData: {mimeType: mimeType || undefined, data: strippedBase64}},
-          {text: textPrompt}
-        ]
+          {text: textPrompt},
+        ],
       });
 
       let parsedResponse;
@@ -140,14 +149,20 @@ export class ObjectDetector extends Script {
           parsedResponse = JSON.parse(rawResponse.text);
         } else {
           console.error(
-              'AI response is missing text field:', rawResponse,
-              'Raw response was:', rawResponse);
+            'AI response is missing text field:',
+            rawResponse,
+            'Raw response was:',
+            rawResponse
+          );
           return [];
         }
       } catch (e) {
         console.error(
-            'Failed to parse AI response JSON:', e,
-            'Raw response was:', rawResponse);
+          'Failed to parse AI response JSON:',
+          e,
+          'Raw response was:',
+          rawResponse
+        );
         return [];
       }
 
@@ -162,26 +177,34 @@ export class ObjectDetector extends Script {
 
       const detectionPromises = parsedResponse.map(async (item) => {
         const {ymin, xmin, ymax, xmax, objectName, ...additionalData} =
-            item || {};
-        if ([ymin, xmin, ymax, xmax].some(coord => typeof coord !== 'number')) {
+          item || {};
+        if (
+          [ymin, xmin, ymax, xmax].some((coord) => typeof coord !== 'number')
+        ) {
           return null;
         }
 
         // Bounding box from AI is 0-1000, convert to normalized 0-1.
         const boundingBox = new THREE.Box2(
-            new THREE.Vector2(xmin / 1000, ymin / 1000),
-            new THREE.Vector2(xmax / 1000, ymax / 1000));
+          new THREE.Vector2(xmin / 1000, ymin / 1000),
+          new THREE.Vector2(xmax / 1000, ymax / 1000)
+        );
 
         const center = new THREE.Vector2();
         boundingBox.getCenter(center);
 
         const uvInput = {u: center.x, v: center.y};
-        const projectionMatrix = this.deviceCamera.simulatorCamera ?
-            this.camera.projectionMatrix :
-            new THREE.Matrix4().fromArray(this.depth.view[0].projectionMatrix);
+        const projectionMatrix = this.deviceCamera.simulatorCamera
+          ? this.camera.projectionMatrix
+          : new THREE.Matrix4().fromArray(this.depth.view[0].projectionMatrix);
         const worldPosition = transformRgbUvToWorld(
-            uvInput, cachedDepthArray, projectionMatrix, cachedMatrixWorld,
-            this.deviceCamera, this.depth);
+          uvInput,
+          cachedDepthArray,
+          projectionMatrix,
+          cachedMatrixWorld,
+          this.deviceCamera,
+          this.depth
+        );
 
         if (worldPosition) {
           const margin = this.options.objects.objectImageMargin;
@@ -193,7 +216,11 @@ export class ObjectDetector extends Script {
           const objectImage = await cropImage(base64Image, cropBox);
 
           const object = new DetectedObject(
-              objectName, objectImage, boundingBox, additionalData);
+            objectName,
+            objectImage,
+            boundingBox,
+            additionalData
+          );
           object.position.copy(worldPosition);
 
           this.add(object);
@@ -206,10 +233,10 @@ export class ObjectDetector extends Script {
         }
       });
 
-      const detectedObjects =
-          (await Promise.all(detectionPromises)).filter(Boolean);
+      const detectedObjects = (await Promise.all(detectionPromises)).filter(
+        Boolean
+      );
       return detectedObjects;
-
     } catch (error) {
       console.error('AI query for object detection failed:', error);
       return [];
@@ -231,7 +258,7 @@ export class ObjectDetector extends Script {
     if (!label) {
       return allObjects;
     }
-    return allObjects.filter(obj => obj.label === label);
+    return allObjects.filter((obj) => obj.label === label);
   }
 
   /**
@@ -267,7 +294,9 @@ export class ObjectDetector extends Script {
    * AI response.
    */
   private _visualizeBoundingBoxesOnImage(
-      base64Image: string, detections: object[]) {
+    base64Image: string,
+    detections: object[]
+  ) {
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
@@ -279,22 +308,23 @@ export class ObjectDetector extends Script {
 
       detections.forEach((item) => {
         const {ymin, xmin, ymax, xmax, objectName} = (item || {}) as {
-          ymin?: number,
-          xmin?: number,
-          ymax?: number,
-          xmax?: number,
-          objectName?: string,
+          ymin?: number;
+          xmin?: number;
+          ymax?: number;
+          xmax?: number;
+          objectName?: string;
         };
-        if ([ymin, xmin, ymax, xmax].some(
-                (coord) => typeof coord !== 'number')) {
+        if (
+          [ymin, xmin, ymax, xmax].some((coord) => typeof coord !== 'number')
+        ) {
           return;
         }
 
         // Bounding box from AI is 0-1000, scale it to image dimensions.
-        const rectX = xmin! / 1000 * canvas.width;
-        const rectY = ymin! / 1000 * canvas.height;
-        const rectWidth = (xmax! - xmin!) / 1000 * canvas.width;
-        const rectHeight = (ymax! - ymin!) / 1000 * canvas.height;
+        const rectX = (xmin! / 1000) * canvas.width;
+        const rectY = (ymin! / 1000) * canvas.height;
+        const rectWidth = ((xmax! - xmin!) / 1000) * canvas.width;
+        const rectHeight = ((ymax! - ymin!) / 1000) * canvas.height;
 
         ctx.strokeStyle = '#FF0000';
         ctx.lineWidth = Math.max(2, canvas.width / 400);
@@ -310,17 +340,23 @@ export class ObjectDetector extends Script {
         // Draw a background for the text for better readability.
         ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
         ctx.fillRect(
-            rectX, rectY - fontSize, textMetrics.width + 8, fontSize + 4);
+          rectX,
+          rectY - fontSize,
+          textMetrics.width + 8,
+          fontSize + 4
+        );
 
         // Draw the text itself.
-        ctx.fillStyle = '#FFFFFF';  // White text
+        ctx.fillStyle = '#FFFFFF'; // White text
         ctx.fillText(text, rectX + 4, rectY + 2);
       });
 
       // Create a link and trigger the download.
-      const timestamp =
-          new Date().toISOString().slice(0, 19).replace('T', '_').replace(
-              /:/g, '-');
+      const timestamp = new Date()
+        .toISOString()
+        .slice(0, 19)
+        .replace('T', '_')
+        .replace(/:/g, '-');
       const link = document.createElement('a');
       link.download = `detection_debug_${timestamp}.png`;
       link.href = canvas.toDataURL('image/png');
@@ -337,8 +373,9 @@ export class ObjectDetector extends Script {
   private async _createDebugVisual(object: DetectedObject) {
     // Create sphere.
     const sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(0.03, 16, 16),
-        new THREE.MeshBasicMaterial({color: 0xff4285F4}));
+      new THREE.SphereGeometry(0.03, 16, 16),
+      new THREE.MeshBasicMaterial({color: 0xff4285f4})
+    );
     sphere.position.copy(object.position);
 
     // Create and configure the text label using Troika.
@@ -352,10 +389,10 @@ export class ObjectDetector extends Script {
 
     // Position the label above the sphere
     textLabel.position.copy(sphere.position);
-    textLabel.position.y += 0.04;  // Offset above the sphere.
+    textLabel.position.y += 0.04; // Offset above the sphere.
 
     this._debugVisualsGroup!.add(sphere, textLabel);
-    textLabel.sync();  // Required for Troika text to appear.
+    textLabel.sync(); // Required for Troika text to appear.
   }
 
   /**

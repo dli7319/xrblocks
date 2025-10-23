@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 import {HAND_JOINT_NAMES} from './components/HandJointNames.js';
 
-type JointName = typeof HAND_JOINT_NAMES[number];
+type JointName = (typeof HAND_JOINT_NAMES)[number];
 
 /**
  * Utility class for managing WebXR hand tracking data based on
@@ -13,7 +13,7 @@ type JointName = typeof HAND_JOINT_NAMES[number];
  * Enum for handedness, using WebXR standard strings.
  */
 export enum Handedness {
-  NONE = -1,  // Represents unknown or unspecified handedness
+  NONE = -1, // Represents unknown or unspecified handedness
   LEFT = 0,
   RIGHT = 1,
 }
@@ -141,16 +141,18 @@ export class Hands {
 
       if (!hand || !hand.joints) {
         s += `${handedness} Hand: Data unavailable\n`;
-        return;  // Continue to the next handedness
+        return; // Continue to the next handedness
       }
 
       HAND_JOINT_NAMES.forEach((jointName) => {
         const joint = hand.joints[jointName];
         if (joint) {
           if (joint.position) {
-            s += `${handedness} - ${jointName}: ${
-                joint.position.x.toFixed(3)}, ${joint.position.y.toFixed(3)}, ${
-                joint.position.z.toFixed(3)}\n`;
+            s += `${handedness} - ${jointName}: ${joint.position.x.toFixed(
+              3
+            )}, ${joint.position.y.toFixed(3)}, ${joint.position.z.toFixed(
+              3
+            )}\n`;
           } else {
             s += `${handedness} - ${jointName}: Position unavailable\n`;
           }
@@ -176,7 +178,7 @@ export class Hands {
     const data = [];
     const orderedHandedness = [Handedness.LEFT, Handedness.RIGHT];
     const numJoints = HAND_JOINT_NAMES.length;
-    const numValuesPerJoint = 7;  // 3 position + 4 quaternion
+    const numValuesPerJoint = 7; // 3 position + 4 quaternion
 
     orderedHandedness.forEach((handedness) => {
       const hand = this.hands[handedness];
@@ -191,8 +193,11 @@ export class Hands {
         if (joint && joint.position && joint.quaternion) {
           data.push(joint.position.x, joint.position.y, joint.position.z);
           data.push(
-              joint.quaternion.x, joint.quaternion.y, joint.quaternion.z,
-              joint.quaternion.w);
+            joint.quaternion.x,
+            joint.quaternion.y,
+            joint.quaternion.z,
+            joint.quaternion.w
+          );
         } else {
           // If hand, joints, joint, or properties missing, push zeros
           for (let i = 0; i < numValuesPerJoint; i++) {
@@ -204,13 +209,15 @@ export class Hands {
 
     // The final array should always have the same size
     const expectedSize =
-        orderedHandedness.length * numJoints * numValuesPerJoint;
+      orderedHandedness.length * numJoints * numValuesPerJoint;
     if (data.length !== expectedSize) {
       // This case should theoretically not happen with the logic above,
       // but added as a safeguard during development/debugging.
       console.error(
-          `XRHands.toPositionQuaternionArray: Output array size mismatch. Expected ${
-              expectedSize}, got ${data.length}. Padding with zeros.`);
+        `XRHands.toPositionQuaternionArray: Output array size mismatch. Expected ${
+          expectedSize
+        }, got ${data.length}. Padding with zeros.`
+      );
       // Pad with zeros if necessary, though ideally the logic prevents this
       while (data.length < expectedSize) {
         data.push(0);

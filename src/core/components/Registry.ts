@@ -12,14 +12,17 @@ export class Registry {
    * `instance.constructor` if not defined.
    */
   register<T extends object>(instance: T, type?: Constructor<T>) {
-    const registrationType = type ?? instance.constructor as Constructor<T>;
+    const registrationType = type ?? (instance.constructor as Constructor<T>);
     if (instance instanceof registrationType) {
       this.instances.set(registrationType, instance);
     } else {
-      throw new Error(`Instance of type '${
-          instance.constructor
-              .name}' is not an instance of the registration type '${
-          registrationType.name}'.`);
+      throw new Error(
+        `Instance of type '${
+          instance.constructor.name
+        }' is not an instance of the registration type '${
+          registrationType.name
+        }'.`
+      );
     }
   }
 
@@ -28,7 +31,7 @@ export class Registry {
    * @param type - The constructor function of the type to retrieve.
    * @returns The instance of the requested type.
    */
-  get<T extends object>(type: Constructor<T>): T|undefined {
+  get<T extends object>(type: Constructor<T>): T | undefined {
     return this.instances.get(type) as T | undefined;
   }
 
@@ -45,9 +48,13 @@ export class Registry {
     if (instance === undefined) {
       instance = factory();
       if (!(instance instanceof type)) {
-        throw new Error(`Factory for type ${
-            type.name} returned an incompatible instance of type ${
-            (instance.constructor as Constructor).name}.`);
+        throw new Error(
+          `Factory for type ${
+            type.name
+          } returned an incompatible instance of type ${
+            (instance.constructor as Constructor).name
+          }.`
+        );
       }
       // Register the new instance with the requested type.
       this.register(instance, type);

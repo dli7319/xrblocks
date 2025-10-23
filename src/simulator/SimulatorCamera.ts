@@ -1,14 +1,17 @@
 import * as THREE from 'three';
 
 import {SimulatorMediaDeviceInfo} from './SimulatorMediaDeviceInfo';
-import {ConstrainDomStringMatch, evaluateConstrainDOMString} from './utils/CameraUtils';
+import {
+  ConstrainDomStringMatch,
+  evaluateConstrainDOMString,
+} from './utils/CameraUtils';
 
 export class SimulatorCamera {
   private cameraCreated = false;
   private cameraInfo?: SimulatorMediaDeviceInfo;
   private mediaStream?: MediaStream;
   private canvas?: HTMLCanvasElement;
-  private context?: CanvasRenderingContext2D|null;
+  private context?: CanvasRenderingContext2D | null;
   private fps = 30;
   matchRenderingCamera = true;
   width = 512;
@@ -45,7 +48,9 @@ export class SimulatorCamera {
   }
 
   onBeforeSimulatorSceneRender(
-      camera: THREE.Camera, renderScene: (_: THREE.Camera) => void) {
+    camera: THREE.Camera,
+    renderScene: (_: THREE.Camera) => void
+  ) {
     if (!this.cameraCreated) {
       return;
     }
@@ -61,8 +66,16 @@ export class SimulatorCamera {
       const sx = (sWidth - croppedSourceWidth) / 2;
       const sy = (sHeight - croppedSourceHeight) / 2;
       this.context!.drawImage(
-          this.renderer.domElement, sx, sy, croppedSourceWidth,
-          croppedSourceHeight, 0, 0, this.width, this.height);
+        this.renderer.domElement,
+        sx,
+        sy,
+        croppedSourceWidth,
+        croppedSourceHeight,
+        0,
+        0,
+        this.width,
+        this.height
+      );
     }
   }
 
@@ -79,8 +92,16 @@ export class SimulatorCamera {
       const sx = (sWidth - croppedSourceWidth) / 2;
       const sy = (sHeight - croppedSourceHeight) / 2;
       this.context!.drawImage(
-          this.renderer.domElement, sx, sy, croppedSourceWidth,
-          croppedSourceHeight, 0, 0, this.width, this.height);
+        this.renderer.domElement,
+        sx,
+        sy,
+        croppedSourceWidth,
+        croppedSourceHeight,
+        0,
+        0,
+        this.width,
+        this.height
+      );
     }
   }
 
@@ -97,10 +118,13 @@ export class SimulatorCamera {
     if (!this.cameraCreated) {
       return;
     }
-    if (!constraints?.deviceId ||
-        evaluateConstrainDOMString(
-            constraints?.deviceId, this.cameraInfo!.deviceId) !=
-            ConstrainDomStringMatch.UNACCEPTABLE) {
+    if (
+      !constraints?.deviceId ||
+      evaluateConstrainDOMString(
+        constraints?.deviceId,
+        this.cameraInfo!.deviceId
+      ) != ConstrainDomStringMatch.UNACCEPTABLE
+    ) {
       const videoTrack = this.mediaStream!.getVideoTracks()[0];
       if (videoTrack.readyState == 'ended') {
         this.restartVideoTrack();

@@ -1,4 +1,3 @@
-
 export class SimulatorInstructionsNextEvent extends Event {
   static type = 'simulatorInstructionsNextEvent';
   constructor() {
@@ -9,7 +8,9 @@ export class SimulatorInstructionsNextEvent extends Event {
 export class SimulatorInstructionsCloseEvent extends Event {
   static type = 'simulatorInstructionsCloseEvent';
   constructor() {
-    super(
-        SimulatorInstructionsCloseEvent.type, {bubbles: true, composed: true});
+    super(SimulatorInstructionsCloseEvent.type, {
+      bubbles: true,
+      composed: true,
+    });
   }
 }

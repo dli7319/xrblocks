@@ -5,7 +5,7 @@ import {Grid, GridOptions} from './Grid.js';
  * horizontally. The width of each column is determined by its `weight` property
  * relative to the total weight of all columns in the same row.
  */
-export type ColOptions = GridOptions&{
+export type ColOptions = GridOptions & {
   weight?: number;
 };
 

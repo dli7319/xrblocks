@@ -40,11 +40,16 @@ export class SketchPanel extends View {
     const ctx = canvas.getContext('2d')!;
     const texture = new THREE.CanvasTexture(canvas);
 
-    const geometry =
-        new THREE.PlaneGeometry(canvas.width * 0.001, canvas.height * 0.001);
+    const geometry = new THREE.PlaneGeometry(
+      canvas.width * 0.001,
+      canvas.height * 0.001
+    );
 
-    const material = new THREE.MeshBasicMaterial(
-        {map: texture, toneMapped: false, alphaTest: 0.01});
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      toneMapped: false,
+      alphaTest: 0.01,
+    });
 
     super({}, geometry, material);
     this.canvas = canvas;
@@ -124,7 +129,7 @@ export class SketchPanel extends View {
         if (this.isDrawing) {
           ctx.lineTo(x, y);
           ctx.strokeStyle = 'black';
-          ctx.lineWidth = 6;  // You can adjust the line width here
+          ctx.lineWidth = 6; // You can adjust the line width here
           ctx.stroke();
 
           this.triggerUpdate();
@@ -147,8 +152,7 @@ export class SketchPanel extends View {
   clearCanvas(forceUpdate = true) {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.ctx.fillStyle = '#FFFFFF';
-    this.ctx.fillRect(
-        0, 0, this.canvas.width, this.canvas.height);  // Fill the entire canvas
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height); // Fill the entire canvas
     if (forceUpdate) {
       this.triggerUpdate();
     }

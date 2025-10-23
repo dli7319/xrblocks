@@ -8,11 +8,15 @@ import {KeyEvent, Script} from '../core/Script';
 import {Reticle} from '../ui/core/Reticle.js';
 
 import {ControllerRayVisual} from './components/ControllerRayVisual';
-import type {Controller, ControllerEvent, ControllerEventMap} from './Controller';
+import type {
+  Controller,
+  ControllerEvent,
+  ControllerEventMap,
+} from './Controller';
 import {GazeController} from './GazeController';
 import {MouseController} from './MouseController';
 
-export class ActiveControllers extends THREE.Object3D {};
+export class ActiveControllers extends THREE.Object3D {}
 
 export type HasIgnoreReticleRaycast = {
   ignoreReticleRaycast: boolean;
@@ -49,10 +53,14 @@ export class Input {
    * Initializes an instance with XR controllers, grips, hands, raycaster, and
    * default options. Only called by Core.
    */
-  init({scene, options, renderer}: {
-    scene: THREE.Scene,
-    options: Options,
-    renderer: THREE.WebGLRenderer
+  init({
+    scene,
+    options,
+    renderer,
+  }: {
+    scene: THREE.Scene;
+    options: Options;
+    renderer: THREE.WebGLRenderer;
   }) {
     scene.add(this.activeControllers);
 
@@ -81,7 +89,8 @@ export class Input {
         for (let i = 0; i < NUM_HANDS; ++i) {
           controllerGrips.push(renderer.xr.getControllerGrip(i));
           controllerGrips[i].add(
-              controllerModelFactory.createControllerModel(controllerGrips[i]));
+            controllerModelFactory.createControllerModel(controllerGrips[i])
+          );
           this.activeControllers.add(controllerGrips[i]);
         }
       }
@@ -98,10 +107,12 @@ export class Input {
             console.log('Visualize hand joints.');
             const handModelFactory = new XRHandModelFactory();
             for (let i = 0; i < NUM_HANDS; ++i) {
-              const handModel =
-                  handModelFactory.createHandModel(this.hands[i], 'boxes');
+              const handModel = handModelFactory.createHandModel(
+                this.hands[i],
+                'boxes'
+              );
               (handModel as MaybeHasIgnoreReticleRaycast).ignoreReticleRaycast =
-                  true;
+                true;
               this.hands[i].add(handModel);
             }
           }
@@ -109,10 +120,12 @@ export class Input {
             console.log('Visualize hand meshes.');
             const handModelFactory = new XRHandModelFactory();
             for (let i = 0; i < NUM_HANDS; ++i) {
-              const handModel =
-                  handModelFactory.createHandModel(this.hands[i], 'mesh');
+              const handModel = handModelFactory.createHandModel(
+                this.hands[i],
+                'mesh'
+              );
               (handModel as MaybeHasIgnoreReticleRaycast).ignoreReticleRaycast =
-                  true;
+                true;
               this.hands[i].add(handModel);
             }
           }
@@ -254,8 +267,9 @@ export class Input {
    * @param listener - Function to call
    */
   bindListener(
-      listenerName: keyof ControllerEventMap,
-      listener: (event: ControllerEvent) => void) {
+    listenerName: keyof ControllerEventMap,
+    listener: (event: ControllerEvent) => void
+  ) {
     for (const controller of this.controllers) {
       controller.addEventListener(listenerName, listener);
     }
@@ -266,8 +280,9 @@ export class Input {
   }
 
   unbindListener(
-      listenerName: keyof ControllerEventMap,
-      listener: (event: ControllerEvent) => void) {
+    listenerName: keyof ControllerEventMap,
+    listener: (event: ControllerEvent) => void
+  ) {
     if (this.listeners.has(listenerName)) {
       const listeners = this.listeners.get(listenerName);
       const index = listeners.indexOf(listener);
@@ -356,8 +371,10 @@ export class Input {
    * @param obj - The object to intersect.
    * @returns Array of intersection points, if any.
    */
-  intersectObjectByController(controller: THREE.Object3D, obj: THREE.Object3D):
-      THREE.Intersection[] {
+  intersectObjectByController(
+    controller: THREE.Object3D,
+    obj: THREE.Object3D
+  ): THREE.Intersection[] {
     controller.updateMatrixWorld();
     this.raycaster.setFromXRController(controller as THREE.XRTargetRaySpace);
     return this.raycaster.intersectObject(obj, false);
@@ -370,8 +387,10 @@ export class Input {
    * @param obj - The object to intersect.
    * @returns Array of intersection points, if any.
    */
-  intersectObjectByEvent(event: ControllerEvent, obj: THREE.Object3D):
-      THREE.Intersection[] {
+  intersectObjectByEvent(
+    event: ControllerEvent,
+    obj: THREE.Object3D
+  ): THREE.Intersection[] {
     return this.intersectObjectByController(event.target, obj);
   }
 
@@ -382,8 +401,10 @@ export class Input {
    */
   intersectObject(obj: THREE.Object3D): THREE.Intersection[] {
     // Checks for intersections from the first controller.
-    const intersection =
-        this.intersectObjectByController(this.controllers[0], obj);
+    const intersection = this.intersectObjectByController(
+      this.controllers[0],
+      obj
+    );
     if (intersection.length > 0) {
       return intersection;
     }
@@ -410,7 +431,6 @@ export class Input {
     this.updateReticleFromIntersections(controller);
   }
 
-
   /**
    * Sets the raycaster's origin and direction from any Object3D that
    * represents a controller. This replaces the non-standard
@@ -420,26 +440,30 @@ export class Input {
   private _setRaycasterFromController(controller: THREE.Object3D) {
     controller.getWorldPosition(this.raycaster.ray.origin);
     MATRIX4.identity().extractRotation(controller.matrixWorld);
-    this.raycaster.ray.direction.set(0, 0, -1)
-        .applyMatrix4(MATRIX4)
-        .normalize();
+    this.raycaster.ray.direction
+      .set(0, 0, -1)
+      .applyMatrix4(MATRIX4)
+      .normalize();
   }
 
   updateReticleFromIntersections(controller: Controller) {
     if (!controller.reticle) return;
     const reticle = controller.reticle;
-    const intersection =
-        this.intersectionsForController.get(controller)?.find(intersection => {
-          let target: THREE.Object3D|null = intersection.object;
-          while (target) {
-            if ((target as MaybeHasIgnoreReticleRaycast)
-                    .ignoreReticleRaycast === true) {
-              return false;
-            }
-            target = target.parent;
+    const intersection = this.intersectionsForController
+      .get(controller)
+      ?.find((intersection) => {
+        let target: THREE.Object3D | null = intersection.object;
+        while (target) {
+          if (
+            (target as MaybeHasIgnoreReticleRaycast).ignoreReticleRaycast ===
+            true
+          ) {
+            return false;
           }
-          return true;
-        });
+          target = target.parent;
+        }
+        return true;
+      });
     if (!intersection) {
       reticle.visible = false;
       return;
@@ -450,8 +474,10 @@ export class Input {
     if ((intersection.object as Partial<Script>)?.isXRScript) {
       (intersection.object as Script).ux.update(controller, intersection);
     } else if ((intersection.object?.parent as Partial<Script>)?.isXRScript) {
-      (intersection.object.parent as Script)
-          .ux.update(controller, intersection);
+      (intersection.object.parent as Script).ux.update(
+        controller,
+        intersection
+      );
     }
 
     reticle.intersection = intersection;
@@ -473,7 +499,7 @@ export class Input {
   disableControllers() {
     this.controllersEnabled = false;
     for (const controller of this.controllers) {
-      controller.userData.selected = false
+      controller.userData.selected = false;
       if (controller.reticle) {
         controller.reticle.visible = false;
         controller.reticle.targetObject = undefined;
@@ -494,4 +520,4 @@ export class Input {
     intersections.length = 0;
     this.raycaster.intersectObject(this.scene, true, intersections);
   }
-};
+}

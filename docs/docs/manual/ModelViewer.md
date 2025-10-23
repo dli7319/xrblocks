@@ -21,9 +21,9 @@ Once loaded, the model viewer will have a `gltf` property and add the `gltf.scen
 const model = new ModelViewer({});
 model.loadGLTFModel({
   data: {
-    scale: { x: 0.015, y: 0.015, z: 0.015 },
-    path: "./",
-    model: "chess_compressed.glb",
+    scale: {x: 0.015, y: 0.015, z: 0.015},
+    path: './',
+    model: 'chess_compressed.glb',
   },
   renderer: xb.core.renderer,
 });
@@ -41,7 +41,7 @@ const model = new ModelViewer({});
 model.add(
   new THREE.Mesh(
     new THREE.CylinderGeometry(0.15, 0.15, 0.4),
-    new THREE.MeshPhongMaterial({ color: 0xdb5461 })
+    new THREE.MeshPhongMaterial({color: 0xdb5461})
   )
 );
 model.setupBoundingBox();

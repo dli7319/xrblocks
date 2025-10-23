@@ -3,7 +3,7 @@ import type OpenAIType from 'openai';
 import {OpenAIOptions} from './AIOptions';
 import {BaseAIModel} from './BaseAIModel';
 
-let OpenAIApi: typeof OpenAIType|null = null;
+let OpenAIApi: typeof OpenAIType | null = null;
 
 async function loadOpenAIModule() {
   if (OpenAIApi) {
@@ -12,11 +12,13 @@ async function loadOpenAIModule() {
   try {
     const openAIModule = await import('openai');
     OpenAIApi = openAIModule.default;
-    console.log('\'openai\' module loaded successfully.');
+    console.log("'openai' module loaded successfully.");
   } catch (error) {
     console.warn(
-        '\'openai\' module not found. Using fallback implementations.',
-        'Error details:', error);
+      "'openai' module not found. Using fallback implementations.",
+      'Error details:',
+      error
+    );
   }
 }
 
@@ -30,8 +32,10 @@ export class OpenAI extends BaseAIModel {
   async init() {
     await loadOpenAIModule();
     if (this.options.apiKey && OpenAIApi) {
-      this.openai = new OpenAIApi(
-          {apiKey: this.options.apiKey, dangerouslyAllowBrowser: true});
+      this.openai = new OpenAIApi({
+        apiKey: this.options.apiKey,
+        dangerouslyAllowBrowser: true,
+      });
       console.log('OpenAI model initialized');
     } else {
       console.error('OpenAI API key is missing or module failed to load.');

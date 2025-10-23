@@ -13,11 +13,25 @@ export const HAND_JOINT_COUNT = 25;
  * The pairs of joints as an adjcent list.
  */
 export const HAND_JOINT_IDX_CONNECTION_MAP = [
-  [1, 2],   [2, 3],   [3, 4],              // Thumb has 3 bones
-  [5, 6],   [6, 7],   [7, 8],   [8, 9],    // Index finger has 4 bones
-  [10, 11], [11, 12], [12, 13], [13, 14],  // Middle finger has 4 bones
-  [15, 16], [16, 17], [17, 18], [18, 19],  // Ring finger has 4 bones
-  [20, 21], [21, 22], [22, 23], [23, 24],  // Little finger has 4 bones
+  [1, 2],
+  [2, 3],
+  [3, 4], // Thumb has 3 bones
+  [5, 6],
+  [6, 7],
+  [7, 8],
+  [8, 9], // Index finger has 4 bones
+  [10, 11],
+  [11, 12],
+  [12, 13],
+  [13, 14], // Middle finger has 4 bones
+  [15, 16],
+  [16, 17],
+  [17, 18],
+  [18, 19], // Ring finger has 4 bones
+  [20, 21],
+  [21, 22],
+  [22, 23],
+  [23, 24], // Little finger has 4 bones
 ];
 
 /**
@@ -25,11 +39,20 @@ export const HAND_JOINT_IDX_CONNECTION_MAP = [
  */
 // clang-format off
 export const HAND_BONE_IDX_CONNECTION_MAP = [
-  [0, 1], [1, 2],                // Thumb has 2 angles
-  [3, 4], [4, 5], [5, 6],        // Index finger has 3 angles
-  [7, 8], [8, 9], [9, 10],       // Middle finger has 3 angles
-  [11, 12], [12, 13], [13, 14],  // Ring finger has 3 angles
-  [15, 16], [16, 17], [17, 18],  // Little finger has 3 angles
+  [0, 1],
+  [1, 2], // Thumb has 2 angles
+  [3, 4],
+  [4, 5],
+  [5, 6], // Index finger has 3 angles
+  [7, 8],
+  [8, 9],
+  [9, 10], // Middle finger has 3 angles
+  [11, 12],
+  [12, 13],
+  [13, 14], // Ring finger has 3 angles
+  [15, 16],
+  [16, 17],
+  [17, 18], // Little finger has 3 angles
 ];
 // clang-format on
 
@@ -79,4 +102,5 @@ export const DEFAULT_DEVICE_CAMERA_WIDTH = 1280;
  */
 export const DEFAULT_DEVICE_CAMERA_HEIGHT = 720;
 
-export const XR_BLOCKS_ASSETS_PATH = 'https://cdn.jsdelivr.net/gh/xrblocks/assets@34228db7ec7cef66fd65ef3250ef6f4a930fe373/';
+export const XR_BLOCKS_ASSETS_PATH =
+  'https://cdn.jsdelivr.net/gh/xrblocks/assets@34228db7ec7cef66fd65ef3250ef6f4a930fe373/';

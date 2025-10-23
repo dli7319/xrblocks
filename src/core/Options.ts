@@ -1,5 +1,9 @@
 import {AIOptions} from '../ai/AIOptions';
-import {DeviceCameraOptions, xrDeviceCameraEnvironmentOptions, xrDeviceCameraUserOptions} from '../camera/CameraOptions.js';
+import {
+  DeviceCameraOptions,
+  xrDeviceCameraEnvironmentOptions,
+  xrDeviceCameraUserOptions,
+} from '../camera/CameraOptions.js';
 import {DepthOptions, xrDepthMeshOptions} from '../depth/DepthOptions.js';
 import {HandsOptions} from '../input/HandsOptions.js';
 import {GestureRecognitionOptions} from '../input/gestures/GestureRecognitionOptions.js';
@@ -26,7 +30,7 @@ export class InputOptions {
   visualization = false;
   /** Whether to show the ray lines extending from the controllers. */
   visualizeRays = false;
-};
+}
 
 /**
  * Default options for the reticle (pointing cursor).
@@ -100,7 +104,7 @@ export class Options {
   camera = {
     near: 0.01,
     far: 500,
-  }
+  };
 
   /**
    * Whether to use post-processing effects.
@@ -120,7 +124,7 @@ export class Options {
     showSimulatorButtonOnMobile: false,
     autostartSimulatorOnDesktop: true,
     // Whether to always autostart the simulator.
-    autostartSimulator: false
+    autostartSimulator: false,
   };
 
   /**
@@ -129,7 +133,7 @@ export class Options {
    * @param options - A custom options object to override the defaults.
    */
   constructor(options?: DeepReadonly<DeepPartial<Options>>) {
-    deepMerge(this, options)
+    deepMerge(this, options);
   }
 
   /**
@@ -178,17 +182,18 @@ export class Options {
     return this;
   }
 
-
   /**
    * Enables device camera (passthrough) with a specific facing mode.
    * @param facingMode - The desired camera facing mode, either 'environment' or
    *     'user'.
    * @returns The instance for chaining.
    */
-  enableCamera(facingMode: 'environment'|'user' = 'environment') {
+  enableCamera(facingMode: 'environment' | 'user' = 'environment') {
     this.deviceCamera = new DeviceCameraOptions(
-        facingMode === 'environment' ? xrDeviceCameraEnvironmentOptions :
-                                       xrDeviceCameraUserOptions);
+      facingMode === 'environment'
+        ? xrDeviceCameraEnvironmentOptions
+        : xrDeviceCameraUserOptions
+    );
     return this;
   }
 

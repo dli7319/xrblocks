@@ -6,7 +6,7 @@ import * as THREE from 'three';
 export type Constructor<T = object> = new (...args: any[]) => T;
 
 export type ShaderUniforms = {
-  [uniform: string]: THREE.IUniform
+  [uniform: string]: THREE.IUniform;
 };
 
 /**
@@ -24,18 +24,22 @@ export interface Shader {
  * A recursive readonly type.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export type DeepReadonly<T> = T extends((...args: any[]) => any) ?
-    T :
-    T extends object ? {readonly[P in keyof T]: DeepReadonly<T[P]>} : T;
+export type DeepReadonly<T> = T extends (...args: any[]) => any
+  ? T
+  : T extends object
+    ? {readonly [P in keyof T]: DeepReadonly<T[P]>}
+    : T;
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 /**
  * A recursive partial type.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export type DeepPartial<T> =
-    T extends((...args: any[]) => any) ? T : T extends object ?
-{
-  [P in keyof T]?: DeepPartial<T[P]>;
-} : T;
+export type DeepPartial<T> = T extends (...args: any[]) => any
+  ? T
+  : T extends object
+    ? {
+        [P in keyof T]?: DeepPartial<T[P]>;
+      }
+    : T;
 /* eslint-enable @typescript-eslint/no-explicit-any */

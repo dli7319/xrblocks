@@ -14,10 +14,10 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
   ai!: xb.AI;
 
   // Audio setup
-  audioStream: MediaStream|null = null;
-  audioContext: AudioContext|null = null;
-  sourceNode: MediaStreamAudioSourceNode|null = null;
-  processorNode: AudioWorkletNode|null = null;
+  audioStream: MediaStream | null = null;
+  audioContext: AudioContext | null = null;
+  sourceNode: MediaStreamAudioSourceNode | null = null;
+  processorNode: AudioWorkletNode | null = null;
 
   // AI state
   isAIRunning: boolean = false;
@@ -43,8 +43,10 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     this.ai = xb.core.ai!;
   }
 
-  async startGeminiLive({liveParams}: {
-    liveParams?: xb.GeminiStartLiveSessionParams
+  async startGeminiLive({
+    liveParams,
+  }: {
+    liveParams?: xb.GeminiStartLiveSessionParams;
   } = {}) {
     if (this.isAIRunning || !this.ai) {
       console.warn('AI already running or not available');
@@ -93,8 +95,8 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
         sampleRate: 16000,
         channelCount: 1,
         echoCancellation: true,
-        noiseSuppression: true
-      }
+        noiseSuppression: true,
+      },
     });
 
     const audioTracks = this.audioStream.getAudioTracks();
@@ -104,11 +106,15 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
 
     this.audioContext = new AudioContext({sampleRate: 16000});
     await this.audioContext.audioWorklet.addModule(
-        './AudioCaptureProcessor.js');
-    this.sourceNode =
-        this.audioContext.createMediaStreamSource(this.audioStream);
-    this.processorNode =
-        new AudioWorkletNode(this.audioContext, 'audio-capture-processor');
+      './AudioCaptureProcessor.js'
+    );
+    this.sourceNode = this.audioContext.createMediaStreamSource(
+      this.audioStream
+    );
+    this.processorNode = new AudioWorkletNode(
+      this.audioContext,
+      'audio-capture-processor'
+    );
     this.processorNode.port.onmessage = (event) => {
       if (event.data.type === 'audioData' && this.isAIRunning) {
         this.sendAudioData(event.data.data);
@@ -134,7 +140,7 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
         },
         onclose: () => {
           this.isAIRunning = false;
-        }
+        },
       });
 
       this.ai.startLiveSession(params).catch(reject);
@@ -160,9 +166,9 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
       });
       if (typeof base64Image == 'string') {
         // Strip the data URL prefix if present
-        const base64Data = base64Image.startsWith('data:') ?
-            base64Image.split(',')[1] :
-            base64Image;
+        const base64Data = base64Image.startsWith('data:')
+          ? base64Image.split(',')[1]
+          : base64Image;
         this.sendVideoFrame(base64Data);
       }
     } catch (error) {
@@ -208,8 +214,11 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     try {
       await this.initializeAudioContext();
       const arrayBuffer = this.base64ToArrayBuffer(audioData);
-      const audioBuffer =
-          this.audioContext!.createBuffer(1, arrayBuffer.byteLength / 2, 24000);
+      const audioBuffer = this.audioContext!.createBuffer(
+        1,
+        arrayBuffer.byteLength / 2,
+        24000
+      );
       const channelData = audioBuffer.getChannelData(0);
       const int16View = new Int16Array(arrayBuffer);
 
@@ -227,9 +236,11 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
 
   scheduleAudioBuffers() {
     const SCHEDULE_AHEAD_TIME = 0.2;
-    while (this.audioQueue.length > 0 &&
-           this.nextAudioStartTime <=
-               this.audioContext!.currentTime + SCHEDULE_AHEAD_TIME) {
+    while (
+      this.audioQueue.length > 0 &&
+      this.nextAudioStartTime <=
+        this.audioContext!.currentTime + SCHEDULE_AHEAD_TIME
+    ) {
       const audioBuffer = this.audioQueue.shift()!;
       const source = this.audioContext!.createBufferSource();
       source.buffer = audioBuffer!;
@@ -238,8 +249,10 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
         this.scheduleAudioBuffers();
       };
 
-      const startTime =
-          Math.max(this.nextAudioStartTime, this.audioContext!.currentTime);
+      const startTime = Math.max(
+        this.nextAudioStartTime,
+        this.audioContext!.currentTime
+      );
       source.start(startTime);
       this.nextAudioStartTime = startTime + audioBuffer.duration;
     }
@@ -270,7 +283,7 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     }
 
     if (this.audioStream) {
-      this.audioStream.getTracks().forEach(track => track.stop());
+      this.audioStream.getTracks().forEach((track) => track.stop());
       this.audioStream = null;
     }
   }
@@ -281,19 +294,20 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     }
 
     for (const functionCall of message.toolCall?.functionCalls ?? []) {
-      const tool = this.tools.find(tool => tool.name == functionCall.name);
+      const tool = this.tools.find((tool) => tool.name == functionCall.name);
       if (tool) {
         const exec = tool.execute(functionCall.args);
-        exec.then(result => {
-              this.ai.sendToolResponse({
-                functionResponses: {
-                  id: functionCall.id,
-                  name: functionCall.name,
-                  response: {'output': result}
-                }
-              });
-            })
-            .catch((error: unknown) => console.error('Tool error:', error));
+        exec
+          .then((result) => {
+            this.ai.sendToolResponse({
+              functionResponses: {
+                id: functionCall.id,
+                name: functionCall.name,
+                response: {output: result},
+              },
+            });
+          })
+          .catch((error: unknown) => console.error('Tool error:', error));
       }
     }
 

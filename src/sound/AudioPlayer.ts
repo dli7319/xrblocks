@@ -49,8 +49,10 @@ export class AudioPlayer extends Script {
    */
   updateGainNodeVolume() {
     if (this.gainNode && this.categoryVolumes) {
-      const effectiveVolume =
-          this.categoryVolumes.getEffectiveVolume(this.category, this.volume);
+      const effectiveVolume = this.categoryVolumes.getEffectiveVolume(
+        this.category,
+        this.volume
+      );
       this.gainNode.gain.value = effectiveVolume;
     } else if (this.gainNode) {
       this.gainNode.gain.value = this.volume;
@@ -59,8 +61,9 @@ export class AudioPlayer extends Script {
 
   async initializeAudioContext() {
     if (!this.audioContext) {
-      this.audioContext =
-          new AudioContext({sampleRate: this.options.sampleRate});
+      this.audioContext = new AudioContext({
+        sampleRate: this.options.sampleRate,
+      });
       this.nextStartTime = this.audioContext.currentTime;
 
       // Create gain node for volume control
@@ -81,8 +84,10 @@ export class AudioPlayer extends Script {
     await this.initializeAudioContext();
     const arrayBuffer = this.base64ToArrayBuffer(base64AudioData);
     const audioBuffer = this.audioContext!.createBuffer(
-        this.options.channelCount!, arrayBuffer.byteLength / 2,
-        this.options.sampleRate!);
+      this.options.channelCount!,
+      arrayBuffer.byteLength / 2,
+      this.options.sampleRate!
+    );
 
     const channelData = audioBuffer.getChannelData(0);
     const int16View = new Int16Array(arrayBuffer);
@@ -97,9 +102,10 @@ export class AudioPlayer extends Script {
 
   private scheduleAudioBuffers() {
     const SCHEDULE_AHEAD_TIME = 0.2;
-    while (this.audioQueue.length > 0 &&
-           this.nextStartTime <=
-               this.audioContext!.currentTime + SCHEDULE_AHEAD_TIME) {
+    while (
+      this.audioQueue.length > 0 &&
+      this.nextStartTime <= this.audioContext!.currentTime + SCHEDULE_AHEAD_TIME
+    ) {
       const audioBuffer = this.audioQueue.shift()!;
       const currentTime = this.audioContext!.currentTime;
       const startTime = Math.max(this.nextStartTime, currentTime);
@@ -145,7 +151,7 @@ export class AudioPlayer extends Script {
       this.audioContext.close();
       this.audioContext = undefined;
       this.gainNode = undefined;
-      this.nextStartTime = 0;  // Reset timing
+      this.nextStartTime = 0; // Reset timing
     }
   }
 

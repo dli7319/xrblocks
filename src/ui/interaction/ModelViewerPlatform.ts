@@ -11,18 +11,26 @@ import {createPlatformGeometry} from './ModelViewerPlatformGeometry.js';
  * for fading in and out on hover. Its `draggingMode` is set to `TRANSLATING` to
  * enable movement.
  */
-export class ModelViewerPlatform extends
-    THREE.Mesh<THREE.BufferGeometry, THREE.Material[]> {
+export class ModelViewerPlatform extends THREE.Mesh<
+  THREE.BufferGeometry,
+  THREE.Material[]
+> {
   draggingMode = DragManager.TRANSLATING;
   opacity: AnimatableNumber;
 
   constructor(width: number, depth: number, thickness: number) {
     const geometry = createPlatformGeometry(width, depth, thickness);
     super(geometry, [
-      new THREE.MeshLambertMaterial(
-          {color: 0xFFFFFF, transparent: true, opacity: 0.0}),
-      new THREE.MeshLambertMaterial(
-          {color: 0xFFFFFF, transparent: true, opacity: 0.0})
+      new THREE.MeshLambertMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.0,
+      }),
+      new THREE.MeshLambertMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.0,
+      }),
     ]);
     this.opacity = new AnimatableNumber(0, 0, 0.5, 0);
   }

@@ -8,14 +8,15 @@ import {GeminiResponse} from './AITypes';
 import {Gemini, GeminiStartLiveSessionParams} from './Gemini';
 import {OpenAI} from './OpenAI';
 
-export type ModelClass = Gemini|OpenAI;
-export type ModelOptions = GeminiOptions|OpenAIOptions;
+export type ModelClass = Gemini | OpenAI;
+export type ModelOptions = GeminiOptions | OpenAIOptions;
 
 export type KeysJson = {
   [key: string]:
-      string|{
+    | string
+    | {
         apiKey?: string;
-      }
+      };
 };
 
 const SUPPORTED_MODELS = {
@@ -55,19 +56,19 @@ export class AI extends Script {
   model?: ModelClass;
   lock = false;
   options!: AIOptions;
-  keysCache?: KeysJson;  // Cache for loaded keys.json
+  keysCache?: KeysJson; // Cache for loaded keys.json
 
   /**
    * Load API keys from keys.json file if available
    * Parsed keys object or null if not found
    */
-  async loadKeysFromFile(): Promise<KeysJson|null> {
+  async loadKeysFromFile(): Promise<KeysJson | null> {
     if (this.keysCache) return this.keysCache;
 
     try {
       const response = await fetch('./keys.json');
       if (response.ok) {
-        this.keysCache = await response.json() as KeysJson;
+        this.keysCache = (await response.json()) as KeysJson;
         console.log('🔑 Loaded keys.json');
         return this.keysCache;
       }
@@ -102,7 +103,9 @@ export class AI extends Script {
   }
 
   async initializeModel(
-      ModelClass: typeof Gemini|typeof OpenAI, modelOptions: ModelOptions) {
+    ModelClass: typeof Gemini | typeof OpenAI,
+    modelOptions: ModelOptions
+  ) {
     const apiKey = await this.resolveApiKey(modelOptions);
     if (!apiKey || !this.isValidApiKey(apiKey)) {
       console.error(`No valid API key found for ${this.options.model}`);
@@ -119,7 +122,7 @@ export class AI extends Script {
     }
   }
 
-  async resolveApiKey(modelOptions: ModelOptions): Promise<string|null> {
+  async resolveApiKey(modelOptions: ModelOptions): Promise<string | null> {
     const modelName = this.options.model;
 
     // 1. Check options
@@ -147,7 +150,7 @@ export class AI extends Script {
     const keysFromFile = await this.loadKeysFromFile();
     if (keysFromFile) {
       const modelNameWithApiKeySuffix = modelName + `ApiKey`;
-      let keyFromFile: string|null|undefined = null;
+      let keyFromFile: string | null | undefined = null;
       if (typeof keysFromFile[modelName] === 'object') {
         keyFromFile = keysFromFile[modelName]?.apiKey;
       } else if (typeof keysFromFile[modelNameWithApiKeySuffix] === 'string') {
@@ -172,11 +175,14 @@ export class AI extends Script {
     return this.model && this.model.isAvailable() && !this.lock;
   }
 
-  async query(input: {prompt: string}, tools?: never[]):
-      Promise<GeminiResponse|string|null> {
+  async query(
+    input: {prompt: string},
+    tools?: never[]
+  ): Promise<GeminiResponse | string | null> {
     if (!this.isAvailable()) {
       throw new Error(
-          'AI is not available. Check if it\'s enabled and properly initialized.');
+        "AI is not available. Check if it's enabled and properly initialized."
+      );
     }
     return await this.model!.query(input, tools);
   }
@@ -235,8 +241,11 @@ export class AI extends Script {
   }
 
   isLiveAvailable() {
-    return this.model && 'isLiveAvailable' in this.model &&
-        this.model.isLiveAvailable();
+    return (
+      this.model &&
+      'isLiveAvailable' in this.model &&
+      this.model.isLiveAvailable()
+    );
   }
 
   /**
@@ -246,9 +255,11 @@ export class AI extends Script {
   triggerKeyPopup() {}
 
   async generate(
-      prompt: string|string[], type: 'image' = 'image',
-      systemInstruction = 'Generate an image',
-      model = 'gemini-2.5-flash-image-preview') {
+    prompt: string | string[],
+    type: 'image' = 'image',
+    systemInstruction = 'Generate an image',
+    model = 'gemini-2.5-flash-image-preview'
+  ) {
     return this.model!.generate(prompt, type, systemInstruction, model);
   }
 
@@ -258,8 +269,8 @@ export class AI extends Script {
    */
   static createSampleKeysStructure() {
     return {
-      'gemini': {'apiKey': 'YOUR_GEMINI_API_KEY_HERE'},
-      'openai': {'apiKey': 'YOUR_OPENAI_API_KEY_HERE'},
+      gemini: {apiKey: 'YOUR_GEMINI_API_KEY_HERE'},
+      openai: {apiKey: 'YOUR_OPENAI_API_KEY_HERE'},
     };
   }
 

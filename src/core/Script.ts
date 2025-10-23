@@ -47,7 +47,8 @@ export interface KeyEvent {
  *
  */
 export function ScriptMixin<TBase extends Constructor<THREE.Object3D>>(
-    base: TBase) {
+  base: TBase
+) {
   return class extends base implements Injectable {
     ux = new UX(this);
     isXRScript = true;
@@ -59,7 +60,7 @@ export function ScriptMixin<TBase extends Constructor<THREE.Object3D>>(
      * lighting estimation, and recognized objects), and scene (the root of
      * three.js's scene graph). If this returns a promise, we will wait for it.
      */
-    init(_?: object): void|Promise<void> {}
+    init(_?: object): void | Promise<void> {}
 
     /**
      * Runs per frame.
@@ -69,7 +70,7 @@ export function ScriptMixin<TBase extends Constructor<THREE.Object3D>>(
     /**
      * Enables depth-aware interactions with physics. See /demos/ballpit
      */
-    initPhysics(_physics: Physics): void|Promise<void> {}
+    initPhysics(_physics: Physics): void | Promise<void> {}
     physicsStep() {}
 
     onXRSessionStarted(_session?: XRSession) {}
@@ -148,7 +149,7 @@ export function ScriptMixin<TBase extends Constructor<THREE.Object3D>>(
      * @returns Whether the event was handled
      */
     onObjectSelectEnd(_event: SelectEvent) {
-      return false;  // Whether the event was handled
+      return false; // Whether the event was handled
     }
     /**
      * Called when the controller starts hovering over this object with reticle.
@@ -201,10 +202,9 @@ export function ScriptMixin<TBase extends Constructor<THREE.Object3D>>(
  * Script manages app logic or interaction between user and objects.
  */
 const ScriptMixinObject3D = ScriptMixin(THREE.Object3D);
-export class Script<TEventMap extends THREE.Object3DEventMap =
-                                          THREE.Object3DEventMap> extends
-    ScriptMixinObject3D<TEventMap> {}
-
+export class Script<
+  TEventMap extends THREE.Object3DEventMap = THREE.Object3DEventMap,
+> extends ScriptMixinObject3D<TEventMap> {}
 
 /**
  * MeshScript can be constructed with geometry and materials, with
@@ -215,12 +215,12 @@ export class Script<TEventMap extends THREE.Object3DEventMap =
  */
 const ScriptMixinMeshScript = ScriptMixin(THREE.Mesh);
 export class MeshScript<
-    TGeometry extends THREE.BufferGeometry = THREE.BufferGeometry,
-                      TMaterial extends
-        THREE.Material | THREE.Material[] = THREE.Material | THREE.Material[],
-        TEventMap extends THREE.Object3DEventMap =
-                              THREE.Object3DEventMap> extends
-    ScriptMixinMeshScript<TGeometry, TMaterial, TEventMap> {
+  TGeometry extends THREE.BufferGeometry = THREE.BufferGeometry,
+  TMaterial extends THREE.Material | THREE.Material[] =
+    | THREE.Material
+    | THREE.Material[],
+  TEventMap extends THREE.Object3DEventMap = THREE.Object3DEventMap,
+> extends ScriptMixinMeshScript<TGeometry, TMaterial, TEventMap> {
   /**
    * {@inheritDoc}
    */

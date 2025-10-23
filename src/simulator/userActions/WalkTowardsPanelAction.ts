@@ -10,7 +10,7 @@ import {SimulatorUserAction} from './SimulatorUserAction';
 
 const NEAR_TARGET_DISTANCE = 0.5;
 const NEAR_TARGET_THRESHOLD = 0.1;
-const LOOK_AT_ANGLE_THRESHOLD = 3 * Math.PI / 180;
+const LOOK_AT_ANGLE_THRESHOLD = (3 * Math.PI) / 180;
 const MOVEMENT_SPEED_METERS_PER_SECOND = 1;
 const ROTATION_SPEED_RADIANS_PER_SECOND = 1;
 
@@ -35,7 +35,7 @@ export class WalkTowardsPanelAction extends SimulatorUserAction {
     super();
   }
 
-  async init({camera, timer}: {camera: THREE.Camera, timer: THREE.Timer}) {
+  async init({camera, timer}: {camera: THREE.Camera; timer: THREE.Timer}) {
     this.camera = camera;
     this.timer = timer;
   }
@@ -46,8 +46,8 @@ export class WalkTowardsPanelAction extends SimulatorUserAction {
     cameraToTargetVector.copy(targetWorldPosition).sub(camera.position);
     lookAtRotation(cameraToTargetVector, UP, finalRotation);
     const angle =
-        (finalRotation.angleTo(camera.quaternion) + Math.PI) % (2 * Math.PI) -
-        Math.PI;
+      ((finalRotation.angleTo(camera.quaternion) + Math.PI) % (2 * Math.PI)) -
+      Math.PI;
     return angle < LOOK_AT_ANGLE_THRESHOLD;
   }
 
@@ -55,8 +55,10 @@ export class WalkTowardsPanelAction extends SimulatorUserAction {
     const camera = this.camera;
     this.target.getWorldPosition(targetWorldPosition);
     cameraToTargetVector.copy(targetWorldPosition).sub(camera.position);
-    return Math.abs(cameraToTargetVector.length() - NEAR_TARGET_DISTANCE) <
-        NEAR_TARGET_THRESHOLD;
+    return (
+      Math.abs(cameraToTargetVector.length() - NEAR_TARGET_DISTANCE) <
+      NEAR_TARGET_THRESHOLD
+    );
   }
 
   lookAtTarget() {
@@ -77,7 +79,9 @@ export class WalkTowardsPanelAction extends SimulatorUserAction {
     lookAtRotation(cameraToTargetVector, UP, finalRotation);
     deltaRotation.copy(finalRotation).multiply(inverseCameraRotation);
     clampRotationToAngle(
-        deltaRotation, ROTATION_SPEED_RADIANS_PER_SECOND * deltaTime);
+      deltaRotation,
+      ROTATION_SPEED_RADIANS_PER_SECOND * deltaTime
+    );
     camera.quaternion.premultiply(deltaRotation);
   }
 
@@ -86,21 +90,29 @@ export class WalkTowardsPanelAction extends SimulatorUserAction {
     const deltaTime = this.timer.getDelta();
     this.target.getWorldPosition(targetWorldPosition);
     cameraToTargetVector.copy(targetWorldPosition).sub(camera.position);
-    closeToTargetPosition.copy(targetWorldPosition)
-        .addScaledVector(cameraToTargetVector, -NEAR_TARGET_THRESHOLD);
+    closeToTargetPosition
+      .copy(targetWorldPosition)
+      .addScaledVector(cameraToTargetVector, -NEAR_TARGET_THRESHOLD);
     const cameraToCloseToTarget = closeToTargetPosition.sub(camera.position);
     const movementDistance = clamp(
-        cameraToCloseToTarget.length(), 0,
-        MOVEMENT_SPEED_METERS_PER_SECOND * deltaTime);
+      cameraToCloseToTarget.length(),
+      0,
+      MOVEMENT_SPEED_METERS_PER_SECOND * deltaTime
+    );
     camera.position.addScaledVector(
-        cameraToCloseToTarget,
-        movementDistance / cameraToCloseToTarget.length());
+      cameraToCloseToTarget,
+      movementDistance / cameraToCloseToTarget.length()
+    );
   }
 
-  async play({simulatorUser, journeyId, waitFrame}: {
-    simulatorUser: SimulatorUser,
-    journeyId: number,
-    waitFrame: WaitFrame
+  async play({
+    simulatorUser,
+    journeyId,
+    waitFrame,
+  }: {
+    simulatorUser: SimulatorUser;
+    journeyId: number;
+    waitFrame: WaitFrame;
   }) {
     let isLookingAtTarget = this.isLookingAtTarget();
     let isNearTarget = this.isNearTarget();

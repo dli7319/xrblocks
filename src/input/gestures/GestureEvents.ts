@@ -1,15 +1,15 @@
 import type {BuiltInGestureName} from './GestureRecognitionOptions';
 
-export type GestureEventType = 'gesturestart'|'gestureupdate'|'gestureend';
+export type GestureEventType = 'gesturestart' | 'gestureupdate' | 'gestureend';
 
-export type GestureHandedness = 'left'|'right';
+export type GestureHandedness = 'left' | 'right';
 
 export interface GestureEventDetail {
   /**
    * The canonical gesture identifier. Built-in gestures map to
    * `BuiltInGestureName` while custom providers may surface arbitrary strings.
    */
-  name: BuiltInGestureName|string;
+  name: BuiltInGestureName | string;
   /** Which hand triggered the gesture. */
   hand: GestureHandedness;
   /** Provider specific confidence score, normalized to [0, 1]. */

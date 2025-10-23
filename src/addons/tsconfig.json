@@ -3,18 +3,12 @@
   "compilerOptions": {
     "rootDir": "../",
     "paths": {
-      "rapier3d": [
-        "../../node_modules/@dimforge/rapier3d/rapier"
-      ],
+      "rapier3d": ["../../node_modules/@dimforge/rapier3d/rapier"],
       "troika-three-text": [
         "../../node_modules/troika-types/packages/troika-three-text/dist/src/index"
       ],
-      "xrblocks": [
-        "../xrblocks.ts"
-      ]
+      "xrblocks": ["../xrblocks.ts"]
     }
   },
-  "include": [
-    "**/*.ts"
-  ]
+  "include": ["**/*.ts"]
 }

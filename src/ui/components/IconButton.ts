@@ -10,7 +10,7 @@ import {MATERIAL_ICONS_FONT_FILE} from './utils/FontFamilies';
  * icon from the Material Icons font library. It provides visual feedback for
  * hover and selection states by changing its background opacity.
  */
-export type IconButtonOptions = TextViewOptions&{
+export type IconButtonOptions = TextViewOptions & {
   backgroundColor?: THREE.ColorRepresentation;
   defaultOpacity?: number;
   hoverColor?: number;
@@ -67,9 +67,9 @@ export class IconButton extends TextView {
       color: backgroundColor,
       transparent: true,
       depthWrite: false,
-      opacity: 0,  // Start with zero opacity, will be controlled by interaction
-                   // logic
-      side: THREE.FrontSide
+      opacity: 0, // Start with zero opacity, will be controlled by interaction
+      // logic
+      side: THREE.FrontSide,
     });
 
     // Pass geometry and material to the TextView -> View chain.
@@ -101,7 +101,7 @@ export class IconButton extends TextView {
    */
   onHoverOver() {
     if (!this.ux) return;
-    this.update();  // Consolidate logic in update()
+    this.update(); // Consolidate logic in update()
   }
 
   /**
@@ -109,7 +109,7 @@ export class IconButton extends TextView {
    */
   onHoverOut() {
     if (!this.ux) return;
-    this.update();  // Consolidate logic in update()
+    this.update(); // Consolidate logic in update()
   }
 
   /**
@@ -118,9 +118,9 @@ export class IconButton extends TextView {
   update() {
     if (!this.ux) return;
     if (this.ux.isHovered() || this.ux.isSelected()) {
-      this.mesh!.material.opacity = this.ux.isSelected() ?
-          this.selectedOpacity * this.opacity :
-          this.hoverOpacity * this.opacity;
+      this.mesh!.material.opacity = this.ux.isSelected()
+        ? this.selectedOpacity * this.opacity
+        : this.hoverOpacity * this.opacity;
     } else {
       this.mesh!.material.opacity = this.defaultOpacity * this.opacity;
     }

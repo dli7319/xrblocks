@@ -22,4 +22,4 @@ export class IconView extends TextView {
   constructor(options: IconViewOptions = {}) {
     super({font: MATERIAL_ICONS_FONT_FILE, ...options});
   }
-};
+}

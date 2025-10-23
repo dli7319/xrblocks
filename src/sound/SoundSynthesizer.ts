@@ -18,12 +18,12 @@ export const SOUND_PRESETS = {
   ],
   ACTIVATE: [
     {frequency: 800, duration: 0.05, waveformType: 'sine', delay: 0},
-    {frequency: 1200, duration: 0.07, waveformType: 'sine', delay: 50}
+    {frequency: 1200, duration: 0.07, waveformType: 'sine', delay: 50},
   ],
   DEACTIVATE: [
     {frequency: 1200, duration: 0.05, waveformType: 'sine', delay: 0},
-    {frequency: 800, duration: 0.07, waveformType: 'sine', delay: 50}
-  ]
+    {frequency: 800, duration: 0.07, waveformType: 'sine', delay: 50},
+  ],
 } as const;
 
 export class SoundSynthesizer extends Script {
@@ -53,20 +53,26 @@ export class SoundSynthesizer extends Script {
    *     'triangle').
    */
   playTone(
-      frequency: number, duration: number, volume: number,
-      waveformType: OscillatorType) {
-    this._initAudioContext();  // Initialize context on first interaction
+    frequency: number,
+    duration: number,
+    volume: number,
+    waveformType: OscillatorType
+  ) {
+    this._initAudioContext(); // Initialize context on first interaction
 
     if (!this.audioContext) {
       console.error(
-          'SoundSynthesizer: AudioContext not available. Cannot play tone.');
+        'SoundSynthesizer: AudioContext not available. Cannot play tone.'
+      );
       return;
     }
 
     const oscillator = this.audioContext.createOscillator();
     oscillator.type = waveformType;
     oscillator.frequency.setValueAtTime(
-        frequency, this.audioContext.currentTime);
+      frequency,
+      this.audioContext.currentTime
+    );
     const gainNode = this.audioContext.createGain();
     gainNode.gain.setValueAtTime(volume, this.audioContext.currentTime);
     oscillator.connect(gainNode);
@@ -76,8 +82,7 @@ export class SoundSynthesizer extends Script {
     // Stop the sound after the specified duration with a slight fade out to
     // prevent clicks
     const stopTime = this.audioContext.currentTime + duration;
-    const fadeOutTime = Math.max(
-        0.01, duration * 0.1);  // Fade out over 10% of duration, min 0.01s
+    const fadeOutTime = Math.max(0.01, duration * 0.1); // Fade out over 10% of duration, min 0.01s
 
     gainNode.gain.exponentialRampToValueAtTime(0.00001, stopTime - fadeOutTime);
     oscillator.stop(stopTime);
@@ -104,11 +109,14 @@ export class SoundSynthesizer extends Script {
       this.playTone(tone.frequency, tone.duration, volume, tone.waveformType);
     } else {
       // Handle multi-tone sequences
-      preset.forEach(toneConfig => {
+      preset.forEach((toneConfig) => {
         setTimeout(() => {
           this.playTone(
-              toneConfig.frequency, toneConfig.duration, volume,
-              toneConfig.waveformType);
+            toneConfig.frequency,
+            toneConfig.duration,
+            volume,
+            toneConfig.waveformType
+          );
         }, toneConfig.delay || 0);
       });
     }

@@ -5,7 +5,7 @@ import {Grid, GridOptions} from './Grid.js';
  * vertically. The height of each row is determined by its `weight` property
  * relative to the total weight of all rows in the grid.
  */
-export type RowOptions = GridOptions&{
+export type RowOptions = GridOptions & {
   weight?: number;
 };
 

@@ -1,22 +1,27 @@
-import {StreamState, VideoStream, VideoStreamDetails, VideoStreamOptions} from './VideoStream';
+import {
+  StreamState,
+  VideoStream,
+  VideoStreamDetails,
+  VideoStreamOptions,
+} from './VideoStream';
 
-type VideoFileStreamDetails = VideoStreamDetails&{
+type VideoFileStreamDetails = VideoStreamDetails & {
   width?: number;
   height?: number;
   aspectRatio?: number;
-  videoFile?: string|File;
-}
+  videoFile?: string | File;
+};
 
-export type VideoFileStreamOptions = VideoStreamOptions&{
+export type VideoFileStreamOptions = VideoStreamOptions & {
   /** The video file path, URL, or File object. */
-  videoFile?: string|File;
+  videoFile?: string | File;
 };
 
 /**
  * VideoFileStream handles video playback from a file source.
  */
 export class VideoFileStream extends VideoStream<VideoFileStreamDetails> {
-  private videoFile_?: string|File;
+  private videoFile_?: string | File;
 
   /**
    * @param options - Configuration for the file stream.
@@ -51,9 +56,10 @@ export class VideoFileStream extends VideoStream<VideoFileStreamDetails> {
     this.stop_();
 
     this.video_.srcObject = null;
-    this.video_.src = typeof this.videoFile_ === 'string' ?
-        this.videoFile_ :
-        URL.createObjectURL(this.videoFile_);
+    this.video_.src =
+      typeof this.videoFile_ === 'string'
+        ? this.videoFile_
+        : URL.createObjectURL(this.videoFile_);
     this.video_.loop = true;
     this.video_.muted = true;
 
@@ -74,7 +80,7 @@ export class VideoFileStream extends VideoStream<VideoFileStreamDetails> {
       width: this.width,
       height: this.height,
       aspectRatio: this.aspectRatio,
-      videoFile: this.videoFile_
+      videoFile: this.videoFile_,
     });
   }
 
@@ -82,7 +88,7 @@ export class VideoFileStream extends VideoStream<VideoFileStreamDetails> {
    * Sets a new video file source and re-initializes the stream.
    * @param videoFile - The new video file to play.
    */
-  async setSource(videoFile: string|File) {
+  async setSource(videoFile: string | File) {
     if (!videoFile) {
       console.warn('setSource called with no file. Stopping stream.');
       this.stop_();

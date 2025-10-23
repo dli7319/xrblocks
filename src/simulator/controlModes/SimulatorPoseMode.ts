@@ -1,4 +1,3 @@
-
 import {SimulatorControlMode} from './SimulatorControlMode.js';
 
 export class SimulatorPoseMode extends SimulatorControlMode {

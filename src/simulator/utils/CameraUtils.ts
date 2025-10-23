@@ -2,7 +2,7 @@ export enum ConstrainDomStringMatch {
   EXACT = 0,
   IDEAL = 1,
   ACCEPTABLE = 2,
-  UNACCEPTABLE = 3
+  UNACCEPTABLE = 3,
 }
 
 /**
@@ -13,9 +13,11 @@ export enum ConstrainDomStringMatch {
  * @returns A `ConstrainDomStringMatch` enum indicating the match level.
  */
 export function evaluateConstrainDOMString(
-    constraint: ConstrainDOMString, value: string): ConstrainDomStringMatch {
+  constraint: ConstrainDOMString,
+  value: string
+): ConstrainDomStringMatch {
   // Helper to check for a match against a string or string array.
-  const matches = (c: string|string[], v: string): boolean => {
+  const matches = (c: string | string[], v: string): boolean => {
     return typeof c === 'string' ? v === c : c.includes(v);
   };
 
@@ -26,17 +28,18 @@ export function evaluateConstrainDOMString(
 
   // A standalone string or array is treated as an implicit 'exact' requirement.
   if (typeof constraint === 'string' || Array.isArray(constraint)) {
-    return matches(constraint, value) ? ConstrainDomStringMatch.EXACT :
-                                        ConstrainDomStringMatch.UNACCEPTABLE;
+    return matches(constraint, value)
+      ? ConstrainDomStringMatch.EXACT
+      : ConstrainDomStringMatch.UNACCEPTABLE;
   }
 
   // Handle the object-based constraint.
   if (typeof constraint === 'object') {
     // The 'exact' property is a hard requirement that overrides all others.
     if (constraint.exact !== undefined) {
-      return matches(constraint.exact, value) ?
-          ConstrainDomStringMatch.EXACT :
-          ConstrainDomStringMatch.UNACCEPTABLE;
+      return matches(constraint.exact, value)
+        ? ConstrainDomStringMatch.EXACT
+        : ConstrainDomStringMatch.UNACCEPTABLE;
     }
 
     // If there's no 'exact' constraint, check 'ideal'.

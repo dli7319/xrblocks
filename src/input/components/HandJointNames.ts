@@ -23,5 +23,5 @@ export const HAND_JOINT_NAMES = [
   'pinky-finger-phalanx-proximal',
   'pinky-finger-phalanx-intermediate',
   'pinky-finger-phalanx-distal',
-  'pinky-finger-tip'
+  'pinky-finger-tip',
 ] as const;

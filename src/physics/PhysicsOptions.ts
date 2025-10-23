@@ -1,8 +1,8 @@
 import type RAPIER from 'rapier3d';
 
-export type RAPIERCompat = typeof RAPIER&{
+export type RAPIERCompat = typeof RAPIER & {
   init?: () => Promise<void>;
-}
+};
 
 export class PhysicsOptions {
   /**
@@ -26,7 +26,7 @@ export class PhysicsOptions {
    * If true, an event queue will be created and passed to `world.step()`,
    * enabling the handling of collision and contact events.
    */
-  useEventQueue = false
+  useEventQueue = false;
 
   /**
    * Instance of RAPIER.

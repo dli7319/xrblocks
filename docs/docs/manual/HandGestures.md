@@ -46,11 +46,19 @@ class GestureDebugger extends xb.Script {
     const gestures = xb.core.gestureRecognition;
     if (!gestures) return;
     const log = (phase, {hand, name, confidence = 0}) =>
-        console.log(`[gesture] ${hand} hand ${name} ${phase} ` +
-                    `(${confidence.toFixed(2)})`);
-    gestures.addEventListener('gesturestart', (event) => log('start', event.detail));
-    gestures.addEventListener('gestureupdate', (event) => log('update', event.detail));
-    gestures.addEventListener('gestureend', (event) => log('end', event.detail));
+      console.log(
+        `[gesture] ${hand} hand ${name} ${phase} ` +
+          `(${confidence.toFixed(2)})`
+      );
+    gestures.addEventListener('gesturestart', (event) =>
+      log('start', event.detail)
+    );
+    gestures.addEventListener('gestureupdate', (event) =>
+      log('update', event.detail)
+    );
+    gestures.addEventListener('gestureend', (event) =>
+      log('end', event.detail)
+    );
   }
 }
 ```

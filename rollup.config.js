@@ -62,14 +62,17 @@ ${apache2License}
  */`;
 
 const externalPackages = [
-  'three', /three\/addons\//, 'troika-three-text', '@google/genai', 'openai',
-  '@sparkjsdev/spark', /^lit(\/.*)?$/, 'openai'
+  'three',
+  /three\/addons\//,
+  'troika-three-text',
+  '@google/genai',
+  'openai',
+  '@sparkjsdev/spark',
+  /^lit(\/.*)?$/,
+  'openai',
 ];
 
-const xrblocksPackages = [
-  'xrblocks',
-  /xrblocks\/addons\//,
-];
+const xrblocksPackages = ['xrblocks', /xrblocks\/addons\//];
 
 export default [
   {
@@ -79,9 +82,9 @@ export default [
       file: 'build/xrblocks.js',
       format: 'esm',
       banner: bannerText,
-      sourcemap: true
+      sourcemap: true,
     },
-    plugins: [typescript()]
+    plugins: [typescript()],
   },
   {
     input: 'src/xrblocks.ts',
@@ -92,26 +95,27 @@ export default [
       sourcemap: true,
     },
     plugins: [typescript(), terser()],
-    watch: false,  // Skip this rule when using watch.
+    watch: false, // Skip this rule when using watch.
   },
   {
     input: Object.fromEntries(
-        globSync('src/addons/**/*.{js,ts}')
-            .map(
-                file => [
-                    // This removes `src/` as well as the file extension from
-                    // each file, so e.g. src/nested/foo.js becomes nested/foo
-                    path.relative(
-                        'src',
-                        file.slice(0, file.length - path.extname(file).length)),
-                    // This expands the relative paths to absolute paths, so
-                    // e.g. src/nested/foo becomes /project/src/nested/foo.js
-                    fileURLToPath(new URL(file, import.meta.url))])),
+      globSync('src/addons/**/*.{js,ts}').map((file) => [
+        // This removes `src/` as well as the file extension from
+        // each file, so e.g. src/nested/foo.js becomes nested/foo
+        path.relative(
+          'src',
+          file.slice(0, file.length - path.extname(file).length)
+        ),
+        // This expands the relative paths to absolute paths, so
+        // e.g. src/nested/foo becomes /project/src/nested/foo.js
+        fileURLToPath(new URL(file, import.meta.url)),
+      ])
+    ),
     external: [...externalPackages, ...xrblocksPackages],
     output: {
       dir: 'build/',
       format: 'esm',
     },
-    plugins: [typescript({tsconfig: 'src/addons/tsconfig.json'})]
+    plugins: [typescript({tsconfig: 'src/addons/tsconfig.json'})],
   },
 ];

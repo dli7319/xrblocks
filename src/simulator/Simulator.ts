@@ -38,13 +38,18 @@ export class Simulator extends Script {
   depth = new SimulatorDepth(this.simulatorScene);
   // Controller poses relative to the camera.
   simulatorControllerState = new SimulatorControllerState();
-  hands =
-      new SimulatorHands(this.simulatorControllerState, this.simulatorScene);
+  hands = new SimulatorHands(
+    this.simulatorControllerState,
+    this.simulatorScene
+  );
   simulatorUser = new SimulatorUser();
   userInterface = new SimulatorInterface();
   controls = new SimulatorControls(
-      this.simulatorControllerState, this.hands,
-      this.setStereoRenderMode.bind(this), this.userInterface);
+    this.simulatorControllerState,
+    this.hands,
+    this.setStereoRenderMode.bind(this),
+    this.userInterface
+  );
   renderDepthPass = false;
   renderMode = SimulatorRenderMode.DEFAULT;
   stereoCameras: THREE.Camera[] = [];
@@ -62,10 +67,11 @@ export class Simulator extends Script {
 
   private initialized = false;
   private renderSimulatorSceneToCanvasBound =
-      this.renderSimulatorSceneToCanvas.bind(this);
+    this.renderSimulatorSceneToCanvas.bind(this);
 
   constructor(
-      private renderMainScene: (cameraOverride?: THREE.Camera) => void) {
+    private renderMainScene: (cameraOverride?: THREE.Camera) => void
+  ) {
     super();
     this.add(this.simulatorUser);
   }
@@ -81,15 +87,15 @@ export class Simulator extends Script {
     options,
     depth,
   }: {
-    simulatorOptions: SimulatorOptions,
-    input: Input,
-    timer: THREE.Timer,
-    camera: THREE.Camera,
-    renderer: THREE.WebGLRenderer,
-    scene: THREE.Scene,
-    registry: Registry,
-    options: Options,
-    depth: Depth,
+    simulatorOptions: SimulatorOptions;
+    input: Input;
+    timer: THREE.Timer;
+    camera: THREE.Camera;
+    renderer: THREE.WebGLRenderer;
+    scene: THREE.Scene;
+    registry: Registry;
+    options: Options;
+    depth: Depth;
   }) {
     if (this.initialized) return;
     // Get optional dependencies from the registry.
@@ -122,27 +128,27 @@ export class Simulator extends Script {
     }
 
     this.virtualSceneRenderTarget = new THREE.WebGLRenderTarget(
-        renderer.domElement.width, renderer.domElement.height,
-        {stencilBuffer: options.stencil});
-    const virtualSceneMaterial = new THREE.MeshBasicMaterial(
-            {map: this.virtualSceneRenderTarget.texture, transparent: true});
+      renderer.domElement.width,
+      renderer.domElement.height,
+      {stencilBuffer: options.stencil}
+    );
+    const virtualSceneMaterial = new THREE.MeshBasicMaterial({
+      map: this.virtualSceneRenderTarget.texture,
+      transparent: true,
+    });
     if (this.options.blendingMode === 'screen') {
       virtualSceneMaterial.blending = THREE.CustomBlending;
       virtualSceneMaterial.blendSrc = THREE.OneFactor;
-      virtualSceneMaterial.blendDst =
-          THREE.OneMinusSrcColorFactor;
-      virtualSceneMaterial.blendEquation =
-          THREE.AddEquation;
+      virtualSceneMaterial.blendDst = THREE.OneMinusSrcColorFactor;
+      virtualSceneMaterial.blendEquation = THREE.AddEquation;
     }
-    this.virtualSceneFullScreenQuad =
-        new FullScreenQuad(virtualSceneMaterial);
+    this.virtualSceneFullScreenQuad = new FullScreenQuad(virtualSceneMaterial);
 
     this.renderer = renderer;
     this.mainCamera = camera;
     this.mainScene = scene;
     this.initialized = true;
   }
-
 
   simulatorUpdate() {
     this.controls.update();
@@ -180,7 +186,9 @@ export class Simulator extends Script {
   onBeforeSimulatorSceneRender() {
     if (this.camera) {
       this.camera.onBeforeSimulatorSceneRender(
-          this.mainCamera, this.renderSimulatorSceneToCanvasBound);
+        this.mainCamera,
+        this.renderSimulatorSceneToCanvasBound
+      );
     }
   }
 
@@ -194,7 +202,7 @@ export class Simulator extends Script {
     return {
       [SimulatorRenderMode.DEFAULT]: this.mainCamera,
       [SimulatorRenderMode.STEREO_LEFT]: this.stereoCameras[0],
-      [SimulatorRenderMode.STEREO_RIGHT]: this.stereoCameras[1]
+      [SimulatorRenderMode.STEREO_RIGHT]: this.stereoCameras[1],
     }[this.renderMode];
   }
 
@@ -203,17 +211,20 @@ export class Simulator extends Script {
     if (!this.renderer) return;
     if (!this.options.renderToRenderTexture) return;
     // Allocate a new render target if the resolution changes.
-    if (this.virtualSceneRenderTarget!.width !=
-            this.renderer.domElement.width ||
-        this.virtualSceneRenderTarget!.height !=
-            this.renderer.domElement.height) {
+    if (
+      this.virtualSceneRenderTarget!.width != this.renderer.domElement.width ||
+      this.virtualSceneRenderTarget!.height != this.renderer.domElement.height
+    ) {
       const stencilEnabled = !!this.virtualSceneRenderTarget?.stencilBuffer;
       this.virtualSceneRenderTarget!.dispose();
       this.virtualSceneRenderTarget = new THREE.WebGLRenderTarget(
-          this.renderer.domElement.width, this.renderer.domElement.height,
-          {stencilBuffer: stencilEnabled});
-      (this.virtualSceneFullScreenQuad!.material as THREE.MeshBasicMaterial)
-          .map = this.virtualSceneRenderTarget.texture;
+        this.renderer.domElement.width,
+        this.renderer.domElement.height,
+        {stencilBuffer: stencilEnabled}
+      );
+      (
+        this.virtualSceneFullScreenQuad!.material as THREE.MeshBasicMaterial
+      ).map = this.virtualSceneRenderTarget.texture;
     }
     this.renderer.setRenderTarget(this.virtualSceneRenderTarget!);
     this.renderer.clear();

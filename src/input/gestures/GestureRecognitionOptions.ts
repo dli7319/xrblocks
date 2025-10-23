@@ -1,10 +1,15 @@
 import {deepMerge} from '../../utils/OptionsUtils';
 import {DeepPartial, DeepReadonly} from '../../utils/Types';
 
-export type GestureProvider = 'heuristics'|'mediapipe'|'tfjs';
+export type GestureProvider = 'heuristics' | 'mediapipe' | 'tfjs';
 
 export type BuiltInGestureName =
-    'pinch'|'open-palm'|'fist'|'thumbs-up'|'point'|'spread';
+  | 'pinch'
+  | 'open-palm'
+  | 'fist'
+  | 'thumbs-up'
+  | 'point'
+  | 'spread';
 
 export type GestureConfiguration = {
   enabled: boolean;
@@ -16,8 +21,9 @@ export type GestureConfiguration = {
   threshold?: number;
 };
 
-export type GestureConfigurations =
-    Partial<Record<BuiltInGestureName, Partial<GestureConfiguration>>>;
+export type GestureConfigurations = Partial<
+  Record<BuiltInGestureName, Partial<GestureConfiguration>>
+>;
 
 export class GestureRecognitionOptions {
   /** Master switch for the gesture recognition block. */
@@ -46,12 +52,12 @@ export class GestureRecognitionOptions {
    * Default gesture catalogue.
    */
   gestures: Record<BuiltInGestureName, GestureConfiguration> = {
-    'pinch': {enabled: true, threshold: 0.025},
+    pinch: {enabled: true, threshold: 0.025},
     'open-palm': {enabled: true},
-    'fist': {enabled: true},
+    fist: {enabled: true},
     'thumbs-up': {enabled: true},
-    'point': {enabled: false},
-    'spread': {enabled: false, threshold: 0.04},
+    point: {enabled: false},
+    spread: {enabled: false, threshold: 0.04},
   };
 
   constructor(options?: DeepReadonly<DeepPartial<GestureRecognitionOptions>>) {
@@ -60,7 +66,9 @@ export class GestureRecognitionOptions {
       for (const [name, config] of Object.entries(options.gestures)) {
         const gestureName = name as BuiltInGestureName;
         this.gestures[gestureName] = deepMerge(
-            {...this.gestures[gestureName]}, config) as GestureConfiguration;
+          {...this.gestures[gestureName]},
+          config
+        ) as GestureConfiguration;
       }
     }
   }

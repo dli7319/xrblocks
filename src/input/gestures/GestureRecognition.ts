@@ -30,13 +30,12 @@ const HAND_INDEX_TO_LABEL: Record<number, HandLabel> = {
   [Handedness.RIGHT]: 'right',
 };
 
-const JOINT_TEMP_POOL =
-    new Map<HandLabel, Map<string, THREE.Vector3>>();
+const JOINT_TEMP_POOL = new Map<HandLabel, Map<string, THREE.Vector3>>();
 
-type GestureScriptEvent = THREE.Event&{
-  type: GestureEventType,
-  target: GestureRecognition,
-  detail: GestureEventDetail,
+type GestureScriptEvent = THREE.Event & {
+  type: GestureEventType;
+  target: GestureRecognition;
+  detail: GestureEventDetail;
 };
 
 interface GestureRecognitionEventMap extends THREE.Object3DEventMap {
@@ -55,26 +54,32 @@ export class GestureRecognition extends Script<GestureRecognitionEventMap> {
   private options!: GestureRecognitionOptions;
   private user!: User;
   private input!: Input;
-  private activeGestures: Record<HandLabel, Map<string, ActiveGestureState>> =
-      {left: new Map(), right: new Map()};
+  private activeGestures: Record<HandLabel, Map<string, ActiveGestureState>> = {
+    left: new Map(),
+    right: new Map(),
+  };
   private lastEvaluation = 0;
   private detectors = new Map<BuiltInGestureName, GestureDetector>();
-  private activeProvider: string|null = null;
+  private activeProvider: string | null = null;
   private providerWarned = false;
 
-  async init(
-      {options, user, input}: {
-        options: GestureRecognitionOptions,
-        user: User,
-        input: Input
-      }) {
+  async init({
+    options,
+    user,
+    input,
+  }: {
+    options: GestureRecognitionOptions;
+    user: User;
+    input: Input;
+  }) {
     this.options = options;
     this.user = user;
     this.input = input;
     this.configureProvider(true);
     if (!this.options.enabled) {
       console.info(
-          'GestureRecognition initialized but disabled. Call options.enableGestures() to activate.');
+        'GestureRecognition initialized but disabled. Call options.enableGestures() to activate.'
+      );
     }
   }
 
@@ -85,10 +90,9 @@ export class GestureRecognition extends Script<GestureRecognitionEventMap> {
     this.configureProvider();
 
     const now = performance.now();
-    const interval = this.activeProvider === 'heuristics' ?
-        0 :
-        this.options.updateIntervalMs;
-    if (interval > 0 && (now - this.lastEvaluation) < interval) {
+    const interval =
+      this.activeProvider === 'heuristics' ? 0 : this.options.updateIntervalMs;
+    if (interval > 0 && now - this.lastEvaluation < interval) {
       return;
     }
     this.lastEvaluation = now;
@@ -112,7 +116,8 @@ export class GestureRecognition extends Script<GestureRecognitionEventMap> {
         this.assignDetectors(heuristicDetectors);
         if (!this.providerWarned) {
           console.warn(
-              `GestureRecognition: provider '${provider}' is not yet implemented; falling back to heuristics.`);
+            `GestureRecognition: provider '${provider}' is not yet implemented; falling back to heuristics.`
+          );
           this.providerWarned = true;
         }
         break;
@@ -120,7 +125,8 @@ export class GestureRecognition extends Script<GestureRecognitionEventMap> {
         this.assignDetectors(heuristicDetectors);
         if (!this.providerWarned) {
           console.warn(
-              `GestureRecognition: provider '${provider}' is unknown; falling back to heuristics.`);
+            `GestureRecognition: provider '${provider}' is unknown; falling back to heuristics.`
+          );
           this.providerWarned = true;
         }
         break;
@@ -158,7 +164,7 @@ export class GestureRecognition extends Script<GestureRecognitionEventMap> {
 
       const result = detector(context, config as GestureConfiguration);
       const isActive =
-          result && result.confidence >= this.options.minimumConfidence;
+        result && result.confidence >= this.options.minimumConfidence;
       processed.add(gestureName);
       const previousState = activeMap.get(gestureName);
 
@@ -170,8 +176,10 @@ export class GestureRecognition extends Script<GestureRecognitionEventMap> {
           data: result.data,
         };
         if (!previousState) {
-          activeMap.set(gestureName,
-                        {confidence: detail.confidence, data: detail.data});
+          activeMap.set(gestureName, {
+            confidence: detail.confidence,
+            data: detail.data,
+          });
           this.emitGesture('gesturestart', detail);
         } else {
           previousState.confidence = detail.confidence;
@@ -180,23 +188,30 @@ export class GestureRecognition extends Script<GestureRecognitionEventMap> {
         }
       } else if (previousState) {
         activeMap.delete(gestureName);
-        this.emitGesture(
-            'gestureend',
-            {name: gestureName, hand: handLabel, confidence: 0.0});
+        this.emitGesture('gestureend', {
+          name: gestureName,
+          hand: handLabel,
+          confidence: 0.0,
+        });
       }
     }
 
     for (const name of Array.from(activeMap.keys())) {
       if (!processed.has(name)) {
         activeMap.delete(name);
-        this.emitGesture(
-            'gestureend', {name, hand: handLabel, confidence: 0.0});
+        this.emitGesture('gestureend', {
+          name,
+          hand: handLabel,
+          confidence: 0.0,
+        });
       }
     }
   }
 
   private buildHandContext(
-      handedness: Handedness, handLabel: HandLabel): HandContext|null {
+    handedness: Handedness,
+    handLabel: HandLabel
+  ): HandContext | null {
     if (!this.user.hands) return null;
     const hand = this.user.hands.hands[handedness];
     if (!hand?.joints) return null;

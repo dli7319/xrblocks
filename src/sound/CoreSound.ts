@@ -13,25 +13,32 @@ import {SpeechRecognizer} from './SpeechRecognizer';
 import {SpeechSynthesizer} from './SpeechSynthesizer';
 
 export class CoreSound extends Script {
-  static dependencies = {camera: THREE.Camera, soundOptions: SoundOptions}
+  static dependencies = {camera: THREE.Camera, soundOptions: SoundOptions};
 
   categoryVolumes = new CategoryVolumes();
   soundSynthesizer = new SoundSynthesizer();
   listener = new THREE.AudioListener();
   backgroundMusic!: BackgroundMusic;
-  spatialAudio!: SpatialAudio
-  speechRecognizer?: SpeechRecognizer
-  speechSynthesizer?: SpeechSynthesizer
+  spatialAudio!: SpatialAudio;
+  speechRecognizer?: SpeechRecognizer;
+  speechSynthesizer?: SpeechSynthesizer;
   audioListener!: AudioListener;
   audioPlayer!: AudioPlayer;
   options!: SoundOptions;
 
-  init({camera, soundOptions}:
-           {camera: THREE.Camera; soundOptions: SoundOptions;}) {
+  init({
+    camera,
+    soundOptions,
+  }: {
+    camera: THREE.Camera;
+    soundOptions: SoundOptions;
+  }) {
     this.options = soundOptions;
 
-    this.backgroundMusic =
-        new BackgroundMusic(this.listener, this.categoryVolumes);
+    this.backgroundMusic = new BackgroundMusic(
+      this.listener,
+      this.categoryVolumes
+    );
     this.spatialAudio = new SpatialAudio(this.listener, this.categoryVolumes);
     this.audioListener = new AudioListener();
     // Initialize with 48kHz for general audio playback
@@ -67,24 +74,30 @@ export class CoreSound extends Script {
   }
 
   getMasterVolume() {
-    return this.categoryVolumes.isMuted ? 0.0 :
-                                          this.categoryVolumes.masterVolume;
+    return this.categoryVolumes.isMuted
+      ? 0.0
+      : this.categoryVolumes.masterVolume;
   }
 
   setCategoryVolume(category: VolumeCategory, level: number) {
     if (category in this.categoryVolumes.volumes) {
-      this.categoryVolumes.volumes[category] =
-          THREE.MathUtils.clamp(level, 0.0, 1.0);
+      this.categoryVolumes.volumes[category] = THREE.MathUtils.clamp(
+        level,
+        0.0,
+        1.0
+      );
     }
   }
 
   getCategoryVolume(category: VolumeCategory) {
-    return category in this.categoryVolumes.volumes ?
-        this.categoryVolumes.volumes[category] :
-        1.0;
+    return category in this.categoryVolumes.volumes
+      ? this.categoryVolumes.volumes[category]
+      : 1.0;
   }
 
-  async enableAudio(options: {streamToAI?: boolean; accumulate?: boolean} = {}) {
+  async enableAudio(
+    options: {streamToAI?: boolean; accumulate?: boolean} = {}
+  ) {
     const {streamToAI = true, accumulate = false} = options;
     if (streamToAI && this.speechRecognizer?.isListening) {
       console.log('Disabling SpeechRecognizer while streaming audio.');
@@ -108,7 +121,7 @@ export class CoreSound extends Script {
   /**
    * Stops recording and returns the accumulated audio buffer
    */
-  stopRecording(): ArrayBuffer|null {
+  stopRecording(): ArrayBuffer | null {
     const buffer = this.audioListener.getAccumulatedBuffer();
     this.audioListener.stopCapture();
     return buffer;
@@ -117,7 +130,7 @@ export class CoreSound extends Script {
   /**
    * Gets the accumulated recording buffer without stopping
    */
-  getRecordedBuffer(): ArrayBuffer|null {
+  getRecordedBuffer(): ArrayBuffer | null {
     return this.audioListener.getAccumulatedBuffer();
   }
 
@@ -170,13 +183,13 @@ export class CoreSound extends Script {
    */
   async playRecordedAudio(audioBuffer: ArrayBuffer, sampleRate?: number) {
     if (!audioBuffer) return;
-    
+
     // Update sample rate if needed
     if (sampleRate && sampleRate !== this.audioPlayer['options'].sampleRate) {
       this.audioPlayer['options'].sampleRate = sampleRate;
       this.audioPlayer.stop(); // Reset context with new sample rate
     }
-    
+
     // Convert ArrayBuffer to base64
     const bytes = new Uint8Array(audioBuffer);
     let binary = '';
@@ -184,7 +197,7 @@ export class CoreSound extends Script {
       binary += String.fromCharCode(bytes[i]);
     }
     const base64Audio = btoa(binary);
-    
+
     await this.audioPlayer.playAudioChunk(base64Audio);
   }
 

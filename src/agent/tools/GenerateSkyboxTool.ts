@@ -8,18 +8,21 @@ import {Tool, ToolResult} from '../Tool';
  * based on a given prompt using an AI service.
  */
 export class GenerateSkyboxTool extends Tool {
-  constructor(private ai: AI, private scene: THREE.Scene) {
+  constructor(
+    private ai: AI,
+    private scene: THREE.Scene
+  ) {
     super({
       name: 'generateSkybox',
       description:
-          'Generate a 360 equirectangular skybox image for the given prompt.',
+        'Generate a 360 equirectangular skybox image for the given prompt.',
       parameters: {
         type: 'OBJECT',
         properties: {
           prompt: {
             type: 'STRING',
             description:
-                'A description of the skybox to generate, e.g. "a sunny beach with palm trees"',
+              'A description of the skybox to generate, e.g. "a sunny beach with palm trees"',
           },
         },
         required: ['prompt'],
@@ -35,10 +38,12 @@ export class GenerateSkyboxTool extends Tool {
   override async execute(args: {prompt: string}): Promise<ToolResult<string>> {
     try {
       const image = await this.ai.generate(
-          'Generate a 360 equirectangular skybox image for the prompt of:' +
-              args.prompt,
-          'image', 'Generate a 360 equirectangular skybox image for the prompt',
-          'gemini-2.5-flash-image-preview');
+        'Generate a 360 equirectangular skybox image for the prompt of:' +
+          args.prompt,
+        'image',
+        'Generate a 360 equirectangular skybox image for the prompt',
+        'gemini-2.5-flash-image-preview'
+      );
       if (image) {
         console.log('Applying texture...');
         this.scene.background = new THREE.TextureLoader().load(image);
@@ -46,22 +51,24 @@ export class GenerateSkyboxTool extends Tool {
         return {
           success: true,
           data: 'Skybox generated successfully.',
-          metadata: {prompt: args.prompt, timestamp: Date.now()}
+          metadata: {prompt: args.prompt, timestamp: Date.now()},
         };
       } else {
         return {
           success: false,
           error: 'Failed to generate skybox image',
-          metadata: {prompt: args.prompt, timestamp: Date.now()}
+          metadata: {prompt: args.prompt, timestamp: Date.now()},
         };
       }
     } catch (e) {
       console.error('error:', e);
       return {
         success: false,
-        error: e instanceof Error ? e.message :
-                                    'Unknown error while creating skybox',
-        metadata: {prompt: args.prompt, timestamp: Date.now()}
+        error:
+          e instanceof Error
+            ? e.message
+            : 'Unknown error while creating skybox',
+        metadata: {prompt: args.prompt, timestamp: Date.now()},
       };
     }
   }

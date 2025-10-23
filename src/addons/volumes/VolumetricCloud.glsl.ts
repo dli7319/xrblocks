@@ -121,8 +121,7 @@ void main(){
   if ( color.a == 0.0 ) discard;
 
 }
-`
-
+`,
 };
 
 export {VolumetricCloudShader};

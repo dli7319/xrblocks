@@ -27,15 +27,17 @@ export class PageIndicator extends TextView {
   update() {
     super.update();
     const currentPage = Math.round(this.pagerState.currentPage);
-    if (this.previousPage !== currentPage ||
-        this.numberOfPages !== this.pagerState.pages) {
+    if (
+      this.previousPage !== currentPage ||
+      this.numberOfPages !== this.pagerState.pages
+    ) {
       this.updateText();
     }
   }
 
   updateText() {
     const currentPage =
-        Math.round(this.pagerState.currentPage) % this.pagerState.pages;
+      Math.round(this.pagerState.currentPage) % this.pagerState.pages;
     const text = new Array(this.pagerState.pages).fill(this.emptyPageIndicator);
     text[currentPage] = this.currentPageIndicator;
     this.setText(text.join(''));

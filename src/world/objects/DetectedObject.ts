@@ -15,7 +15,7 @@ export class DetectedObject extends THREE.Object3D {
    * The cropped part of the image that contains the object, as a base64 Data
    * URL.
    */
-  image: string|null;
+  image: string | null;
 
   /**
    * The 2D bounding box of the detected object in normalized screen
@@ -40,9 +40,12 @@ export class DetectedObject extends THREE.Object3D {
    * schema but is not assigned a class property by default (e.g., color, size).
    */
   constructor(
-      label: string, image: string|null, boundingBox: THREE.Box2,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      additionalData: {[key: string]: any} = {}) {
+    label: string,
+    image: string | null,
+    boundingBox: THREE.Box2,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    additionalData: {[key: string]: any} = {}
+  ) {
     super();
     this.label = label;
     this.image = image;

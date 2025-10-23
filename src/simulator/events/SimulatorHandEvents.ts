@@ -4,8 +4,9 @@ import {SimulatorHandPose} from '../handPoses/HandPoses';
 export class SimulatorHandPoseChangeRequestEvent extends Event {
   static type = 'SimulatorHandPoseChangeRequestEvent';
   constructor(public pose: SimulatorHandPose) {
-    super(
-        SimulatorHandPoseChangeRequestEvent.type,
-        {bubbles: true, composed: true});
+    super(SimulatorHandPoseChangeRequestEvent.type, {
+      bubbles: true,
+      composed: true,
+    });
   }
 }

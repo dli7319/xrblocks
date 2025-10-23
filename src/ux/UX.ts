@@ -28,7 +28,6 @@ export class UX {
    */
   touchable = false;
 
-
   // --- Interaction States ---
 
   /**
@@ -54,7 +53,6 @@ export class UX {
    */
   activeDragged: boolean[] = [];
 
-
   // --- Intersection Data ---
 
   /**
@@ -73,7 +71,6 @@ export class UX {
    * controller.
    */
   uvs: THREE.Vector2[] = [];
-
 
   // --- Drag Management State ---
 
@@ -128,8 +125,10 @@ export class UX {
     const id = controller.userData.id;
     this.initializeVariablesForId(id);
 
-    if (intersection.object === this.parent ||
-        intersection.object === (this.parent as Partial<View>).mesh) {
+    if (
+      intersection.object === this.parent ||
+      intersection.object === (this.parent as Partial<View>).mesh
+    ) {
       this.hovered[id] = true;
       this.selected[id] = controller.userData.selected;
       if (intersection.uv) {
@@ -171,7 +170,6 @@ export class UX {
     }
   }
 
-
   /**
    * Gets the IDs of up to two controllers that are currently hovering over the
    * parent object, always returning a two-element array. This is useful for
@@ -185,8 +183,11 @@ export class UX {
     const activeControllerIds = [];
     // this.hovered is an array of booleans, indexed by controller ID.
     if (this.hovered) {
-      for (let i = 0; i < this.hovered.length && activeControllerIds.length < 2;
-           ++i) {
+      for (
+        let i = 0;
+        i < this.hovered.length && activeControllerIds.length < 2;
+        ++i
+      ) {
         if (this.hovered[i]) {
           activeControllerIds.push(i);
         }

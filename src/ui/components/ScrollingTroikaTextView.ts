@@ -18,9 +18,9 @@ import {TextView} from './TextView';
  * - A `VerticalPager` to clip the `TextView` and create the visible scroll
  * window.
  */
-export type ScrollingTroikaTextViewOptions = ViewOptions&{
+export type ScrollingTroikaTextViewOptions = ViewOptions & {
   text?: string;
-  textAlign?: 'left'|'right'|'center';
+  textAlign?: 'left' | 'right' | 'center';
   scrollerState?: TextScrollerState;
   fontSize?: number;
 };
@@ -37,7 +37,7 @@ export class ScrollingTroikaTextView extends View {
     text = 'ScrollingTroikaTextView',
     textAlign = 'left',
     scrollerState = new TextScrollerState(),
-    fontSize = 0.06
+    fontSize = 0.06,
   }: ScrollingTroikaTextViewOptions = {}) {
     super();
     this.scrollerState = scrollerState || new TextScrollerState();
@@ -49,11 +49,13 @@ export class ScrollingTroikaTextView extends View {
       textAlign: textAlign,
       fontSize: fontSize,
       anchorX: 0,
-      anchorY: 0
+      anchorY: 0,
     });
     this.textView.x = -0.5;
     this.textView.addEventListener(
-        'synccomplete', this.onTextSyncCompleteBound);
+      'synccomplete',
+      this.onTextSyncCompleteBound
+    );
     this.textViewWrapper.add(this.textView);
 
     this.add(this.scrollerState);
@@ -61,8 +63,10 @@ export class ScrollingTroikaTextView extends View {
   }
 
   update() {
-    this.textViewWrapper.y = this.textView.lineHeight *
-        this.textView.aspectRatio * this.scrollerState.currentLine;
+    this.textViewWrapper.y =
+      this.textView.lineHeight *
+      this.textView.aspectRatio *
+      this.scrollerState.currentLine;
     this.textViewWrapper.updateLayout();
   }
 
@@ -78,7 +82,7 @@ export class ScrollingTroikaTextView extends View {
   onTextSyncComplete() {
     if (this.textView.lineCount > 0) {
       this.textView.y =
-          -0.5 + this.textView.lineHeight * this.textView.aspectRatio;
+        -0.5 + this.textView.lineHeight * this.textView.aspectRatio;
       this.textView.updateLayout();
       this.scrollerState.lineCount = this.textView.lineCount;
       this.scrollerState.targetLine = this.textView.lineCount - 1;

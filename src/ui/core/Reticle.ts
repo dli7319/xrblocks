@@ -8,8 +8,10 @@ import {ReticleShader} from '../shaders/ReticleShader';
  * point in an XR scene. It orients itself to surfaces it intersects with and
  * provides visual feedback for states like "pressed".
  */
-export class Reticle extends
-    THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> {
+export class Reticle extends THREE.Mesh<
+  THREE.BufferGeometry,
+  THREE.ShaderMaterial
+> {
   /** Text description of the PanelMesh */
   name = 'Reticle';
 
@@ -50,18 +52,24 @@ export class Reticle extends
    * objects. Defaults to `false` to ensure it is always visible.
    */
   constructor(
-      rotationSmoothing = 0.8, offset = 0.001, size = 0.019,
-      depthTest = false) {
+    rotationSmoothing = 0.8,
+    offset = 0.001,
+    size = 0.019,
+    depthTest = false
+  ) {
     const geometry = new THREE.CircleGeometry(size, 32);
     geometry.applyMatrix4(new THREE.Matrix4().makeTranslation(0, 0, offset));
 
-    super(geometry, new THREE.ShaderMaterial({
-      uniforms: THREE.UniformsUtils.clone(ReticleShader.uniforms),
-      vertexShader: ReticleShader.vertexShader,
-      fragmentShader: ReticleShader.fragmentShader,
-      depthTest: depthTest,
-      transparent: true
-    }));
+    super(
+      geometry,
+      new THREE.ShaderMaterial({
+        uniforms: THREE.UniformsUtils.clone(ReticleShader.uniforms),
+        vertexShader: ReticleShader.vertexShader,
+        fragmentShader: ReticleShader.fragmentShader,
+        depthTest: depthTest,
+        transparent: true,
+      })
+    );
 
     this.rotationSmoothing = rotationSmoothing;
     this.offset = offset;
@@ -79,7 +87,7 @@ export class Reticle extends
     // Note: this.originalNormal is modified here but reset by the next line.
     this.originalNormal.cross(normal).normalize();
     this.newRotation.setFromAxisAngle(this.originalNormal, angle);
-    this.originalNormal.set(0, 0, 1);  // Reset for next use.
+    this.originalNormal.set(0, 0, 1); // Reset for next use.
 
     // Smoothly interpolate from the current rotation to the new rotation.
     this.quaternion.slerp(this.newRotation, 1.0 - this.rotationSmoothing);
@@ -99,8 +107,9 @@ export class Reticle extends
     // The intersection normal is in the local space of the intersected object.
     // It must be transformed into world space to correctly orient the reticle.
     intersection.object.getWorldQuaternion(this.objectRotation);
-    this.normalVector.copy(intersection.normal)
-        .applyQuaternion(this.objectRotation);
+    this.normalVector
+      .copy(intersection.normal)
+      .applyQuaternion(this.objectRotation);
     this.setRotationFromNormalVector(this.normalVector);
   }
 
@@ -108,7 +117,7 @@ export class Reticle extends
    * Sets the color of the reticle via its shader uniform.
    * @param color - The color to apply.
    */
-  setColor(color: THREE.Color|number|string) {
+  setColor(color: THREE.Color | number | string) {
     this.material.uniforms.uColor.value.set(color);
   }
 

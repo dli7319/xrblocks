@@ -2,7 +2,10 @@
 slug: /samples/
 sidebar_position: 1
 ---
-import { Redirect } from '@docusaurus/router';
+
+import {Redirect} from '@docusaurus/router';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 
-<Redirect to={useDocusaurusContext().siteConfig.baseUrl + 'samples/ModelViewer/'}/>
+<Redirect
+  to={useDocusaurusContext().siteConfig.baseUrl + 'samples/ModelViewer/'}
+/>

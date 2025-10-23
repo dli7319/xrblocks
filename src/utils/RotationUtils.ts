@@ -21,7 +21,9 @@ const v1 = new THREE.Vector3();
  *     rotation.
  */
 export function extractYaw(
-    rotation: Readonly<THREE.Quaternion>, target = new THREE.Quaternion()) {
+  rotation: Readonly<THREE.Quaternion>,
+  target = new THREE.Quaternion()
+) {
   // Ensures the Y-axis rotation (yaw) is calculated first and is independent of
   // the X (pitch) and Z (roll) rotations. This prevents gimbal lock from
   // affecting the yaw value.
@@ -42,8 +44,10 @@ export function extractYaw(
  * @returns
  */
 export function lookAtRotation(
-    forward: Readonly<THREE.Vector3>, up = UP,
-    target = new THREE.Quaternion()) {
+  forward: Readonly<THREE.Vector3>,
+  up = UP,
+  target = new THREE.Quaternion()
+) {
   matrix4.lookAt(ZERO_VECTOR3, forward, up);
   return target.setFromRotationMatrix(matrix4);
 }
@@ -55,14 +59,17 @@ export function lookAtRotation(
  * @param angle - The maximum allowed angle in radians.
  */
 export function clampRotationToAngle(
-    rotation: THREE.Quaternion, angle: number) {
+  rotation: THREE.Quaternion,
+  angle: number
+) {
   let currentAngle = 2 * Math.acos(rotation.w);
-  currentAngle = (currentAngle + Math.PI) % (2 * Math.PI) - Math.PI;
+  currentAngle = ((currentAngle + Math.PI) % (2 * Math.PI)) - Math.PI;
   if (Math.abs(currentAngle) <= angle) {
     return;
   }
-  const axis = v1.set(rotation.x, rotation.y, rotation.z)
-                   .multiplyScalar(1 / Math.sqrt(1 - rotation.w * rotation.w));
+  const axis = v1
+    .set(rotation.x, rotation.y, rotation.z)
+    .multiplyScalar(1 / Math.sqrt(1 - rotation.w * rotation.w));
   axis.normalize();
   rotation.setFromAxisAngle(axis, angle * Math.sign(currentAngle));
 }

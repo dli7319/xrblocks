@@ -4,7 +4,7 @@ import {SVGLoader, SVGResult} from 'three/addons/loaders/SVGLoader.js';
 import {View} from '../core/View.js';
 
 const SVG_BASE_PATH =
-    'https://cdn.jsdelivr.net/gh/marella/material-symbols@v0.33.0/svg/{{weight}}/{{style}}/{{icon}}.svg'
+  'https://cdn.jsdelivr.net/gh/marella/material-symbols@v0.33.0/svg/{{weight}}/{{style}}/{{icon}}.svg';
 
 export type MaterialSymbolsViewOptions = {
   /** The name of the icon (e.g., 'sunny', 'home'). */
@@ -80,7 +80,7 @@ export class MaterialSymbolsView extends View {
     iconWeight = 400,
     iconStyle = 'outlined',
     iconScale = 1,
-    iconColor = '#FFFFFF'
+    iconColor = '#FFFFFF',
   }: MaterialSymbolsViewOptions) {
     super({});
     this.icon = icon;
@@ -107,8 +107,8 @@ export class MaterialSymbolsView extends View {
       return;
     }
     const svgPath = SVG_BASE_PATH.replace('{{style}}', this.iconStyle)
-                        .replace('{{icon}}', this.icon)
-                        .replace('{{weight}}', String(this.iconWeight));
+      .replace('{{icon}}', this.icon)
+      .replace('{{weight}}', String(this.iconWeight));
     if (svgPath == this.loadedSvgPath || svgPath == this.loadingSvgPath) {
       return;
     }
@@ -120,8 +120,8 @@ export class MaterialSymbolsView extends View {
     this.loadingSvgPath = undefined;
     this.loadedSvgPath = svgPath;
     const [viewMinX, viewMinY, viewWidth, viewHeight] =
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (svgData.xml as any).attributes.viewBox.value.split(' ');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (svgData.xml as any).attributes.viewBox.value.split(' ');
     const paths = svgData.paths;
     const group = new THREE.Group();
 

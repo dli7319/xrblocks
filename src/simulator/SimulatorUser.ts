@@ -15,7 +15,7 @@ export class SimulatorUser extends Script {
     super();
   }
 
-  init({waitFrame, registry}: {waitFrame: WaitFrame, registry: Registry}) {
+  init({waitFrame, registry}: {waitFrame: WaitFrame; registry: Registry}) {
     this.waitFrame = waitFrame;
     this.registry = registry;
   }
@@ -31,13 +31,16 @@ export class SimulatorUser extends Script {
   async loadJourney(actions: SimulatorUserAction[]) {
     console.log('Load journey');
     const currentJourneyId = ++this.journeyId;
-    for (let i = 0; this.isOnJourneyId(currentJourneyId) && i < actions.length;
-         ++i) {
+    for (
+      let i = 0;
+      this.isOnJourneyId(currentJourneyId) && i < actions.length;
+      ++i
+    ) {
       callInitWithDependencyInjection(actions[i], this.registry, undefined);
       await actions[i].play({
         simulatorUser: this,
         journeyId: currentJourneyId,
-        waitFrame: this.waitFrame
+        waitFrame: this.waitFrame,
       });
     }
     console.log('Journey finished');

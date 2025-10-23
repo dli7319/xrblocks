@@ -31,11 +31,14 @@ export class SimulatorDepth {
   }
 
   createRenderTarget() {
-    this.depthRenderTarget =
-        new THREE.WebGLRenderTarget(this.depthWidth, this.depthHeight, {
-          format: THREE.RedFormat,
-          type: THREE.FloatType,
-        });
+    this.depthRenderTarget = new THREE.WebGLRenderTarget(
+      this.depthWidth,
+      this.depthHeight,
+      {
+        format: THREE.RedFormat,
+        type: THREE.FloatType,
+      }
+    );
     this.depthBuffer = new Float32Array(this.depthWidth * this.depthHeight);
   }
 
@@ -60,8 +63,13 @@ export class SimulatorDepth {
     context.bindBuffer(context.PIXEL_PACK_BUFFER, null);
 
     this.renderer.readRenderTargetPixels(
-        this.depthRenderTarget, 0, 0, this.depthWidth, this.depthHeight,
-        this.depthBuffer);
+      this.depthRenderTarget,
+      0,
+      0,
+      this.depthWidth,
+      this.depthHeight,
+      this.depthBuffer
+    );
 
     // Flip the depth buffer.
     if (this.depthBufferSlice.length != this.depthWidth) {
@@ -74,10 +82,14 @@ export class SimulatorDepth {
 
       // Copy row i to a temp slice
       this.depthBufferSlice.set(
-          this.depthBuffer.subarray(i_offset, i_offset + this.depthWidth));
+        this.depthBuffer.subarray(i_offset, i_offset + this.depthWidth)
+      );
       // Copy row j to row i
       this.depthBuffer.copyWithin(
-          i_offset, j_offset, j_offset + this.depthWidth);
+        i_offset,
+        j_offset,
+        j_offset + this.depthWidth
+      );
       // Copy the temp slice (original row i) to row j
       this.depthBuffer.set(this.depthBufferSlice, j_offset);
     }

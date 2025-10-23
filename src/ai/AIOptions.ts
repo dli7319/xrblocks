@@ -1,8 +1,8 @@
 export interface GeminiLiveOptions {
   enabled?: boolean;
   model?: string;
-  startOfSpeechSensitivity?: 'LOW'|'HIGH';
-  endOfSpeechSensitivity?: 'LOW'|'HIGH';
+  startOfSpeechSensitivity?: 'LOW' | 'HIGH';
+  endOfSpeechSensitivity?: 'LOW' | 'HIGH';
   voiceName?: string;
   screenshotInterval?: number;
   audioConfig?: {
@@ -31,8 +31,8 @@ export class GeminiOptions {
       channelCount: 1,
       echoCancellation: true,
       noiseSuppression: true,
-      autoGainControl: true
-    }
+      autoGainControl: true,
+    },
   };
 }
 
@@ -43,7 +43,7 @@ export class OpenAIOptions {
   enabled = false;
 }
 
-export type AIModel = 'gemini'|'openai';
+export type AIModel = 'gemini' | 'openai';
 
 export class AIOptions {
   enabled = false;
@@ -51,6 +51,6 @@ export class AIOptions {
   gemini = new GeminiOptions();
   openai = new OpenAIOptions();
   globalUrlParams = {
-    key: 'key',  // Generic key parameter
-  }
+    key: 'key', // Generic key parameter
+  };
 }

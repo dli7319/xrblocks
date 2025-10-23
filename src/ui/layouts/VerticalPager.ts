@@ -20,7 +20,9 @@ export class VerticalPager extends Pager {
   }
 
   protected computeSelectingDelta(
-      selectingPosition: THREE.Vector3, startSelectPosition: THREE.Vector3) {
+    selectingPosition: THREE.Vector3,
+    startSelectPosition: THREE.Vector3
+  ) {
     return (selectingPosition.y - startSelectPosition.y) / this.rangeY;
   }
 }

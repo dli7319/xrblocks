@@ -6,15 +6,14 @@ import {GeminiOptions} from './AIOptions';
 import {GeminiResponse} from './AITypes';
 import {BaseAIModel} from './BaseAIModel';
 
-let createPartFromUri:
-    ((uri: string, mimeType: string) => GoogleGenAITypes.Part);
-let createUserContent: (
-    (partOrString: GoogleGenAITypes.PartListUnion) => GoogleGenAITypes.Content)|
-    undefined;
-let GoogleGenAI: typeof GoogleGenAITypes.GoogleGenAI|undefined;
-let EndSensitivity: typeof GoogleGenAITypes.EndSensitivity|undefined;
-let StartSensitivity: typeof GoogleGenAITypes.StartSensitivity|undefined;
-let Modality: typeof GoogleGenAITypes.Modality|undefined;
+let createPartFromUri: (uri: string, mimeType: string) => GoogleGenAITypes.Part;
+let createUserContent:
+  | ((partOrString: GoogleGenAITypes.PartListUnion) => GoogleGenAITypes.Content)
+  | undefined;
+let GoogleGenAI: typeof GoogleGenAITypes.GoogleGenAI | undefined;
+let EndSensitivity: typeof GoogleGenAITypes.EndSensitivity | undefined;
+let StartSensitivity: typeof GoogleGenAITypes.StartSensitivity | undefined;
+let Modality: typeof GoogleGenAITypes.Modality | undefined;
 
 // --- Attempt Dynamic Import ---
 async function loadGoogleGenAIModule() {
@@ -30,22 +29,22 @@ async function loadGoogleGenAIModule() {
       EndSensitivity = genAIModule.EndSensitivity;
       StartSensitivity = genAIModule.StartSensitivity;
       Modality = genAIModule.Modality;
-      console.log('\'@google/genai\' module loaded successfully.');
+      console.log("'@google/genai' module loaded successfully.");
     } else {
-      throw new Error('\'@google/genai\' module loaded but is not valid.');
+      throw new Error("'@google/genai' module loaded but is not valid.");
     }
   } catch (error) {
-    const errorMessage =
-        `The '@google/genai' module is required for Gemini but failed to load. Error: ${
-            error}`;
+    const errorMessage = `The '@google/genai' module is required for Gemini but failed to load. Error: ${
+      error
+    }`;
     console.error(errorMessage);
     throw new Error(errorMessage);
   }
 }
 
 export interface GeminiQueryInput {
-  type: 'live'|'text'|'uri'|'base64'|'multiPart';
-  action?: 'start'|'stop'|'send';
+  type: 'live' | 'text' | 'uri' | 'base64' | 'multiPart';
+  action?: 'start' | 'stop' | 'send';
   text?: string;
   uri?: string;
   base64?: string;
@@ -93,7 +92,8 @@ export class Gemini extends BaseAIModel {
   async startLiveSession(params: GeminiStartLiveSessionParams = {}) {
     if (!this.isLiveAvailable()) {
       throw new Error(
-          'Live API not available. Make sure @google/genai module is loaded.');
+        'Live API not available. Make sure @google/genai module is loaded.'
+      );
     }
 
     if (this.liveSession) {
@@ -106,7 +106,7 @@ export class Gemini extends BaseAIModel {
         voiceConfig: {prebuiltVoiceConfig: {voiceName: 'Aoede'}},
       },
       outputAudioTranscription: {},
-      inputAudioTranscription: {}
+      inputAudioTranscription: {},
     };
 
     if (params.tools && params.tools.length > 0) {
@@ -114,8 +114,9 @@ export class Gemini extends BaseAIModel {
     }
     if (params.systemInstruction) {
       if (typeof params.systemInstruction === 'string') {
-        defaultConfig.systemInstruction =
-            createUserContent!(params.systemInstruction);
+        defaultConfig.systemInstruction = createUserContent!(
+          params.systemInstruction
+        );
       } else {
         defaultConfig.systemInstruction = params.systemInstruction;
       }
@@ -206,12 +207,14 @@ export class Gemini extends BaseAIModel {
     return {
       isActive: this.isLiveMode,
       hasSession: !!this.liveSession,
-      isAvailable: this.isLiveAvailable()
+      isAvailable: this.isLiveAvailable(),
     };
   }
 
-  async query(input: GeminiQueryInput|{prompt: string}, _tools: Tool[] = []):
-      Promise<GeminiResponse|null> {
+  async query(
+    input: GeminiQueryInput | {prompt: string},
+    _tools: Tool[] = []
+  ): Promise<GeminiResponse | null> {
     if (!this.inited) {
       console.warn('Gemini not inited.');
       return null;
@@ -221,8 +224,11 @@ export class Gemini extends BaseAIModel {
     const config = options.config || {};
 
     if (!('type' in input)) {
-      const response = await this.ai!.models.generateContent(
-          {model: options.model, contents: input.prompt!, config: config});
+      const response = await this.ai!.models.generateContent({
+        model: options.model,
+        contents: input.prompt!,
+        config: config,
+      });
       return {text: response.text || null};
     }
 
@@ -279,15 +285,17 @@ export class Gemini extends BaseAIModel {
   }
 
   async generate(
-      prompt: string|string[], type: 'image' = 'image',
-      systemInstruction = 'Generate an image',
-      model = 'gemini-2.5-flash-image-preview') {
+    prompt: string | string[],
+    type: 'image' = 'image',
+    systemInstruction = 'Generate an image',
+    model = 'gemini-2.5-flash-image-preview'
+  ) {
     if (!this.isAvailable()) return;
 
     let contents: GoogleGenAITypes.ContentListUnion;
 
     if (Array.isArray(prompt)) {
-      contents = prompt.map(item => {
+      contents = prompt.map((item) => {
         if (typeof item === 'string') {
           if (item.startsWith('data:image/')) {
             const [header, data] = item.split(',');
@@ -304,8 +312,11 @@ export class Gemini extends BaseAIModel {
       contents = prompt;
     }
 
-    const response = await this.ai!.models.generateContent(
-        {model: model, contents: contents, config: {systemInstruction}});
+    const response = await this.ai!.models.generateContent({
+      model: model,
+      contents: contents,
+      config: {systemInstruction},
+    });
     if (response.candidates && response.candidates.length > 0) {
       const firstCandidate = response.candidates[0];
       for (const part of firstCandidate?.content?.parts || []) {
@@ -315,4 +326,4 @@ export class Gemini extends BaseAIModel {
       }
     }
   }
-};
+}

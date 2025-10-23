@@ -7,7 +7,7 @@ import {PanelOptions} from '../core/PanelOptions';
  * visual feedback for user interactions like hovering and selecting, driven by
  * a custom shader, and can be made draggable.
  */
-export type SpatialPanelOptions = PanelOptions&{
+export type SpatialPanelOptions = PanelOptions & {
   showEdge?: boolean;
   dragFacingCamera?: boolean;
 };
@@ -48,17 +48,19 @@ export class SpatialPanel extends Panel {
     const [id1, id2] = this.ux.getPrimaryTwoControllerIds();
 
     // --- Update Selection Uniform ---
-    const isSelected1 = (id1 !== null) ? this.ux.selected[id1] : false;
-    const isSelected2 = (id2 !== null) ? this.ux.selected[id2] : false;
+    const isSelected1 = id1 !== null ? this.ux.selected[id1] : false;
+    const isSelected2 = id2 !== null ? this.ux.selected[id2] : false;
 
     this.mesh.material.uniforms.uSelected.value.set(
-        isSelected1 ? 1.0 : 0.0, isSelected2 ? 1.0 : 0.0);
+      isSelected1 ? 1.0 : 0.0,
+      isSelected2 ? 1.0 : 0.0
+    );
 
     // --- Update Reticle UVs Uniform ---
-    const u1 = (id1 !== null) ? this.ux.uvs[id1].x : -1;
-    const v1 = (id1 !== null) ? this.ux.uvs[id1].y : -1;
-    const u2 = (id2 !== null) ? this.ux.uvs[id2].x : -1;
-    const v2 = (id2 !== null) ? this.ux.uvs[id2].y : -1;
+    const u1 = id1 !== null ? this.ux.uvs[id1].x : -1;
+    const v1 = id1 !== null ? this.ux.uvs[id1].y : -1;
+    const u2 = id2 !== null ? this.ux.uvs[id2].x : -1;
+    const v2 = id2 !== null ? this.ux.uvs[id2].y : -1;
 
     this.mesh.material.uniforms.uReticleUVs.value.set(u1, v1, u2, v2);
   }

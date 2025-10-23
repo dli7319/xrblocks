@@ -11,7 +11,7 @@ const config: Config = {
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
-    v4: true,  // Improve compatibility with the upcoming Docusaurus v4
+    v4: true, // Improve compatibility with the upcoming Docusaurus v4
   },
 
   // Set the production url of your site here
@@ -23,8 +23,8 @@ const config: Config = {
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'google',  // Usually your GitHub org/user name.
-  projectName: 'xrblocks',     // Usually your repo name.
+  organizationName: 'google', // Usually your GitHub org/user name.
+  projectName: 'xrblocks', // Usually your repo name.
 
   onBrokenLinks: 'throw',
 
@@ -38,9 +38,10 @@ const config: Config = {
 
   customFields: {
     xrblocksBaseUrl: process.env.XRBLOCKS_BASE_URL || 'http://localhost:8080/',
-    codeSearchBaseUrl: process.env.CODE_SEARCH_BASE_URL ||
-        'https://github.com/google/xrblocks/blob/main/',
-    codeSearchLinkSuffix: process.env.CODE_SEARCH_LINK_SUFFIX || ''
+    codeSearchBaseUrl:
+      process.env.CODE_SEARCH_BASE_URL ||
+      'https://github.com/google/xrblocks/blob/main/',
+    codeSearchLinkSuffix: process.env.CODE_SEARCH_LINK_SUFFIX || '',
   },
 
   headTags: [
@@ -110,13 +111,13 @@ const config: Config = {
           sidebarPath: './sidebars.ts',
           routeBasePath: '/',
         },
-            theme: {
-              customCss: './src/css/custom.css',
-            },
-            gtag: {
-              trackingID: 'G-5EK2RWYHRM',
-              anonymizeIP: true,
-            }
+        theme: {
+          customCss: './src/css/custom.css',
+        },
+        gtag: {
+          trackingID: 'G-5EK2RWYHRM',
+          anonymizeIP: true,
+        },
       } satisfies Preset.Options,
     ],
   ],
@@ -179,7 +180,7 @@ const config: Config = {
       // baseUrl. You can use regexp or string in the `from` param. For example:
       // localhost:3000 vs myCompany.com/docs
       replaceSearchResultPathname: {
-        from: '/docs/',  // or as RegExp: /\/docs\//
+        from: '/docs/', // or as RegExp: /\/docs\//
         to: '/',
       },
       // Optional: path for search page that enabled by default (`false` to

@@ -1,10 +1,16 @@
-import {SimulatorControls, SimulatorModeIndicatorElement} from './SimulatorControls.js';
+import {
+  SimulatorControls,
+  SimulatorModeIndicatorElement,
+} from './SimulatorControls.js';
 import {SimulatorHands} from './SimulatorHands.js';
-import {SimulatorCustomInstruction, SimulatorOptions} from './SimulatorOptions.js';
+import {
+  SimulatorCustomInstruction,
+  SimulatorOptions,
+} from './SimulatorOptions.js';
 
-type SimulatorInstructionsHTMLElement = HTMLElement&{
+type SimulatorInstructionsHTMLElement = HTMLElement & {
   customInstructions: SimulatorCustomInstruction[];
-}
+};
 
 export class SimulatorInterface {
   private elements: HTMLElement[] = [];
@@ -14,8 +20,10 @@ export class SimulatorInterface {
    * Initialize the simulator interface.
    */
   init(
-      simulatorOptions: SimulatorOptions, simulatorControls: SimulatorControls,
-      simulatorHands: SimulatorHands) {
+    simulatorOptions: SimulatorOptions,
+    simulatorControls: SimulatorControls,
+    simulatorHands: SimulatorHands
+  ) {
     this.createModeIndicator(simulatorOptions, simulatorControls);
     this.showGeminiLivePanel(simulatorOptions);
     this.createHandPosePanel(simulatorOptions, simulatorHands);
@@ -23,12 +31,13 @@ export class SimulatorInterface {
   }
 
   createModeIndicator(
-      simulatorOptions: SimulatorOptions,
-      simulatorControls: SimulatorControls) {
+    simulatorOptions: SimulatorOptions,
+    simulatorControls: SimulatorControls
+  ) {
     if (simulatorOptions.modeIndicator.enabled) {
-      const modeIndicatorElement =
-          document.createElement(simulatorOptions.modeIndicator.element) as
-          SimulatorModeIndicatorElement;
+      const modeIndicatorElement = document.createElement(
+        simulatorOptions.modeIndicator.element
+      ) as SimulatorModeIndicatorElement;
       document.body.appendChild(modeIndicatorElement);
       simulatorControls.setModeIndicatorElement(modeIndicatorElement);
       this.elements.push(modeIndicatorElement);
@@ -37,11 +46,11 @@ export class SimulatorInterface {
 
   showInstructions(simulatorOptions: SimulatorOptions) {
     if (simulatorOptions.instructions.enabled) {
-      const element =
-          document.createElement(simulatorOptions.instructions.element) as
-          SimulatorInstructionsHTMLElement;
+      const element = document.createElement(
+        simulatorOptions.instructions.element
+      ) as SimulatorInstructionsHTMLElement;
       element.customInstructions =
-          simulatorOptions.instructions.customInstructions;
+        simulatorOptions.instructions.customInstructions;
       document.body.appendChild(element);
       this.elements.push(element);
     }
@@ -56,10 +65,13 @@ export class SimulatorInterface {
   }
 
   createHandPosePanel(
-      simulatorOptions: SimulatorOptions, simulatorHands: SimulatorHands) {
+    simulatorOptions: SimulatorOptions,
+    simulatorHands: SimulatorHands
+  ) {
     if (simulatorOptions.handPosePanel.enabled) {
-      const handsPanelElement =
-          document.createElement(simulatorOptions.handPosePanel.element);
+      const handsPanelElement = document.createElement(
+        simulatorOptions.handPosePanel.element
+      );
       document.body.appendChild(handsPanelElement);
       simulatorHands.setHandPosePanelElement(handsPanelElement);
       this.elements.push(handsPanelElement);

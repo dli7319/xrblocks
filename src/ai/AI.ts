@@ -187,7 +187,10 @@ export class AI extends Script {
     return await this.model!.query(input, tools);
   }
 
-  async startLiveSession(config: GeminiStartLiveSessionParams = {}) {
+  async startLiveSession(
+    config: GeminiStartLiveSessionParams = {},
+    model?: string
+  ) {
     if (!this.model) {
       throw new Error('AI model is not initialized.');
     }
@@ -196,7 +199,7 @@ export class AI extends Script {
     }
     this.lock = true;
     try {
-      const session = await this.model.startLiveSession(config);
+      const session = await this.model.startLiveSession(config, model);
       return session;
     } catch (error) {
       this.lock = false;

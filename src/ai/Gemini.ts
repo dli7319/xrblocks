@@ -89,7 +89,10 @@ export class Gemini extends BaseAIModel {
     return this.isAvailable() && EndSensitivity && StartSensitivity && Modality;
   }
 
-  async startLiveSession(params: GeminiStartLiveSessionParams = {}) {
+  async startLiveSession(
+    params: GeminiStartLiveSessionParams = {},
+    model = 'gemini-2.5-flash-native-audio-preview-09-2025'
+  ) {
     if (!this.isLiveAvailable()) {
       throw new Error(
         'Live API not available. Make sure @google/genai module is loaded.'
@@ -156,7 +159,7 @@ export class Gemini extends BaseAIModel {
     };
     try {
       const connectParams: GoogleGenAITypes.LiveConnectParameters = {
-        model: 'gemini-2.5-flash-preview-native-audio-dialog',
+        model: model,
         callbacks: callbacks,
         config: defaultConfig,
       };

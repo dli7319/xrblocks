@@ -47,9 +47,8 @@ export class SimulatorOptions {
   stereo = {
     enabled: false,
   };
-  // Whether to render the main scene to a render texture or directly to the
-  // canvas.
-  // This is a temporary option until we figure out why splats look faded.
+  // Whether to render the main scene to a render texture before rendering the simulator scene
+  // or directly to the canvas after rendering the simulator scene.
   renderToRenderTexture = true;
   // Blending mode when rendering the virtual scene.
   blendingMode: 'normal' | 'screen' = 'normal';

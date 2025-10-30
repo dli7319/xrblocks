@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {FullScreenQuad} from 'three/addons/postprocessing/Pass.js';
+import type {SparkRenderer} from '@sparkjsdev/spark';
 
 import {XRDeviceCamera} from '../camera/XRDeviceCamera.js';
 import {Registry} from '../core/components/Registry';
@@ -20,6 +21,7 @@ import {SimulatorInterface} from './SimulatorInterface';
 import {SimulatorOptions} from './SimulatorOptions';
 import {SimulatorScene} from './SimulatorScene';
 import {SimulatorUser} from './SimulatorUser';
+import {SparkRendererHolder} from '../utils/SparkRendererHolder.js';
 
 export class Simulator extends Script {
   static dependencies = {
@@ -68,6 +70,8 @@ export class Simulator extends Script {
   private initialized = false;
   private renderSimulatorSceneToCanvasBound =
     this.renderSimulatorSceneToCanvas.bind(this);
+  private sparkRenderer?: SparkRenderer;
+  private registry?: Registry;
 
   constructor(
     private renderMainScene: (cameraOverride?: THREE.Camera) => void
@@ -147,6 +151,7 @@ export class Simulator extends Script {
     this.renderer = renderer;
     this.mainCamera = camera;
     this.mainScene = scene;
+    this.registry = registry;
     this.initialized = true;
   }
 
@@ -226,6 +231,11 @@ export class Simulator extends Script {
         this.virtualSceneFullScreenQuad!.material as THREE.MeshBasicMaterial
       ).map = this.virtualSceneRenderTarget.texture;
     }
+    this.sparkRenderer =
+      this.sparkRenderer || this.registry!.get(SparkRendererHolder)?.renderer;
+    if (this.sparkRenderer) {
+      this.sparkRenderer.defaultView.encodeLinear = true;
+    }
     this.renderer.setRenderTarget(this.virtualSceneRenderTarget!);
     this.renderer.clear();
     this.renderMainScene(this.getRenderCamera());
@@ -248,6 +258,9 @@ export class Simulator extends Script {
   }
 
   private renderSimulatorSceneToCanvas(camera: THREE.Camera) {
+    if (this.sparkRenderer) {
+      this.sparkRenderer.defaultView.encodeLinear = false;
+    }
     this.renderer.setRenderTarget(null);
     this.renderer.render(this.simulatorScene, camera);
     this.renderer.clearDepth();

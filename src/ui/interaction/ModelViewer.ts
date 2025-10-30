@@ -18,6 +18,8 @@ import {
 } from '../../ux/DragManager';
 
 import {ModelViewerPlatform} from './ModelViewerPlatform';
+import {SparkRendererHolder} from '../../utils/SparkRendererHolder';
+import {Registry} from '../../core/components/Registry';
 
 const defaultPlatformMargin = new THREE.Vector2(0.2, 0.2);
 const vector3 = new THREE.Vector3();
@@ -69,6 +71,7 @@ export class ModelViewer extends Script implements Draggable {
     depth: Depth,
     scene: THREE.Scene,
     renderer: THREE.WebGLRenderer,
+    registry: Registry,
   };
 
   draggable = true;
@@ -99,6 +102,7 @@ export class ModelViewer extends Script implements Draggable {
   private platform?: ModelViewerPlatform;
   private controlBar?: THREE.Mesh;
   private rotationRaycastMesh?: RotationRaycastMesh;
+  private registry?: Registry;
 
   constructor({
     castShadow = true,
@@ -116,16 +120,19 @@ export class ModelViewer extends Script implements Draggable {
     depth,
     scene,
     renderer,
+    registry,
   }: {
     camera: THREE.Camera;
     depth: Depth;
     scene: THREE.Scene;
     renderer: THREE.WebGLRenderer;
+    registry: Registry;
   }) {
     this.camera = camera;
     this.depth = depth;
     this.scene = scene;
     this.renderer = renderer;
+    this.registry = registry;
 
     for (const shader of this.occludableShaders) {
       this.depth!.occludableShaders.add(shader);
@@ -597,9 +604,12 @@ export class ModelViewer extends Script implements Draggable {
       sparkRendererExists ||= child instanceof SparkRenderer;
     });
     if (!sparkRendererExists) {
-      this.scene!.add(
-        new SparkRenderer({renderer: this.renderer!, maxStdDev: Math.sqrt(5)})
-      );
+      const sparkRenderer = new SparkRenderer({
+        renderer: this.renderer!,
+        maxStdDev: Math.sqrt(5),
+      });
+      this.registry!.register(new SparkRendererHolder(sparkRenderer));
+      this.scene!.add(sparkRenderer);
     }
   }
 }

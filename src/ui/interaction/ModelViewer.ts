@@ -168,6 +168,7 @@ export class ModelViewer extends Script implements Draggable {
     this.splatMesh = splatMesh;
     splatMesh.raycast = () => {};
     this.splatAnchor = new SplatAnchor();
+    this.splatAnchor.add(splatMesh);
 
     if (data.scale) {
       this.splatAnchor.scale.copy(data.scale);
@@ -185,10 +186,7 @@ export class ModelViewer extends Script implements Draggable {
 
     this.add(this.splatAnchor);
 
-    if (this.scene) {
-      await this.createSparkRendererIfNeeded();
-      this.scene.add(this.splatMesh);
-    }
+    await this.createSparkRendererIfNeeded();
 
     await this.setupBoundingBox(
       data.verticallyAlignObject !== false,
@@ -426,15 +424,6 @@ export class ModelViewer extends Script implements Draggable {
   }
 
   update() {
-    if (this.splatMesh && this.splatAnchor) {
-      // Synchronize the splat mesh's transform with its anchor
-      this.updateMatrixWorld(true);
-      this.splatAnchor.matrixWorld.decompose(
-        this.splatMesh.position,
-        this.splatMesh.quaternion,
-        this.splatMesh.scale
-      );
-    }
     const delta = this.clock.getDelta();
     if (this.animationMixer) {
       this.animationMixer.update(delta);

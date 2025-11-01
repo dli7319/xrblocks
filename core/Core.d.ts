@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { AI } from '../ai/AI';
 import { XRDeviceCamera } from '../camera/XRDeviceCamera';
 import { Depth } from '../depth/Depth';
+import { GestureRecognition } from '../input/gestures/GestureRecognition';
 import { Input } from '../input/Input';
 import { Lighting } from '../lighting/Lighting';
 import { Physics } from '../physics/Physics';
@@ -49,7 +50,7 @@ export declare class Core {
     /** The main camera for rendering. */
     camera: THREE.PerspectiveCamera;
     /** The root scene graph for all objects. */
-    scene: THREE.Scene;
+    scene: THREE.Scene<THREE.Object3DEventMap>;
     /** Represents the user in the XR scene. */
     user: User;
     /** Manages all UI elements. */
@@ -77,6 +78,7 @@ export declare class Core {
     xrButton?: XRButton;
     effects?: XREffects;
     ai: AI;
+    gestureRecognition?: GestureRecognition;
     transition?: XRTransition;
     currentFrame?: XRFrame;
     scriptsManager: ScriptsManager;

@@ -14,15 +14,15 @@
  * limitations under the License.
  *
  * @file xrblocks.js
- * @version v0.1.0
- * @commitid 1ab107c
- * @builddate 2025-10-17T06:22:11.811Z
+ * @version v0.2.0
+ * @commitid 17007c3
+ * @builddate 2025-11-01T07:00:03.960Z
  * @description XR Blocks SDK, built from source with the above commit ID.
  * @agent When using with Gemini to create XR apps, use **Gemini Canvas** mode,
  * and follow rules below:
  * 1. Include the following importmap for maximum compatibility:
-    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+    "three": "https://cdn.jsdelivr.net/npm/three@0.181.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.181.0/examples/jsm/",
     "troika-three-text": "https://cdn.jsdelivr.net/gh/protectwise/troika@028b81cf308f0f22e5aa8e78196be56ec1997af5/packages/troika-three-text/src/index.js",
     "troika-three-utils": "https://cdn.jsdelivr.net/gh/protectwise/troika@v0.52.4/packages/troika-three-utils/src/index.js",
     "troika-worker-utils": "https://cdn.jsdelivr.net/gh/protectwise/troika@v0.52.4/packages/troika-worker-utils/src/index.js",
@@ -68,8 +68,12 @@ class Context {
      */
     build(memory, tools) {
         const history = memory.getShortTerm();
-        const formattedHistory = history.map(entry => this.formatEntry(entry)).join('\n');
-        const toolDescriptions = tools.map(tool => `- ${tool.name}: ${tool.description}`).join('\n');
+        const formattedHistory = history
+            .map((entry) => this.formatEntry(entry))
+            .join('\n');
+        const toolDescriptions = tools
+            .map((tool) => `- ${tool.name}: ${tool.description}`)
+            .join('\n');
         return `${this.instructions} You have access to the following tools: ${toolDescriptions}
         Current Conversation history: ${formattedHistory}. You should reply to the user or call a tool as needed.`;
     }
@@ -148,15 +152,17 @@ class Agent {
     async run() {
         while (true) {
             const context = this.contextBuilder.build(this.memory, this.tools);
-            const response = await this.ai.model
-                .query({ type: 'text', text: context }, this.tools);
+            const response = await this.ai.model.query({ type: 'text', text: context }, this.tools);
             this.memory.addShortTerm({ role: 'ai', content: JSON.stringify(response) });
             if (response?.toolCall) {
                 console.log(`Executing tool: ${response.toolCall.name}`);
                 const tool = this.findTool(response.toolCall.name);
                 if (tool) {
                     const result = await tool.execute(response.toolCall.args);
-                    this.memory.addShortTerm({ role: 'tool', content: JSON.stringify(result) });
+                    this.memory.addShortTerm({
+                        role: 'tool',
+                        content: JSON.stringify(result),
+                    });
                 }
                 else {
                     const errorMsg = `Error: Tool "${response.toolCall.name}" not found.`;
@@ -176,7 +182,7 @@ class Agent {
         }
     }
     findTool(name) {
-        return this.tools.find(tool => tool.name === name);
+        return this.tools.find((tool) => tool.name === name);
     }
     /**
      * Get the current session state.
@@ -203,6 +209,7 @@ class Tool {
         this.description = options.description;
         this.parameters = options.parameters || {};
         this.onTriggered = options.onTriggered;
+        this.behavior = options.behavior;
     }
     /**
      * Executes the tool's action with standardized error handling.
@@ -216,7 +223,7 @@ class Tool {
                 return {
                     success: true,
                     data: result,
-                    metadata: { executedAt: Date.now(), toolName: this.name }
+                    metadata: { executedAt: Date.now(), toolName: this.name },
                 };
             }
             throw new Error('The execute method must be implemented by a subclass or onTriggered must be provided.');
@@ -225,7 +232,7 @@ class Tool {
             return {
                 success: false,
                 error: error instanceof Error ? error.message : String(error),
-                metadata: { executedAt: Date.now(), toolName: this.name }
+                metadata: { executedAt: Date.now(), toolName: this.name },
             };
         }
     }
@@ -240,6 +247,9 @@ class Tool {
         }
         if (this.parameters) {
             result.parameters = this.parameters;
+        }
+        if (this.behavior) {
+            result.behavior = this.behavior;
         }
         return result;
     }
@@ -284,14 +294,14 @@ class GenerateSkyboxTool extends Tool {
                 return {
                     success: true,
                     data: 'Skybox generated successfully.',
-                    metadata: { prompt: args.prompt, timestamp: Date.now() }
+                    metadata: { prompt: args.prompt, timestamp: Date.now() },
                 };
             }
             else {
                 return {
                     success: false,
                     error: 'Failed to generate skybox image',
-                    metadata: { prompt: args.prompt, timestamp: Date.now() }
+                    metadata: { prompt: args.prompt, timestamp: Date.now() },
                 };
             }
         }
@@ -299,9 +309,10 @@ class GenerateSkyboxTool extends Tool {
             console.error('error:', e);
             return {
                 success: false,
-                error: e instanceof Error ? e.message :
-                    'Unknown error while creating skybox',
-                metadata: { prompt: args.prompt, timestamp: Date.now() }
+                error: e instanceof Error
+                    ? e.message
+                    : 'Unknown error while creating skybox',
+                metadata: { prompt: args.prompt, timestamp: Date.now() },
             };
         }
     }
@@ -361,7 +372,7 @@ class SkyboxAgent extends Agent {
         this.sessionState = {
             isActive: false,
             messageCount: 0,
-            toolCallCount: 0
+            toolCallCount: 0,
         };
     }
     /**
@@ -380,12 +391,12 @@ class SkyboxAgent extends Agent {
         if (callbacks) {
             this.ai.setLiveCallbacks(wrappedCallbacks);
         }
-        const functionDeclarations = this.tools.map(tool => tool.toJSON());
+        const functionDeclarations = this.tools.map((tool) => tool.toJSON());
         const systemInstruction = {
-            parts: [{ text: this.contextBuilder.instruction }]
+            parts: [{ text: this.contextBuilder.instruction }],
         };
         await this.ai.startLiveSession({
-            tools: functionDeclarations,
+            tools: [{ functionDeclarations }],
             systemInstruction: systemInstruction,
         });
         this.sessionState.isActive = true;
@@ -430,7 +441,7 @@ class SkyboxAgent extends Agent {
                 this.sessionState.endTime = Date.now();
                 this.isSessionActive = false;
                 callbacks?.onclose?.(event);
-            }
+            },
         };
     }
     /**
@@ -444,9 +455,9 @@ class SkyboxAgent extends Agent {
             return;
         }
         // Handle both single response and array of responses
-        const responses = Array.isArray(response.functionResponses) ?
-            response.functionResponses :
-            [response.functionResponses];
+        const responses = Array.isArray(response.functionResponses)
+            ? response.functionResponses
+            : [response.functionResponses];
         this.sessionState.toolCallCount += responses.length;
         console.log('Sending tool response:', response);
         this.ai.sendToolResponse(response);
@@ -461,10 +472,10 @@ class SkyboxAgent extends Agent {
             return false;
         }
         // Handle both single response and array of responses
-        const responses = Array.isArray(response.functionResponses) ?
-            response.functionResponses :
-            [response.functionResponses];
-        return responses.every(fr => fr.id && fr.name && fr.response !== undefined);
+        const responses = Array.isArray(response.functionResponses)
+            ? response.functionResponses
+            : [response.functionResponses];
+        return responses.every((fr) => fr.id && fr.name && fr.response !== undefined);
     }
     /**
      * Helper to create a properly formatted tool response from a ToolResult.
@@ -478,7 +489,7 @@ class SkyboxAgent extends Agent {
         return {
             id,
             name,
-            response: result.success ? { result: result.data } : { error: result.error }
+            response: result.success ? { result: result.data } : { error: result.error },
         };
     }
     /**
@@ -523,7 +534,7 @@ class GetWeatherTool extends Tool {
                     },
                 },
                 required: ['location'],
-            }
+            },
         });
     }
     /**
@@ -550,15 +561,15 @@ class GetWeatherTool extends Tool {
                     metadata: {
                         latitude: args.latitude,
                         longitude: args.longitude,
-                        timestamp: Date.now()
-                    }
+                        timestamp: Date.now(),
+                    },
                 };
             }
             else {
                 return {
                     success: false,
                     error: 'Could not retrieve weather for the specified location.',
-                    metadata: { latitude: args.latitude, longitude: args.longitude }
+                    metadata: { latitude: args.latitude, longitude: args.longitude },
                 };
             }
         }
@@ -566,9 +577,10 @@ class GetWeatherTool extends Tool {
             console.error('Error fetching weather:', error);
             return {
                 success: false,
-                error: error instanceof Error ? error.message :
-                    'There was an error fetching the weather.',
-                metadata: { latitude: args.latitude, longitude: args.longitude }
+                error: error instanceof Error
+                    ? error.message
+                    : 'There was an error fetching the weather.',
+                metadata: { latitude: args.latitude, longitude: args.longitude },
             };
         }
     }
@@ -1031,7 +1043,10 @@ function getVec4ByColorString(colorString) {
     let expandedHex = hex;
     if (len === 3 || len === 4) {
         // Expand shorthand: rgb -> rrgbbaa or rgba -> rrggbbaa
-        expandedHex = hex.split('').map((char) => char + char).join('');
+        expandedHex = hex
+            .split('')
+            .map((char) => char + char)
+            .join('');
     }
     if (expandedHex.length === 8) {
         alpha = parseInt(expandedHex.slice(6, 8), 16) / 255;
@@ -1104,8 +1119,8 @@ class GeminiOptions {
                 channelCount: 1,
                 echoCancellation: true,
                 noiseSuppression: true,
-                autoGainControl: true
-            }
+                autoGainControl: true,
+            },
         };
     }
 }
@@ -1153,10 +1168,10 @@ async function loadGoogleGenAIModule() {
             EndSensitivity = genAIModule.EndSensitivity;
             StartSensitivity = genAIModule.StartSensitivity;
             Modality = genAIModule.Modality;
-            console.log('\'@google/genai\' module loaded successfully.');
+            console.log("'@google/genai' module loaded successfully.");
         }
         else {
-            throw new Error('\'@google/genai\' module loaded but is not valid.');
+            throw new Error("'@google/genai' module loaded but is not valid.");
         }
     }
     catch (error) {
@@ -1189,7 +1204,7 @@ class Gemini extends BaseAIModel {
     isLiveAvailable() {
         return this.isAvailable() && EndSensitivity && StartSensitivity && Modality;
     }
-    async startLiveSession(params = {}) {
+    async startLiveSession(params = {}, model = 'gemini-2.5-flash-native-audio-preview-09-2025') {
         if (!this.isLiveAvailable()) {
             throw new Error('Live API not available. Make sure @google/genai module is loaded.');
         }
@@ -1202,20 +1217,9 @@ class Gemini extends BaseAIModel {
                 voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Aoede' } },
             },
             outputAudioTranscription: {},
-            inputAudioTranscription: {}
+            inputAudioTranscription: {},
+            ...params,
         };
-        if (params.tools && params.tools.length > 0) {
-            defaultConfig.tools = [{ functionDeclarations: params.tools }];
-        }
-        if (params.systemInstruction) {
-            if (typeof params.systemInstruction === 'string') {
-                defaultConfig.systemInstruction =
-                    createUserContent(params.systemInstruction);
-            }
-            else {
-                defaultConfig.systemInstruction = params.systemInstruction;
-            }
-        }
         const callbacks = {
             onopen: () => {
                 this.isLiveMode = true;
@@ -1251,7 +1255,7 @@ class Gemini extends BaseAIModel {
         };
         try {
             const connectParams = {
-                model: 'gemini-2.5-flash-preview-native-audio-dialog',
+                model: model,
                 callbacks: callbacks,
                 config: defaultConfig,
             };
@@ -1298,7 +1302,7 @@ class Gemini extends BaseAIModel {
         return {
             isActive: this.isLiveMode,
             hasSession: !!this.liveSession,
-            isAvailable: this.isLiveAvailable()
+            isAvailable: this.isLiveAvailable(),
         };
     }
     async query(input, _tools = []) {
@@ -1309,7 +1313,11 @@ class Gemini extends BaseAIModel {
         const options = this.options;
         const config = options.config || {};
         if (!('type' in input)) {
-            const response = await this.ai.models.generateContent({ model: options.model, contents: input.prompt, config: config });
+            const response = await this.ai.models.generateContent({
+                model: options.model,
+                contents: input.prompt,
+                config: config,
+            });
             return { text: response.text || null };
         }
         const model = this.ai.models;
@@ -1362,7 +1370,7 @@ class Gemini extends BaseAIModel {
             return;
         let contents;
         if (Array.isArray(prompt)) {
-            contents = prompt.map(item => {
+            contents = prompt.map((item) => {
                 if (typeof item === 'string') {
                     if (item.startsWith('data:image/')) {
                         const [header, data] = item.split(',');
@@ -1380,7 +1388,11 @@ class Gemini extends BaseAIModel {
         else {
             contents = prompt;
         }
-        const response = await this.ai.models.generateContent({ model: model, contents: contents, config: { systemInstruction } });
+        const response = await this.ai.models.generateContent({
+            model: model,
+            contents: contents,
+            config: { systemInstruction },
+        });
         if (response.candidates && response.candidates.length > 0) {
             const firstCandidate = response.candidates[0];
             for (const part of firstCandidate?.content?.parts || []) {
@@ -1400,10 +1412,10 @@ async function loadOpenAIModule() {
     try {
         const openAIModule = await import('openai');
         OpenAIApi = openAIModule.default;
-        console.log('\'openai\' module loaded successfully.');
+        console.log("'openai' module loaded successfully.");
     }
     catch (error) {
-        console.warn('\'openai\' module not found. Using fallback implementations.', 'Error details:', error);
+        console.warn("'openai' module not found. Using fallback implementations.", 'Error details:', error);
     }
 }
 class OpenAI extends BaseAIModel {
@@ -1414,7 +1426,10 @@ class OpenAI extends BaseAIModel {
     async init() {
         await loadOpenAIModule();
         if (this.options.apiKey && OpenAIApi) {
-            this.openai = new OpenAIApi({ apiKey: this.options.apiKey, dangerouslyAllowBrowser: true });
+            this.openai = new OpenAIApi({
+                apiKey: this.options.apiKey,
+                dangerouslyAllowBrowser: true,
+            });
             console.log('OpenAI model initialized');
         }
         else {
@@ -1495,7 +1510,7 @@ class AI extends Script {
         try {
             const response = await fetch('./keys.json');
             if (response.ok) {
-                this.keysCache = await response.json();
+                this.keysCache = (await response.json());
                 console.log('🔑 Loaded keys.json');
                 return this.keysCache;
             }
@@ -1593,11 +1608,11 @@ class AI extends Script {
     }
     async query(input, tools) {
         if (!this.isAvailable()) {
-            throw new Error('AI is not available. Check if it\'s enabled and properly initialized.');
+            throw new Error("AI is not available. Check if it's enabled and properly initialized.");
         }
         return await this.model.query(input, tools);
     }
-    async startLiveSession(config = {}) {
+    async startLiveSession(config = {}, model) {
         if (!this.model) {
             throw new Error('AI model is not initialized.');
         }
@@ -1606,7 +1621,7 @@ class AI extends Script {
         }
         this.lock = true;
         try {
-            const session = await this.model.startLiveSession(config);
+            const session = await this.model.startLiveSession(config, model);
             return session;
         }
         catch (error) {
@@ -1650,8 +1665,9 @@ class AI extends Script {
         return this.model.getLiveSessionStatus();
     }
     isLiveAvailable() {
-        return this.model && 'isLiveAvailable' in this.model &&
-            this.model.isLiveAvailable();
+        return (this.model &&
+            'isLiveAvailable' in this.model &&
+            this.model.isLiveAvailable());
     }
     /**
      * In simulator mode, pop up a 2D UI to request Gemini key;
@@ -1667,8 +1683,8 @@ class AI extends Script {
      */
     static createSampleKeysStructure() {
         return {
-            'gemini': { 'apiKey': 'YOUR_GEMINI_API_KEY_HERE' },
-            'openai': { 'apiKey': 'YOUR_OPENAI_API_KEY_HERE' },
+            gemini: { apiKey: 'YOUR_GEMINI_API_KEY_HERE' },
+            openai: { apiKey: 'YOUR_OPENAI_API_KEY_HERE' },
         };
     }
     /**
@@ -1699,22 +1715,45 @@ const HAND_JOINT_COUNT = 25;
  * The pairs of joints as an adjcent list.
  */
 const HAND_JOINT_IDX_CONNECTION_MAP = [
-    [1, 2], [2, 3], [3, 4], // Thumb has 3 bones
-    [5, 6], [6, 7], [7, 8], [8, 9], // Index finger has 4 bones
-    [10, 11], [11, 12], [12, 13], [13, 14], // Middle finger has 4 bones
-    [15, 16], [16, 17], [17, 18], [18, 19], // Ring finger has 4 bones
-    [20, 21], [21, 22], [22, 23], [23, 24], // Little finger has 4 bones
+    [1, 2],
+    [2, 3],
+    [3, 4], // Thumb has 3 bones
+    [5, 6],
+    [6, 7],
+    [7, 8],
+    [8, 9], // Index finger has 4 bones
+    [10, 11],
+    [11, 12],
+    [12, 13],
+    [13, 14], // Middle finger has 4 bones
+    [15, 16],
+    [16, 17],
+    [17, 18],
+    [18, 19], // Ring finger has 4 bones
+    [20, 21],
+    [21, 22],
+    [22, 23],
+    [23, 24], // Little finger has 4 bones
 ];
 /**
  * The pairs of bones' ids per angle as an adjcent list.
  */
 // clang-format off
 const HAND_BONE_IDX_CONNECTION_MAP = [
-    [0, 1], [1, 2], // Thumb has 2 angles
-    [3, 4], [4, 5], [5, 6], // Index finger has 3 angles
-    [7, 8], [8, 9], [9, 10], // Middle finger has 3 angles
-    [11, 12], [12, 13], [13, 14], // Ring finger has 3 angles
-    [15, 16], [16, 17], [17, 18], // Little finger has 3 angles
+    [0, 1],
+    [1, 2], // Thumb has 2 angles
+    [3, 4],
+    [4, 5],
+    [5, 6], // Index finger has 3 angles
+    [7, 8],
+    [8, 9],
+    [9, 10], // Middle finger has 3 angles
+    [11, 12],
+    [12, 13],
+    [13, 14], // Ring finger has 3 angles
+    [15, 16],
+    [16, 17],
+    [17, 18], // Little finger has 3 angles
 ];
 // clang-format on
 // --- UI ---
@@ -1765,7 +1804,7 @@ const XR_BLOCKS_ASSETS_PATH = 'https://cdn.jsdelivr.net/gh/xrblocks/assets@34228
  */
 function deepFreeze(obj) {
     Object.freeze(obj);
-    Object.getOwnPropertyNames(obj).forEach(name => {
+    Object.getOwnPropertyNames(obj).forEach((name) => {
         // We use `any` here because `T` is a generic and we can't be sure
         // what properties it has without more complex type manipulation.
         // The function's signature provides the necessary type safety for
@@ -1795,7 +1834,9 @@ function deepMerge(obj1, obj2) {
         if (Object.prototype.hasOwnProperty.call(obj2, key)) {
             const val1 = merged[key];
             const val2 = obj2[key];
-            if (val1 && typeof val1 === 'object' && val2 &&
+            if (val1 &&
+                typeof val1 === 'object' &&
+                val2 &&
                 typeof val2 === 'object') {
                 // If both values are objects, recurse
                 deepMerge(val1, val2);
@@ -1824,15 +1865,21 @@ const baseCaptureOptions = {
     videoConstraints: {
         width: { ideal: DEFAULT_DEVICE_CAMERA_WIDTH },
         height: { ideal: DEFAULT_DEVICE_CAMERA_HEIGHT },
-    }
+    },
 };
 const xrDeviceCameraEnvironmentOptions = deepFreeze(new DeviceCameraOptions({
     ...baseCaptureOptions,
-    videoConstraints: { ...baseCaptureOptions.videoConstraints, facingMode: 'environment' }
+    videoConstraints: {
+        ...baseCaptureOptions.videoConstraints,
+        facingMode: 'environment',
+    },
 }));
 const xrDeviceCameraUserOptions = deepFreeze(new DeviceCameraOptions({
     ...baseCaptureOptions,
-    videoConstraints: { ...baseCaptureOptions.videoConstraints, facingMode: 'user' }
+    videoConstraints: {
+        ...baseCaptureOptions.videoConstraints,
+        facingMode: 'user',
+    },
 }));
 const xrDeviceCameraEnvironmentContinuousOptions = deepFreeze(new DeviceCameraOptions({
     ...xrDeviceCameraEnvironmentOptions,
@@ -1844,7 +1891,7 @@ const xrDeviceCameraUserContinuousOptions = deepFreeze(new DeviceCameraOptions({
 }));
 
 function onDesktopUserAgent() {
-    return !(/Mobi|Linux|Android|iPhone/i.test(navigator.userAgent));
+    return !/Mobi|Linux|Android|iPhone/i.test(navigator.userAgent);
 }
 
 const DepthMeshTexturedShader = {
@@ -1964,7 +2011,7 @@ void main() {
     saturate((depth - uMinDepth) / (uMaxDepth - uMinDepth));
   gl_FragColor = uOpacity * vec4(TurboColormap(normalized_depth), 1.0);
 }
-`
+`,
 };
 
 class DepthMesh extends MeshScript {
@@ -1991,14 +2038,14 @@ class DepthMesh extends MeshScript {
                 uOpacity: { value: options.opacity },
                 uDebug: { value: options.showDebugTexture ? 1.0 : 0.0 },
                 uLightDirection: { value: new THREE.Vector3(1.0, 1.0, 1.0).normalize() },
-                uUsingFloatDepth: { value: depthOptions.useFloat32 }
+                uUsingFloatDepth: { value: depthOptions.useFloat32 },
             };
             material = new THREE.ShaderMaterial({
                 uniforms: uniforms,
                 vertexShader: DepthMeshTexturedShader.vertexShader,
                 fragmentShader: DepthMeshTexturedShader.fragmentShader,
                 side: THREE.FrontSide,
-                transparent: true
+                transparent: true,
             });
         }
         else {
@@ -2042,7 +2089,7 @@ class DepthMesh extends MeshScript {
     /**
      * Initialize the depth mesh.
      */
-    init({ camera, renderer }) {
+    init({ camera, renderer, }) {
         this.camera = camera;
         this.renderer = renderer;
     }
@@ -2070,8 +2117,9 @@ class DepthMesh extends MeshScript {
         const depthTextureLeft = this.depthTextures?.get(0);
         if (depthTextureLeft && this.depthTextureMaterialUniforms) {
             const isTextureArray = depthTextureLeft instanceof THREE.ExternalTexture;
-            this.depthTextureMaterialUniforms.uIsTextureArray.value =
-                isTextureArray ? 1.0 : 0;
+            this.depthTextureMaterialUniforms.uIsTextureArray.value = isTextureArray
+                ? 1.0
+                : 0;
             if (isTextureArray)
                 this.depthTextureMaterialUniforms.uDepthTextureArray.value =
                     depthTextureLeft;
@@ -2080,11 +2128,10 @@ class DepthMesh extends MeshScript {
                     depthTextureLeft;
             this.depthTextureMaterialUniforms.uMinDepth.value = this.minDepth;
             this.depthTextureMaterialUniforms.uMaxDepth.value = this.maxDepth;
-            this.depthTextureMaterialUniforms.uRawValueToMeters.value =
-                this.depthTextures.depthData.length ?
-                    this.depthTextures.depthData[0].rawValueToMeters :
-                    1.0;
-            this.material.needsUpdate = true;
+            this.depthTextureMaterialUniforms.uRawValueToMeters.value = this
+                .depthTextures.depthData.length
+                ? this.depthTextures.depthData[0].rawValueToMeters
+                : 1.0;
         }
         if (this.options.updateVertexNormals) {
             this.geometry.computeVertexNormals();
@@ -2096,15 +2143,14 @@ class DepthMesh extends MeshScript {
     }
     convertGPUToGPU(depthData) {
         if (!this.depthTarget) {
-            this.depthTarget =
-                new THREE.WebGLRenderTarget(depthData.width, depthData.height, {
-                    format: THREE.RedFormat,
-                    type: THREE.FloatType,
-                    internalFormat: 'R32F',
-                    minFilter: THREE.NearestFilter,
-                    magFilter: THREE.NearestFilter,
-                    depthBuffer: false
-                });
+            this.depthTarget = new THREE.WebGLRenderTarget(depthData.width, depthData.height, {
+                format: THREE.RedFormat,
+                type: THREE.FloatType,
+                internalFormat: 'R32F',
+                minFilter: THREE.NearestFilter,
+                magFilter: THREE.NearestFilter,
+                depthBuffer: false,
+            });
             this.depthTexture = new THREE.ExternalTexture(depthData.texture);
             const textureProperties = this.renderer.properties.get(this.depthTexture);
             textureProperties.__webglTexture = depthData.texture;
@@ -2135,12 +2181,14 @@ class DepthMesh extends MeshScript {
             `,
                 uniforms: {
                     uTexture: { value: this.depthTexture },
-                    uCameraNear: { value: depthData.depthNear }
+                    uCameraNear: {
+                        value: depthData.depthNear,
+                    },
                 },
                 blending: THREE.NoBlending,
                 depthTest: false,
                 depthWrite: false,
-                side: THREE.DoubleSide
+                side: THREE.DoubleSide,
             });
             const depthMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), depthShader);
             this.depthScene = new THREE.Scene();
@@ -2158,7 +2206,7 @@ class DepthMesh extends MeshScript {
             width: depthData.width,
             height: depthData.height,
             data: this.gpuPixels.buffer,
-            rawValueToMeters: depthData.rawValueToMeters
+            rawValueToMeters: depthData.rawValueToMeters,
         };
     }
     /**
@@ -2174,9 +2222,9 @@ class DepthMesh extends MeshScript {
     updateGeometry(depthData, geometry) {
         const width = depthData.width;
         const height = depthData.height;
-        const depthArray = this.depthOptions.useFloat32 ?
-            new Float32Array(depthData.data) :
-            new Uint16Array(depthData.data);
+        const depthArray = this.depthOptions.useFloat32
+            ? new Float32Array(depthData.data)
+            : new Uint16Array(depthData.data);
         const vertexPosition = new THREE.Vector3();
         for (let i = 0; i < geometry.attributes.position.count; ++i) {
             const u = geometry.attributes.uv.array[2 * i];
@@ -2227,7 +2275,9 @@ class DepthMesh extends MeshScript {
             this.getWorldQuaternion(this.worldQuaternion);
             this.rigidBody.setTranslation(this.worldPosition, false);
             this.rigidBody.setRotation(this.worldQuaternion, false);
-            const geometry = this.downsampledGeometry ? this.downsampledGeometry : this.geometry;
+            const geometry = this.downsampledGeometry
+                ? this.downsampledGeometry
+                : this.geometry;
             const vertices = geometry.attributes.position.array;
             const indices = geometry.getIndex().array;
             // Changing the density does not fix the issue.
@@ -2236,8 +2286,7 @@ class DepthMesh extends MeshScript {
             if (this.options.useDualCollider) {
                 this.colliderId = (this.colliderId + 1) % 2;
                 this.blendedWorld.removeCollider(this.colliders[this.colliderId], false);
-                this.colliders[this.colliderId] =
-                    this.blendedWorld.createCollider(shape, this.rigidBody);
+                this.colliders[this.colliderId] = this.blendedWorld.createCollider(shape, this.rigidBody);
             }
             else {
                 const newCollider = this.blendedWorld.createCollider(shape, this.rigidBody);
@@ -2302,12 +2351,12 @@ class DepthMesh extends MeshScript {
         else {
             super.raycast(raycaster, intersections);
         }
-        intersections.forEach(intersect => {
+        intersections.forEach((intersect) => {
             intersect.object = this;
         });
         if (!this.updateVertexNormals) {
             // Use the face normals instead of attribute normals.
-            intersections.forEach(intersect => {
+            intersections.forEach((intersect) => {
                 if (intersect.normal && intersect.face) {
                     intersect.normal.copy(intersect.face.normal);
                 }
@@ -2381,7 +2430,7 @@ const xrDepthMeshOptions = deepFreeze(new DepthOptions({
         // Whether to always update the full resolution geometry.
         updateFullResolutionGeometry: false,
         colliderUpdateFps: 5,
-    }
+    },
 }));
 const xrDepthMeshVisualizationOptions = deepFreeze(new DepthOptions({
     enabled: true,
@@ -2587,7 +2636,7 @@ const KawaseBlurShader = {
             gl_FragColor = fragUpsample();
         }
     }
-`
+`,
 };
 
 // Postprocessing shader which applies occlusion onto the entire rendered frame.
@@ -2617,7 +2666,7 @@ void main(void) {
 
   gl_FragColor = sRGBTransferOETF( gl_FragColor );
 }
-`
+`,
 };
 
 // Postprocessing to convert a render texture + depth map into an occlusion map.
@@ -2683,7 +2732,7 @@ void main(void) {
     (cameraFar - cameraNear) + cameraNear);
   gl_FragColor = vec4(step(virtual_depth, real_depth), step(0.001, diffuse.a), 0.0, 0.0);
 }
-`
+`,
 };
 
 class OcclusionMapMeshMaterial extends THREE.MeshBasicMaterial {
@@ -2698,36 +2747,43 @@ class OcclusionMapMeshMaterial extends THREE.MeshBasicMaterial {
             cameraFar: { value: camera.far },
             cameraNear: { value: camera.near },
             uFloatDepth: { value: useFloatDepth },
+            // Used for interpreting Quest 3 depth.
+            uDepthNear: { value: 0 },
         };
         this.onBeforeCompile = (shader) => {
             Object.assign(shader.uniforms, this.uniforms);
             this.uniforms = shader.uniforms;
-            shader.vertexShader =
-                shader.vertexShader
-                    .replace('#include <common>', [
-                    'varying vec2 vTexCoord;', 'varying float vVirtualDepth;',
-                    '#include <common>'
-                ].join('\n'))
-                    .replace('#include <fog_vertex>', [
-                    '#include <fog_vertex>',
-                    'vec4 view_position = modelViewMatrix * vec4( position, 1.0 );',
-                    'vVirtualDepth = -view_position.z;',
-                    'gl_Position = gl_Position / gl_Position.w;',
-                    'vTexCoord = 0.5 + 0.5 * gl_Position.xy;'
-                ].join('\n'));
-            shader.fragmentShader =
-                shader.fragmentShader
-                    .replace('uniform vec3 diffuse;', [
-                    'uniform vec3 diffuse;', 'uniform sampler2D uDepthTexture;',
-                    'uniform sampler2DArray uDepthTextureArray;',
-                    'uniform float uRawValueToMeters;',
-                    'uniform float cameraNear;', 'uniform float cameraFar;',
-                    'uniform bool uFloatDepth;', 'uniform bool uIsTextureArray;',
-                    'uniform int uViewId;', 'varying vec2 vTexCoord;',
-                    'varying float vVirtualDepth;'
-                ].join('\n'))
-                    .replace('#include <clipping_planes_pars_fragment>', [
-                    '#include <clipping_planes_pars_fragment>', `
+            shader.vertexShader = shader.vertexShader
+                .replace('#include <common>', [
+                'varying vec2 vTexCoord;',
+                'varying float vVirtualDepth;',
+                '#include <common>',
+            ].join('\n'))
+                .replace('#include <fog_vertex>', [
+                '#include <fog_vertex>',
+                'vec4 view_position = modelViewMatrix * vec4( position, 1.0 );',
+                'vVirtualDepth = -view_position.z;',
+                'gl_Position = gl_Position / gl_Position.w;',
+                'vTexCoord = 0.5 + 0.5 * gl_Position.xy;',
+            ].join('\n'));
+            shader.fragmentShader = shader.fragmentShader
+                .replace('uniform vec3 diffuse;', [
+                'uniform vec3 diffuse;',
+                'uniform sampler2D uDepthTexture;',
+                'uniform sampler2DArray uDepthTextureArray;',
+                'uniform float uRawValueToMeters;',
+                'uniform float cameraNear;',
+                'uniform float cameraFar;',
+                'uniform bool uFloatDepth;',
+                'uniform bool uIsTextureArray;',
+                'uniform float uDepthNear;',
+                'uniform int uViewId;',
+                'varying vec2 vTexCoord;',
+                'varying float vVirtualDepth;',
+            ].join('\n'))
+                .replace('#include <clipping_planes_pars_fragment>', [
+                '#include <clipping_planes_pars_fragment>',
+                `
   float DepthGetMeters(in sampler2D depth_texture, in vec2 depth_uv) {
     // Depth is packed into the luminance and alpha components of its texture.
     // The texture is in a normalized format, storing raw values that need to be
@@ -2739,17 +2795,18 @@ class OcclusionMapMeshMaterial extends THREE.MeshBasicMaterial {
     return dot(packedDepthAndVisibility, vec2(255.0, 256.0 * 255.0)) * uRawValueToMeters;
   }
   float DepthArrayGetMeters(in sampler2DArray depth_texture, in vec2 depth_uv) {
-    return uRawValueToMeters * texture(uDepthTextureArray, vec3 (depth_uv.x, depth_uv.y, uViewId)).r;
+    float textureValue = texture(depth_texture, vec3(depth_uv.x, depth_uv.y, uViewId)).r;
+    return uRawValueToMeters * uDepthNear / (1.0 - textureValue);
   }
-`
-                ].join('\n'))
-                    .replace('#include <dithering_fragment>', [
-                    '#include <dithering_fragment>',
-                    'vec4 texCoord = vec4(vTexCoord, 0, 1);',
-                    'vec2 uv = vec2(texCoord.x, uIsTextureArray?texCoord.y:(1.0 - texCoord.y));',
-                    'highp float real_depth = uIsTextureArray ? DepthArrayGetMeters(uDepthTextureArray, uv) : DepthGetMeters(uDepthTexture, uv);',
-                    'gl_FragColor = vec4(step(vVirtualDepth, real_depth), 1.0, 0.0, 1.0);'
-                ].join('\n'));
+`,
+            ].join('\n'))
+                .replace('#include <dithering_fragment>', [
+                '#include <dithering_fragment>',
+                'vec4 texCoord = vec4(vTexCoord, 0, 1);',
+                'vec2 uv = vec2(texCoord.x, uIsTextureArray?texCoord.y:(1.0 - texCoord.y));',
+                'highp float real_depth = uIsTextureArray ? DepthArrayGetMeters(uDepthTextureArray, uv) : DepthGetMeters(uDepthTexture, uv);',
+                'gl_FragColor = vec4(step(vVirtualDepth, real_depth), 1.0, 0.0, 1.0);',
+            ].join('\n'));
         };
     }
 }
@@ -2779,8 +2836,8 @@ class OcclusionPass extends Pass {
         this.renderToScreen = renderToScreen;
         this.occludableItemsLayer = occludableItemsLayer;
         this.depthTextures = [];
-        this.occlusionMeshMaterial =
-            new OcclusionMapMeshMaterial(camera, useFloatDepth);
+        this.depthNear = [];
+        this.occlusionMeshMaterial = new OcclusionMapMeshMaterial(camera, useFloatDepth);
         this.occlusionMapUniforms = {
             uDepthTexture: { value: null },
             uDepthTextureArray: { value: null },
@@ -2831,25 +2888,23 @@ class OcclusionPass extends Pass {
         const uniforms = {
             uBlurSize: { value: 7.0 },
             uTexelSize: { value: new THREE.Vector2() },
-            tDiffuse: { value: inputTexture }
+            tDiffuse: { value: inputTexture },
         };
         const kawase1Material = new THREE.ShaderMaterial({
             name: 'Kawase',
             uniforms: uniforms,
             vertexShader: KawaseBlurShader.vertexShader,
             fragmentShader: KawaseBlurShader.fragmentShader,
-            defines: { MODE: mode }
+            defines: { MODE: mode },
         });
         return new FullScreenQuad(kawase1Material);
     }
-    setDepthTexture(depthTexture, rawValueToMeters, view_id) {
-        if (view_id > 1) {
-            return;
-        }
-        this.depthTextures[view_id] = depthTexture;
+    setDepthTexture(depthTexture, rawValueToMeters, viewId, depthNear) {
+        this.depthTextures[viewId] = depthTexture;
         this.occlusionMapUniforms.uRawValueToMeters.value = rawValueToMeters;
         this.occlusionMeshMaterial.uniforms.uRawValueToMeters.value =
             rawValueToMeters;
+        this.depthNear[viewId] = depthNear;
         depthTexture.needsUpdate = true;
     }
     /**
@@ -2857,16 +2912,16 @@ class OcclusionPass extends Pass {
      * @param renderer - The three.js renderer.
      * @param writeBuffer - The buffer to write the final result.
      * @param readBuffer - The buffer for the current of virtual depth.
-     * @param view_id - The view to render.
+     * @param viewId - The view to render.
      */
-    render(renderer, writeBuffer, readBuffer, view_id = 0) {
+    render(renderer, writeBuffer, readBuffer, viewId = 0) {
         const originalRenderTarget = renderer.getRenderTarget();
         const dimensions = new THREE.Vector2();
         if (readBuffer == null) {
-            this.renderOcclusionMapFromScene(renderer, dimensions, view_id);
+            this.renderOcclusionMapFromScene(renderer, dimensions, viewId);
         }
         else {
-            this.renderOcclusionMapFromReadBuffer(renderer, readBuffer, dimensions, view_id);
+            this.renderOcclusionMapFromReadBuffer(renderer, readBuffer, dimensions, viewId);
         }
         // Blur the occlusion map
         this.blurOcclusionMap(renderer, dimensions);
@@ -2874,45 +2929,56 @@ class OcclusionPass extends Pass {
         this.applyOcclusionMapToRenderedImage(renderer, readBuffer, writeBuffer);
         renderer.setRenderTarget(originalRenderTarget);
     }
-    renderOcclusionMapFromScene(renderer, dimensions, view_id) {
+    renderOcclusionMapFromScene(renderer, dimensions, viewId) {
         // Compute our own read buffer.
-        const texture = this.depthTextures[view_id];
+        const texture = this.depthTextures[viewId];
         const isTextureArray = texture instanceof THREE.ExternalTexture;
-        this.occlusionMeshMaterial.uniforms.uIsTextureArray.value = isTextureArray ? 1.0 : 0;
-        this.occlusionMeshMaterial.uniforms.uViewId.value = view_id;
-        if (isTextureArray)
+        this.occlusionMeshMaterial.uniforms.uIsTextureArray.value = isTextureArray
+            ? 1.0
+            : 0;
+        this.occlusionMeshMaterial.uniforms.uViewId.value = viewId;
+        if (isTextureArray) {
             this.occlusionMeshMaterial.uniforms.uDepthTextureArray.value = texture;
-        else
+            this.occlusionMeshMaterial.uniforms.uDepthNear.value =
+                this.depthNear[viewId];
+        }
+        else {
             this.occlusionMeshMaterial.uniforms.uDepthTexture.value = texture;
+        }
         this.scene.overrideMaterial = this.occlusionMeshMaterial;
         renderer.getDrawingBufferSize(dimensions);
         this.occlusionMapTexture.setSize(dimensions.x, dimensions.y);
         const renderTarget = this.occlusionMapTexture;
         renderer.setRenderTarget(renderTarget);
-        const camera = renderer.xr.getCamera().cameras[view_id] || this.camera;
-        const originalCameraLayers = Array.from(Array(32).keys())
-            .filter(element => camera.layers.isEnabled(element));
+        const camera = renderer.xr.getCamera().cameras[viewId] || this.camera;
+        const originalCameraLayers = Array.from(Array(32).keys()).filter((element) => camera.layers.isEnabled(element));
         camera.layers.set(this.occludableItemsLayer);
         renderer.render(this.scene, camera);
         camera.layers.disableAll();
-        originalCameraLayers.forEach(element => {
+        originalCameraLayers.forEach((element) => {
             camera.layers.enable(element);
         });
         this.scene.overrideMaterial = null;
     }
-    renderOcclusionMapFromReadBuffer(renderer, readBuffer, dimensions, view_id) {
+    renderOcclusionMapFromReadBuffer(renderer, readBuffer, dimensions, viewId) {
         // Convert the readBuffer into an occlusion map.
         // Render depth into texture
         this.occlusionMapUniforms.tDiffuse.value = readBuffer.texture;
         this.occlusionMapUniforms.tDepth.value = readBuffer.depthTexture;
-        const texture = this.depthTextures[view_id];
+        const texture = this.depthTextures[viewId];
         const isTextureArray = texture instanceof THREE.ExternalTexture;
-        this.occlusionMeshMaterial.uniforms.uIsTextureArray.value = isTextureArray ? 1.0 : 0;
-        this.occlusionMeshMaterial.uniforms.uViewId.value = view_id;
-        if (isTextureArray)
+        this.occlusionMeshMaterial.uniforms.uIsTextureArray.value = isTextureArray
+            ? 1.0
+            : 0;
+        this.occlusionMeshMaterial.uniforms.uViewId.value = viewId;
+        if (isTextureArray) {
             this.occlusionMeshMaterial.uniforms.uDepthTextureArray.value = texture;
-        else
+            this.occlusionMeshMaterial.uniforms.uDepthNear.value =
+                this.depthNear[viewId];
+        }
+        else {
             this.occlusionMeshMaterial.uniforms.uDepthTexture.value = texture;
+        }
         // First render the occlusion map to an intermediate buffer.
         renderer.getDrawingBufferSize(dimensions);
         this.occlusionMapTexture.setSize(dimensions.x, dimensions.y);
@@ -2921,13 +2987,12 @@ class OcclusionPass extends Pass {
     }
     blurOcclusionMap(renderer, dimensions) {
         for (let i = 0; i < 3; i++) {
-            this.kawaseBlurTargets[i].setSize(dimensions.x / (2 ** i), dimensions.y / (2 ** i));
+            this.kawaseBlurTargets[i].setSize(dimensions.x / 2 ** i, dimensions.y / 2 ** i);
         }
         for (let i = 0; i < 3; i++) {
-            this.kawaseBlurQuads[i].material
-                .uniforms.uTexelSize.value.set(1 / (dimensions.x / (2 ** i)), 1 / (dimensions.y / (2 ** i)));
-            this.kawaseBlurQuads[this.kawaseBlurQuads.length - 1 - i].material
-                .uniforms.uTexelSize.value.set(1 / (dimensions.x / (2 ** (i - 1))), 1 / (dimensions.y / (2 ** (i - 1))));
+            this.kawaseBlurQuads[i].material.uniforms.uTexelSize.value.set(1 / (dimensions.x / 2 ** i), 1 / (dimensions.y / 2 ** i));
+            this.kawaseBlurQuads[this.kawaseBlurQuads.length - 1 - i]
+                .material.uniforms.uTexelSize.value.set(1 / (dimensions.x / 2 ** (i - 1)), 1 / (dimensions.y / 2 ** (i - 1)));
         }
         renderer.setRenderTarget(this.kawaseBlurTargets[0]);
         this.kawaseBlurQuads[0].render(renderer);
@@ -2959,7 +3024,8 @@ class OcclusionPass extends Pass {
     updateOcclusionMapUniforms(uniforms, renderer) {
         const camera = renderer.xr.getCamera().cameras[0] || this.camera;
         uniforms.tOcclusionMap.value = this.occlusionMapTexture.texture;
-        uniforms.uOcclusionClipFromWorld.value.copy(camera.projectionMatrix)
+        uniforms.uOcclusionClipFromWorld.value
+            .copy(camera.projectionMatrix)
             .multiply(camera.matrixWorldInverse);
     }
 }
@@ -3004,8 +3070,7 @@ class Depth {
             registry.register(this.depthTextures);
         }
         if (this.options.depthMesh.enabled) {
-            this.depthMesh =
-                new DepthMesh(options, this.width, this.height, this.depthTextures);
+            this.depthMesh = new DepthMesh(options, this.width, this.height, this.depthTextures);
             registry.register(this.depthMesh);
             if (this.options.depthMesh.renderShadow) {
                 this.renderer.shadowMap.enabled = true;
@@ -3039,7 +3104,8 @@ class Depth {
      */
     getProjectedDepthViewPositionFromWorldPosition(position, target = new THREE.Vector3()) {
         const camera = this.renderer.xr?.getCamera?.()?.cameras?.[0] || this.camera;
-        clipSpacePosition.copy(position)
+        clipSpacePosition
+            .copy(position)
             .applyMatrix4(camera.matrixWorldInverse)
             .applyMatrix4(camera.projectionMatrix);
         const u = 0.5 * (clipSpacePosition.x + 1.0);
@@ -3077,16 +3143,17 @@ class Depth {
         }
         // Updates Depth Array.
         if (this.depthArray[view_id] == null) {
-            this.depthArray[view_id] = this.options.useFloat32 ?
-                new Float32Array(depthData.data) :
-                new Uint16Array(depthData.data);
+            this.depthArray[view_id] = this.options.useFloat32
+                ? new Float32Array(depthData.data)
+                : new Uint16Array(depthData.data);
             this.width = depthData.width;
             this.height = depthData.height;
         }
         else {
             // Copies the data from an ArrayBuffer to the existing TypedArray.
-            this.depthArray[view_id].set(this.options.useFloat32 ? new Float32Array(depthData.data) :
-                new Uint16Array(depthData.data));
+            this.depthArray[view_id].set(this.options.useFloat32
+                ? new Float32Array(depthData.data)
+                : new Uint16Array(depthData.data));
         }
         // Updates Depth Texture.
         if (this.options.depthTexture.enabled && this.depthTextures) {
@@ -3106,21 +3173,22 @@ class Depth {
         // For now, assume that we need cpu depth only if depth mesh is enabled.
         // In the future, add a separate option.
         const needCpuDepth = this.options.depthMesh.enabled;
-        const cpuDepth = needCpuDepth && this.depthMesh ?
-            this.depthMesh.convertGPUToGPU(depthData) :
-            null;
+        const cpuDepth = needCpuDepth && this.depthMesh
+            ? this.depthMesh.convertGPUToGPU(depthData)
+            : null;
         if (cpuDepth) {
             if (this.depthArray[view_id] == null) {
-                this.depthArray[view_id] = this.options.useFloat32 ?
-                    new Float32Array(cpuDepth.data) :
-                    new Uint16Array(cpuDepth.data);
+                this.depthArray[view_id] = this.options.useFloat32
+                    ? new Float32Array(cpuDepth.data)
+                    : new Uint16Array(cpuDepth.data);
                 this.width = cpuDepth.width;
                 this.height = cpuDepth.height;
             }
             else {
                 // Copies the data from an ArrayBuffer to the existing TypedArray.
-                this.depthArray[view_id].set(this.options.useFloat32 ? new Float32Array(cpuDepth.data) :
-                    new Uint16Array(cpuDepth.data));
+                this.depthArray[view_id].set(this.options.useFloat32
+                    ? new Float32Array(cpuDepth.data)
+                    : new Uint16Array(cpuDepth.data));
             }
         }
         // Updates Depth Texture.
@@ -3214,11 +3282,13 @@ class Depth {
     renderOcclusionPass() {
         const leftDepthTexture = this.getTexture(0);
         if (leftDepthTexture) {
-            this.occlusionPass.setDepthTexture(leftDepthTexture, this.rawValueToMeters, 0);
+            this.occlusionPass.setDepthTexture(leftDepthTexture, this.rawValueToMeters, 0, this.gpuDepthData[0]
+                ?.depthNear);
         }
         const rightDepthTexture = this.getTexture(1);
         if (rightDepthTexture) {
-            this.occlusionPass.setDepthTexture(rightDepthTexture, this.rawValueToMeters, 1);
+            this.occlusionPass.setDepthTexture(rightDepthTexture, this.rawValueToMeters, 1, this.gpuDepthData[1]
+                ?.depthNear);
         }
         const xrIsPresenting = this.renderer.xr.isPresenting;
         this.renderer.xr.isPresenting = false;
@@ -3232,7 +3302,7 @@ class Depth {
         const arrayBuffer = this.cpuDepthData[0].data;
         const uint8Array = new Uint8Array(arrayBuffer);
         // Convert Uint8Array to a string where each character represents a byte
-        const binaryString = Array.from(uint8Array, byte => String.fromCharCode(byte)).join('');
+        const binaryString = Array.from(uint8Array, (byte) => String.fromCharCode(byte)).join('');
         // Convert binary string to base64
         const data_str = btoa(binaryString);
         console.log(data_str);
@@ -3249,7 +3319,7 @@ class Depth {
 
 const aspectRatios = {
     depth: 1.0,
-    RGB: 4 / 3
+    RGB: 4 / 3,
 };
 /**
  * Parameters for RGB to depth UV mapping (manually calibrated for aspect
@@ -3322,7 +3392,9 @@ function transformRgbToDepthUv(rgbUv, xrDeviceCamera) {
     const u_centered = u_norm - rgbToDepthParams.xc;
     const v_centered = v_norm - rgbToDepthParams.yc;
     const r2 = u_centered * u_centered + v_centered * v_centered;
-    const radial = 1 + rgbToDepthParams.k1 * r2 + rgbToDepthParams.k2 * r2 * r2 +
+    const radial = 1 +
+        rgbToDepthParams.k1 * r2 +
+        rgbToDepthParams.k2 * r2 * r2 +
         rgbToDepthParams.k3 * r2 * r2 * r2;
     const tanX = 2 * rgbToDepthParams.p1 * u_centered * v_centered +
         rgbToDepthParams.p2 * (r2 + 2 * u_centered * u_centered);
@@ -3401,9 +3473,9 @@ async function cropImage(base64Image, boundingBox) {
             console.error('Error loading image for cropping:', err);
             reject(new Error('Failed to load image for cropping.'));
         };
-        img.src = base64Image.startsWith('data:image') ?
-            base64Image :
-            `data:image/png;base64,${base64Image}`;
+        img.src = base64Image.startsWith('data:image')
+            ? base64Image
+            : `data:image/png;base64,${base64Image}`;
     });
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -3518,8 +3590,10 @@ class VideoStream extends Script {
      * @param options - The options for the snapshot.
      * @returns The captured data.
      */
-    getSnapshot({ width = this.width, height = this.height, outputFormat = 'texture', mimeType = 'image/jpeg', quality = 0.9 } = {}) {
-        if (!this.loaded || !width || !height ||
+    getSnapshot({ width = this.width, height = this.height, outputFormat = 'texture', mimeType = 'image/jpeg', quality = 0.9, } = {}) {
+        if (!this.loaded ||
+            !width ||
+            !height ||
             this.video_.readyState < this.video_.HAVE_CURRENT_DATA) {
             return null;
         }
@@ -3528,13 +3602,15 @@ class VideoStream extends Script {
         }
         try {
             // Re-initialize canvas only if dimensions have changed.
-            if (!this.canvas_ || this.canvas_.width !== width ||
+            if (!this.canvas_ ||
+                this.canvas_.width !== width ||
                 this.canvas_.height !== height) {
                 this.canvas_ = document.createElement('canvas');
                 this.canvas_.width = width;
                 this.canvas_.height = height;
-                this.context_ =
-                    this.canvas_.getContext('2d', { willCaptureFrequently: this.willCaptureFrequently_ });
+                this.context_ = this.canvas_.getContext('2d', {
+                    willCaptureFrequently: this.willCaptureFrequently_,
+                });
             }
             this.context_.drawImage(this.video_, 0, 0, width, height);
             switch (outputFormat) {
@@ -3562,7 +3638,7 @@ class VideoStream extends Script {
      */
     stop_() {
         if (this.stream_) {
-            this.stream_.getTracks().forEach(track => track.stop());
+            this.stream_.getTracks().forEach((track) => track.stop());
             this.stream_ = null;
         }
         if (this.video_.srcObject) {
@@ -3596,7 +3672,7 @@ class XRDeviceCamera extends VideoStream {
     /**
      * @param options - The configuration options.
      */
-    constructor({ videoConstraints = { facingMode: 'environment' }, willCaptureFrequently = false } = {}) {
+    constructor({ videoConstraints = { facingMode: 'environment' }, willCaptureFrequently = false, } = {}) {
         super({ willCaptureFrequently });
         this.isInitializing_ = false;
         this.availableDevices_ = [];
@@ -3613,12 +3689,14 @@ class XRDeviceCamera extends VideoStream {
             console.warn('navigator.mediaDevices.enumerateDevices() is not supported.');
             return [];
         }
-        const devices = [...await navigator.mediaDevices.enumerateDevices()];
+        const devices = [
+            ...(await navigator.mediaDevices.enumerateDevices()),
+        ];
         if (this.simulatorCamera) {
             const simulatorDevices = await this.simulatorCamera.enumerateDevices();
             devices.push(...simulatorDevices);
         }
-        return devices.filter(device => device.kind === 'videoinput');
+        return devices.filter((device) => device.kind === 'videoinput');
     }
     /**
      * Initializes the camera based on the initial constraints.
@@ -3658,13 +3736,14 @@ class XRDeviceCamera extends VideoStream {
             console.debug('Requesting media stream with constraints:', this.videoConstraints_);
             let stream = null;
             const deviceIdConstraint = this.videoConstraints_.deviceId;
-            const targetDeviceId = typeof deviceIdConstraint === 'string' ?
-                deviceIdConstraint :
-                Array.isArray(deviceIdConstraint) ? deviceIdConstraint[0] :
-                    deviceIdConstraint?.exact;
+            const targetDeviceId = typeof deviceIdConstraint === 'string'
+                ? deviceIdConstraint
+                : Array.isArray(deviceIdConstraint)
+                    ? deviceIdConstraint[0]
+                    : deviceIdConstraint?.exact;
             const useSimulatorCamera = !!this.simulatorCamera &&
                 ((targetDeviceId &&
-                    this.availableDevices_.find(d => d.deviceId === targetDeviceId)
+                    this.availableDevices_.find((d) => d.deviceId === targetDeviceId)
                         ?.groupId === 'simulator') ||
                     (!targetDeviceId &&
                         this.videoConstraints_.facingMode === 'environment'));
@@ -3676,7 +3755,9 @@ class XRDeviceCamera extends VideoStream {
             }
             else {
                 // Otherwise, request the stream from the browser.
-                stream = await navigator.mediaDevices.getUserMedia({ video: this.videoConstraints_ });
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: this.videoConstraints_,
+                });
             }
             const videoTracks = stream?.getVideoTracks() || [];
             if (!videoTracks.length) {
@@ -3687,7 +3768,7 @@ class XRDeviceCamera extends VideoStream {
             this.currentTrackSettings_ = activeTrack.getSettings();
             console.debug('Active track settings:', this.currentTrackSettings_);
             if (this.currentTrackSettings_.deviceId) {
-                this.currentDeviceIndex_ = this.availableDevices_.findIndex(device => device.deviceId === this.currentTrackSettings_.deviceId);
+                this.currentDeviceIndex_ = this.availableDevices_.findIndex((device) => device.deviceId === this.currentTrackSettings_.deviceId);
             }
             else {
                 console.warn('Stream started without deviceId as it was unavailable');
@@ -3732,7 +3813,7 @@ class XRDeviceCamera extends VideoStream {
      * @param deviceId - Device id.
      */
     async setDeviceId(deviceId) {
-        const newIndex = this.availableDevices_.findIndex(device => device.deviceId === deviceId);
+        const newIndex = this.availableDevices_.findIndex((device) => device.deviceId === deviceId);
         if (newIndex === -1) {
             throw new Error(`Device with ID ${deviceId} not found.`);
         }
@@ -3805,8 +3886,7 @@ class Registry {
             this.instances.set(registrationType, instance);
         }
         else {
-            throw new Error(`Instance of type '${instance.constructor
-                .name}' is not an instance of the registration type '${registrationType.name}'.`);
+            throw new Error(`Instance of type '${instance.constructor.name}' is not an instance of the registration type '${registrationType.name}'.`);
         }
     }
     /**
@@ -3880,21 +3960,15 @@ class ScreenshotSynthesizer {
         if (this.pendingScreenshotRequests.length == 0) {
             return;
         }
-        const renderTarget = renderer.getRenderTarget();
-        if (renderTarget == null) {
-            throw new Error('Expecting render target');
-        }
         const haveVirtualOnlyRequests = this.pendingScreenshotRequests.every((request) => !request.overlayOnCamera);
         if (haveVirtualOnlyRequests) {
-            this.createVirtualImageDataURL(renderer, renderSceneFn)
-                .then((virtualImageDataUrl) => {
+            this.createVirtualImageDataURL(renderer, renderSceneFn).then((virtualImageDataUrl) => {
                 this.resolveVirtualOnlyRequests(virtualImageDataUrl);
             });
         }
         const haveVirtualAndRealReqeusts = this.pendingScreenshotRequests.some((request) => request.overlayOnCamera);
         if (haveVirtualAndRealReqeusts && deviceCamera) {
-            this.createVirtualRealImageDataURL(renderer, renderSceneFn, deviceCamera)
-                .then((virtualRealImageDataUrl) => {
+            this.createVirtualRealImageDataURL(renderer, renderSceneFn, deviceCamera).then((virtualRealImageDataUrl) => {
                 if (virtualRealImageDataUrl) {
                     this.resolveVirtualRealRequests(virtualRealImageDataUrl);
                 }
@@ -3907,7 +3981,9 @@ class ScreenshotSynthesizer {
     async createVirtualImageDataURL(renderer, renderSceneFn) {
         const mainRenderTarget = renderer.getRenderTarget();
         const isRenderingStereo = renderer.xr.isPresenting && renderer.xr.getCamera().cameras.length == 2;
-        const mainRenderTargetSingleViewWidth = isRenderingStereo ? mainRenderTarget.width / 2 : mainRenderTarget.width;
+        const mainRenderTargetSingleViewWidth = isRenderingStereo
+            ? mainRenderTarget.width / 2
+            : mainRenderTarget.width;
         const scaledHeight = Math.round(mainRenderTarget.height *
             (this.renderTargetWidth / mainRenderTargetSingleViewWidth));
         if (!this.virtualRenderTarget ||
@@ -3963,8 +4039,17 @@ class ScreenshotSynthesizer {
         }
         const mainRenderTarget = renderer.getRenderTarget();
         const isRenderingStereo = renderer.xr.isPresenting && renderer.xr.getCamera().cameras.length == 2;
-        const mainRenderTargetSingleViewWidth = isRenderingStereo ? mainRenderTarget.width / 2 : mainRenderTarget.width;
-        const scaledHeight = Math.round(mainRenderTarget.height *
+        const mainRenderTargetSize = new THREE.Vector2();
+        if (mainRenderTarget) {
+            mainRenderTargetSize.set(mainRenderTarget.width, mainRenderTarget.height);
+        }
+        else {
+            renderer.getSize(mainRenderTargetSize);
+        }
+        const mainRenderTargetSingleViewWidth = isRenderingStereo
+            ? mainRenderTargetSize.x / 2
+            : mainRenderTargetSize.y;
+        const scaledHeight = Math.round(mainRenderTargetSize.y *
             (this.renderTargetWidth / mainRenderTargetSingleViewWidth));
         if (!this.virtualRealRenderTarget ||
             this.virtualRealRenderTarget.height != scaledHeight) {
@@ -3983,8 +4068,7 @@ class ScreenshotSynthesizer {
         renderer.setRenderTarget(mainRenderTarget);
         if (this.virtualRealBuffer.length !=
             renderTarget.width * renderTarget.height * 4) {
-            this.virtualRealBuffer =
-                new Uint8Array(renderTarget.width * renderTarget.height * 4);
+            this.virtualRealBuffer = new Uint8Array(renderTarget.width * renderTarget.height * 4);
         }
         const buffer = this.virtualRealBuffer;
         await renderer.readRenderTargetPixelsAsync(renderTarget, 0, 0, renderTarget.width, renderTarget.height, buffer);
@@ -4016,8 +4100,7 @@ class ScreenshotSynthesizer {
     }
     getFullScreenQuad() {
         if (!this.fullScreenQuad) {
-            this.fullScreenQuad =
-                new FullScreenQuad(new THREE.MeshBasicMaterial({ transparent: true }));
+            this.fullScreenQuad = new FullScreenQuad(new THREE.MeshBasicMaterial({ transparent: true }));
         }
         return this.fullScreenQuad;
     }
@@ -4025,10 +4108,10 @@ class ScreenshotSynthesizer {
      * Requests a screenshot from the scene as a DataURL.
      * @param overlayOnCamera - If true, overlays the image on a camera image
      *     without any projection or aspect ratio correction.
-     * @returns Promise which returns the screenshot.
+     * @returns Promise which returns the screenshot as a data uri.
      */
     async getScreenshot(overlayOnCamera = false) {
-        return await new Promise((resolve, reject) => {
+        return new Promise((resolve, reject) => {
             this.pendingScreenshotRequests.push(new PendingScreenshotRequest(resolve, reject, overlayOnCamera));
         });
     }
@@ -4274,7 +4357,8 @@ class WebXRSessionManager extends THREE.EventDispatcher {
         else if (this.currentSession) {
             throw new Error('Session already started');
         }
-        navigator.xr.requestSession(this.mode, this.sessionOptions)
+        navigator
+            .xr.requestSession(this.mode, this.sessionOptions)
             .then(this.onSessionStartedInternal.bind(this));
     }
     /**
@@ -4392,7 +4476,6 @@ class XREffects {
         this.renderTargets = [];
         this.dimensions = new THREE.Vector2();
     }
-    ;
     /**
      * Adds a pass to the effect pipeline.
      */
@@ -4416,8 +4499,7 @@ class XREffects {
                 this.renderTargets[i]?.depthTexture?.dispose();
                 this.renderTargets[i]?.dispose();
                 this.renderTargets[i] = defaultTarget.clone();
-                this.renderTargets[i].depthTexture =
-                    new THREE.DepthTexture(dimensions.x, dimensions.y);
+                this.renderTargets[i].depthTexture = new THREE.DepthTexture(dimensions.x, dimensions.y);
             }
         }
         for (let i = neededRenderTargets; i < this.renderTargets.length; i++) {
@@ -4471,15 +4553,17 @@ class XREffects {
                 for (let i = 0; i < this.passes.length - 1; ++i) {
                     const lastRenderTargetIndex = i % 2;
                     const nextRenderTargetIndex = (i + 1) % 2;
-                    defaultTarget.viewport.set(eye * this.dimensions.x / 2, 0, this.dimensions.x / 2, this.dimensions.y);
+                    defaultTarget.viewport.set((eye * this.dimensions.x) / 2, 0, this.dimensions.x / 2, this.dimensions.y);
                     this.passes[i].render(renderer, this.renderTargets[2 * nextRenderTargetIndex + eye], this.renderTargets[2 * lastRenderTargetIndex + eye], deltaTime, 
-                    /*maskActive=*/ false, /*viewId=*/ eye);
+                    /*maskActive=*/ false, 
+                    /*viewId=*/ eye);
                 }
                 if (this.passes.length > 0) {
                     const lastRenderTargetIndex = (this.passes.length - 1) % 2;
-                    defaultTarget.viewport.set(eye * this.dimensions.x / 2, 0, this.dimensions.x / 2, this.dimensions.y);
+                    defaultTarget.viewport.set((eye * this.dimensions.x) / 2, 0, this.dimensions.x / 2, this.dimensions.y);
                     this.passes[this.passes.length - 1].render(renderer, defaultTarget, this.renderTargets[2 * lastRenderTargetIndex + eye], deltaTime, 
-                    /*maskActive=*/ false, /*viewId=*/ eye);
+                    /*maskActive=*/ false, 
+                    /*viewId=*/ eye);
                 }
             }
             renderer.xr.enabled = xrEnabled;
@@ -4504,12 +4588,14 @@ class XREffects {
             const lastRenderTargetIndex = i % 2;
             const nextRenderTargetIndex = (i + 1) % 2;
             this.passes[i].render(renderer, this.renderTargets[nextRenderTargetIndex], this.renderTargets[lastRenderTargetIndex], deltaTime, 
-            /*maskActive=*/ false, /*viewId=*/ 0);
+            /*maskActive=*/ false, 
+            /*viewId=*/ 0);
         }
         if (this.passes.length > 0) {
             const lastRenderTargetIndex = (this.passes.length - 1) % 2;
             this.passes[this.passes.length - 1].render(renderer, defaultTarget, this.renderTargets[lastRenderTargetIndex], deltaTime, 
-            /*maskActive=*/ false, /*viewId=*/ 0);
+            /*maskActive=*/ false, 
+            /*viewId=*/ 0);
         }
         renderer.xr.enabled = xrEnabled;
         renderer.xr.isPresenting = xrIsPresenting;
@@ -4541,7 +4627,7 @@ const HAND_JOINT_NAMES = [
     'pinky-finger-phalanx-proximal',
     'pinky-finger-phalanx-intermediate',
     'pinky-finger-phalanx-distal',
-    'pinky-finger-tip'
+    'pinky-finger-tip',
 ];
 
 /**
@@ -4766,8 +4852,8 @@ class Hands {
  */
 const ReticleShader = {
     uniforms: {
-        'uColor': { value: new THREE.Color().setHex(0xFFFFFF) },
-        'uPressed': { value: 0.0 },
+        uColor: { value: new THREE.Color().setHex(0xffffff) },
+        uPressed: { value: 0.0 },
     },
     vertexShader: /* glsl */ `
   varying vec2 vTexCoord;
@@ -4842,7 +4928,7 @@ const ReticleShader = {
     // Converts to straight alpha.
     gl_FragColor.rgb = gl_FragColor.rgb / max(gl_FragColor.a, 0.001);
   }
-`
+`,
 };
 
 /**
@@ -4868,7 +4954,7 @@ class Reticle extends THREE.Mesh {
             vertexShader: ReticleShader.vertexShader,
             fragmentShader: ReticleShader.fragmentShader,
             depthTest: depthTest,
-            transparent: true
+            transparent: true,
         }));
         /** Text description of the PanelMesh */
         this.name = 'Reticle';
@@ -4914,7 +5000,8 @@ class Reticle extends THREE.Mesh {
         // The intersection normal is in the local space of the intersected object.
         // It must be transformed into world space to correctly orient the reticle.
         intersection.object.getWorldQuaternion(this.objectRotation);
-        this.normalVector.copy(intersection.normal)
+        this.normalVector
+            .copy(intersection.normal)
             .applyQuaternion(this.objectRotation);
         this.setRotationFromNormalVector(this.normalVector);
     }
@@ -4959,7 +5046,10 @@ class Reticle extends THREE.Mesh {
 
 class ControllerRayVisual extends THREE.Line {
     constructor() {
-        const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
+        const geometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, 0, -1),
+        ]);
         super(geometry);
         this.scale.z = 5;
     }
@@ -5219,7 +5309,7 @@ class Input {
      * Initializes an instance with XR controllers, grips, hands, raycaster, and
      * default options. Only called by Core.
      */
-    init({ scene, options, renderer }) {
+    init({ scene, options, renderer, }) {
         scene.add(this.activeControllers);
         this.options = options;
         this.scene = scene;
@@ -5485,7 +5575,7 @@ class Input {
      */
     intersectObjectByController(controller, obj) {
         controller.updateMatrixWorld();
-        this.raycaster.setFromXRController(controller);
+        this._setRaycasterFromController(controller);
         return this.raycaster.intersectObject(obj, false);
     }
     /**
@@ -5538,7 +5628,8 @@ class Input {
     _setRaycasterFromController(controller) {
         controller.getWorldPosition(this.raycaster.ray.origin);
         MATRIX4.identity().extractRotation(controller.matrixWorld);
-        this.raycaster.ray.direction.set(0, 0, -1)
+        this.raycaster.ray.direction
+            .set(0, 0, -1)
             .applyMatrix4(MATRIX4)
             .normalize();
     }
@@ -5546,11 +5637,13 @@ class Input {
         if (!controller.reticle)
             return;
         const reticle = controller.reticle;
-        const intersection = this.intersectionsForController.get(controller)?.find(intersection => {
+        const intersection = this.intersectionsForController
+            .get(controller)
+            ?.find((intersection) => {
             let target = intersection.object;
             while (target) {
-                if (target
-                    .ignoreReticleRaycast === true) {
+                if (target.ignoreReticleRaycast ===
+                    true) {
                     return false;
                 }
                 target = target.parent;
@@ -5567,8 +5660,7 @@ class Input {
             intersection.object.ux.update(controller, intersection);
         }
         else if (intersection.object?.parent?.isXRScript) {
-            intersection.object.parent
-                .ux.update(controller, intersection);
+            intersection.object.parent.ux.update(controller, intersection);
         }
         reticle.intersection = intersection;
         reticle.direction.copy(this.raycaster.ray.direction).normalize();
@@ -5604,6 +5696,1185 @@ class Input {
         const intersections = this.intersectionsForController.get(controller);
         intersections.length = 0;
         this.raycaster.intersectObject(this.scene, true, intersections);
+    }
+}
+
+/**
+ * Checks if a given object is a descendant of another object in the scene
+ * graph. This function is useful for determining if an interaction (like a
+ * raycast hit) has occurred on a component that is part of a larger, complex
+ * entity.
+ *
+ * It uses an iterative approach to traverse up the hierarchy from the child.
+ *
+ * @param child - The potential descendant object.
+ * @param parent - The potential ancestor object.
+ * @returns True if `child` is the same as `parent` or is a descendant of
+ *     `parent`.
+ */
+function objectIsDescendantOf(child, parent) {
+    // Starts the search from the child object.
+    let currentNode = child;
+    // Traverses up the scene graph hierarchy until we reach the top (null parent)
+    // or find the target parent.
+    while (currentNode) {
+        // If the current node is the parent we're looking for, we've found a match.
+        if (currentNode === parent) {
+            return true;
+        }
+        // Moves up to the next level in the hierarchy.
+        currentNode = currentNode.parent;
+    }
+    // If we reach the top of the hierarchy without finding the parent,
+    // it is not an ancestor.
+    return false;
+}
+/**
+ * Traverses the scene graph from a given node, calling a callback function for
+ * each node. The traversal stops if the callback returns true.
+ *
+ * This function is similar to THREE.Object3D.traverse, but allows for early
+ * exit from the traversal based on the callback's return value.
+ *
+ * @param node - The starting node for the traversal.
+ * @param callback - The function to call for each node. It receives the current
+ *     node as an argument. If the callback returns `true`, the traversal will
+ *     stop.
+ * @returns Whether the callback returned true for any node.
+ */
+function traverseUtil(node, callback) {
+    if (callback(node)) {
+        return true;
+    }
+    for (const child of node.children) {
+        if (traverseUtil(child, callback)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * User is an embodied instance to manage hands, controllers, speech, and
+ * avatars. It extends Script to update human-world interaction.
+ *
+ * In the long run, User is to manages avatars, hands, and everything of Human
+ * I/O. In third-person view simulation, it should come with an low-poly avatar.
+ * To support multi-user social XR planned for future iterations.
+ */
+class User extends Script {
+    static { this.dependencies = {
+        input: Input,
+        scene: THREE.Scene,
+    }; }
+    /**
+     * Constructs a new User.
+     */
+    constructor() {
+        super();
+        /**
+         * Whether to represent a local user, or another user in a multi-user session.
+         */
+        this.local = true;
+        /**
+         * The number of hands associated with the XR user.
+         */
+        this.numHands = 2;
+        /**
+         * The height of the user in meters.
+         */
+        this.height = 1.6;
+        /**
+         * The default distance of a UI panel from the user in meters.
+         */
+        this.panelDistance = 1.75;
+        /**
+         * The handedness (primary hand) of the user (0 for left, 1 for right, 2 for
+         * both).
+         */
+        this.handedness = 1;
+        /**
+         * The radius of the safe space around the user in meters.
+         */
+        this.safeSpaceRadius = 0.2;
+        /**
+         * The distance of a newly spawned object from the user in meters.
+         */
+        this.objectDistance = 1.5;
+        /**
+         * The angle of a newly spawned object from the user in radians.
+         */
+        this.objectAngle = (-18 / 180.0) * Math.PI;
+        /**
+         * An array of pivot objects. Pivot are sphere at the **starting** tip of
+         * user's hand / controller / mouse rays for debugging / drawing applications.
+         */
+        this.pivots = [];
+        /**
+         * Maps a controller to the object it is currently hovering over.
+         */
+        this.hoveredObjectsForController = new Map();
+        /**
+         * Maps a controller to the object it has currently selected.
+         */
+        this.selectedObjectsForController = new Map();
+        /**
+         * Maps a hand index (0 or 1) to a set of meshes it is currently touching.
+         */
+        this.touchedObjects = new Map();
+        /**
+         * Maps a hand index to another map that associates a grabbed mesh with its
+         * initial grab event data.
+         */
+        this.grabbedObjects = new Map();
+    }
+    /**
+     * Initializes the User.
+     */
+    init({ input, scene }) {
+        this.input = input;
+        this.controllers = input.controllers;
+        this.scene = scene;
+    }
+    /**
+     * Sets the user's height on the first frame.
+     * @param camera -
+     */
+    setHeight(camera) {
+        this.height = camera.position.y;
+    }
+    /**
+     * Adds pivots at the starting tip of user's hand / controller / mouse rays.
+     */
+    enablePivots() {
+        this.input.enablePivots();
+    }
+    /**
+     * Gets the pivot object for a given controller id.
+     * @param id - The controller id.
+     * @returns The pivot object.
+     */
+    getPivot(id) {
+        return this.controllers[id].getObjectByName('pivot');
+    }
+    /**
+     * Gets the world position of the pivot for a given controller id.
+     * @param id - The controller id.
+     * @returns The world position of the pivot.
+     */
+    getPivotPosition(id) {
+        return this.getPivot(id)?.getWorldPosition(new THREE.Vector3());
+    }
+    /**
+     * Gets reticle's direction in THREE.Vector3.
+     * Requires reticle enabled to be called.
+     * @param controllerId -
+     */
+    getReticleDirection(controllerId) {
+        return this.controllers[controllerId].reticle?.direction;
+    }
+    /**
+     * Gets the object targeted by the reticle.
+     * Requires `options.reticle.enabled`.
+     * @param id - The controller id.
+     * @returns The targeted object, or null.
+     */
+    getReticleTarget(id) {
+        return this.controllers[id].reticle?.targetObject;
+    }
+    /**
+     * Gets the intersection details from the reticle's raycast.
+     * Requires `options.reticle.enabled`.
+     * @param id - The controller id.
+     * @returns The intersection object, or null if no intersection.
+     */
+    getReticleIntersection(id) {
+        return this.controllers[id].reticle?.intersection;
+    }
+    /**
+     * Checks if any controller is pointing at the given object or its children.
+     * @param obj - The object to check against.
+     * @returns True if a controller is pointing at the object.
+     */
+    isPointingAt(obj) {
+        for (const selected of this.hoveredObjectsForController.values()) {
+            if (objectIsDescendantOf(selected, obj)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    /**
+     * Checks if any controller is selecting the given object or its children.
+     * @param obj - The object to check against.
+     * @returns True if a controller is selecting the object.
+     */
+    isSelectingAt(obj) {
+        for (const selected of this.selectedObjectsForController.values()) {
+            if (objectIsDescendantOf(selected, obj)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    /**
+     * Gets the intersection point on a specific object.
+     * Not recommended for general use, since a View / ModelView's
+     * ux.positions contains the intersected points.
+     * @param obj - The object to check for intersection.
+     * @param id - The controller ID, or -1 for any controller.
+     * @returns The intersection details, or null if no intersection.
+     */
+    getIntersectionAt(obj, id = -1) {
+        if (id == -1) {
+            for (let i = 0; i < 2; ++i) {
+                if (this.getReticleTarget(i) === obj) {
+                    return this.getReticleIntersection(i);
+                }
+            }
+        }
+        else {
+            if (this.getReticleTarget(id) === obj) {
+                return this.getReticleIntersection(id);
+            }
+        }
+        return null;
+    }
+    /**
+     * Gets the world position of a controller.
+     * @param id - The controller id.
+     * @param target - The target vector to
+     * store the result.
+     * @returns The world position of the controller.
+     */
+    getControllerPosition(id, target = new THREE.Vector3()) {
+        this.controllers[id].getWorldPosition(target);
+        return target;
+    }
+    /**
+     * Calculates the distance between a controller and an object.
+     * @param id - The controller id.
+     * @param object - The object to measure the distance to.
+     * @returns The distance between the controller and the object.
+     */
+    getControllerObjectDistance(id, object) {
+        const controllerPos = this.getControllerPosition(id);
+        const objPos = new THREE.Vector3();
+        object.getWorldPosition(objPos);
+        return controllerPos.distanceTo(objPos);
+    }
+    /**
+     * Checks if either controller is selecting.
+     * @param id - The controller id. If -1, check both controllers.
+     * @returns True if selecting, false otherwise.
+     */
+    isSelecting(id = -1) {
+        if (id == -1) {
+            return this.input.controllers.some((controller) => {
+                return controller.userData.selected;
+            });
+        }
+        return this.input.controllers[id].userData.selected;
+    }
+    /**
+     * Checks if either controller is squeezing.
+     * @param id - The controller id. If -1, check both controllers.
+     * @returns True if squeezing, false otherwise.
+     */
+    isSqueezing(id = -1) {
+        if (id == -1) {
+            return this.input.controllers.some((controller) => {
+                return controller.userData.squeezing;
+            });
+        }
+        return this.input.controllers[id].userData.squeezing;
+    }
+    /**
+     * Handles the select start event for a controller.
+     * @param event - The event object.
+     */
+    onSelectStart(event) {
+        const controller = event.target;
+        const intersections = this.input.intersectionsForController
+            .get(controller)
+            .filter((intersection) => {
+            let target = intersection.object;
+            while (target) {
+                if (target.ignoreReticleRaycast ===
+                    true) {
+                    return false;
+                }
+                target = target.parent;
+            }
+            return true;
+        });
+        if (intersections && intersections.length > 0) {
+            this.selectedObjectsForController.set(controller, intersections[0].object);
+            this.callObjectSelectStart(event, intersections[0].object);
+        }
+    }
+    /**
+     * Handles the select end event for a controller.
+     * @param event - The event object.
+     */
+    onSelectEnd(event) {
+        const controller = event.target;
+        const intersections = this.input.intersectionsForController.get(controller);
+        if (intersections && intersections.length > 0) {
+            const selectedObject = this.selectedObjectsForController.get(controller);
+            this.callObjectSelectEnd(event, selectedObject || null);
+            this.selectedObjectsForController.delete(controller);
+            let ancestor = selectedObject || null;
+            while (ancestor) {
+                if (ancestor.isView && ancestor.visible) {
+                    ancestor.onTriggered(controller.userData.id);
+                    break;
+                }
+                ancestor = ancestor.parent;
+            }
+        }
+    }
+    /**
+     * Handles the squeeze start event for a controller.
+     * @param _event - The event object.
+     */
+    onSqueezeStart(_event) { }
+    /**
+     * Handles the squeeze end event for a controller.
+     * @param _event - The event object.
+     */
+    onSqueezeEnd(_event) { }
+    /**
+     * The main update loop called each frame. Updates hover state for all
+     * controllers.
+     */
+    update() {
+        if (this.input.controllersEnabled) {
+            for (const controller of this.input.controllers) {
+                this.updateForController(controller);
+            }
+        }
+        // Direct touch detection.
+        this.updateTouchState();
+        // Direct grab detection.
+        this.updateGrabState();
+    }
+    /**
+     * Checks for and handles grab events (touching + pinching).
+     */
+    updateGrabState() {
+        if (!this.hands) {
+            return;
+        }
+        for (let i = 0; i < this.numHands; i++) {
+            const isPinching = this.isSelecting(i);
+            const touchedMeshes = this.touchedObjects.get(i) || new Set();
+            const currentlyGrabbedMeshes = isPinching
+                ? touchedMeshes
+                : new Set();
+            const previouslyGrabbedMeshesMap = this.grabbedObjects.get(i) || new Map();
+            const newlyGrabbedMeshes = [...currentlyGrabbedMeshes].filter((mesh) => !previouslyGrabbedMeshesMap.has(mesh));
+            const releasedMeshes = [...previouslyGrabbedMeshesMap.keys()].filter((mesh) => !currentlyGrabbedMeshes.has(mesh));
+            for (const mesh of newlyGrabbedMeshes) {
+                const hand = this.hands.getWrist(i);
+                if (!hand)
+                    continue;
+                const grabEvent = { handIndex: i, hand: hand };
+                if (!this.grabbedObjects.has(i)) {
+                    this.grabbedObjects.set(i, new Map());
+                }
+                this.grabbedObjects.get(i).set(mesh, grabEvent);
+                this.callObjectGrabStart(grabEvent, mesh);
+            }
+            for (const mesh of releasedMeshes) {
+                const grabEvent = previouslyGrabbedMeshesMap.get(mesh);
+                this.callObjectGrabEnd(grabEvent, mesh);
+                previouslyGrabbedMeshesMap.delete(mesh);
+            }
+            for (const mesh of currentlyGrabbedMeshes) {
+                if (previouslyGrabbedMeshesMap.has(mesh)) {
+                    const grabEvent = previouslyGrabbedMeshesMap.get(mesh);
+                    this.callObjectGrabbing(grabEvent, mesh);
+                }
+            }
+        }
+    }
+    /**
+     * Checks for and handles touch events for the hands' index fingers.
+     */
+    updateTouchState() {
+        if (!this.hands) {
+            return;
+        }
+        for (let i = 0; i < this.numHands; i++) {
+            const indexTip = this.hands.getIndexTip(i);
+            if (!indexTip) {
+                continue;
+            }
+            const indexTipPosition = new THREE.Vector3();
+            indexTip.getWorldPosition(indexTipPosition);
+            const currentlyTouchedMeshes = [];
+            this.scene.traverse((object) => {
+                if (object.isMesh && object.visible) {
+                    const boundingBox = new THREE.Box3().setFromObject(object);
+                    if (boundingBox.containsPoint(indexTipPosition)) {
+                        currentlyTouchedMeshes.push(object);
+                    }
+                }
+            });
+            const previouslyTouchedMeshes = this.touchedObjects.get(i) || new Set();
+            const currentMeshesSet = new Set(currentlyTouchedMeshes);
+            const newlyTouchedMeshes = currentlyTouchedMeshes.filter((mesh) => !previouslyTouchedMeshes.has(mesh));
+            const removedMeshes = [...previouslyTouchedMeshes].filter((mesh) => !currentMeshesSet.has(mesh));
+            const touchingEvent = { handIndex: i, touchPosition: indexTipPosition };
+            if (newlyTouchedMeshes.length > 0) {
+                for (const mesh of newlyTouchedMeshes) {
+                    this.callObjectTouchStart(touchingEvent, mesh);
+                }
+            }
+            if (removedMeshes.length > 0) {
+                for (const mesh of removedMeshes) {
+                    this.callObjectTouchEnd(touchingEvent, mesh);
+                }
+            }
+            for (const mesh of currentMeshesSet) {
+                this.callObjectTouching(touchingEvent, mesh);
+            }
+            if (currentMeshesSet.size > 0) {
+                this.touchedObjects.set(i, currentMeshesSet);
+            }
+            else {
+                this.touchedObjects.delete(i);
+            }
+        }
+    }
+    /**
+     * Updates the hover state for a single controller.
+     * @param controller - The controller to update.
+     */
+    updateForController(controller) {
+        const intersections = this.input.intersectionsForController.get(controller);
+        const currentHoverTarget = intersections.length > 0 ? intersections[0].object : null;
+        const previousHoverTarget = this.hoveredObjectsForController.get(controller);
+        if (previousHoverTarget !== currentHoverTarget) {
+            this.callHoverExit(controller, previousHoverTarget || null);
+            this.hoveredObjectsForController.set(controller, currentHoverTarget);
+            this.callHoverEnter(controller, currentHoverTarget);
+        }
+        else if (previousHoverTarget) {
+            this.callOnHovering(controller, previousHoverTarget);
+        }
+    }
+    /**
+     * Recursively calls onHoverExit on a target and its ancestors.
+     * @param controller - The controller exiting hover.
+     * @param target - The object being exited.
+     */
+    callHoverExit(controller, target) {
+        if (target == null)
+            return;
+        if (target.isXRScript) {
+            target.onHoverExit(controller);
+        }
+        this.callHoverExit(controller, target.parent);
+    }
+    /**
+     * Recursively calls onHoverEnter on a target and its ancestors.
+     * @param controller - The controller entering hover.
+     * @param target - The object being entered.
+     */
+    callHoverEnter(controller, target) {
+        if (target == null)
+            return;
+        if (target.isXRScript) {
+            target.onHoverEnter(controller);
+        }
+        this.callHoverEnter(controller, target.parent);
+    }
+    /**
+     * Recursively calls onHovering on a target and its ancestors.
+     * @param controller - The controller hovering.
+     * @param target - The object being entered.
+     */
+    callOnHovering(controller, target) {
+        if (target == null)
+            return;
+        if (target.isXRScript) {
+            target.onHovering(controller);
+        }
+        this.callOnHovering(controller, target.parent);
+    }
+    /**
+     * Recursively calls onObjectSelectStart on a target and its ancestors until
+     * the event is handled.
+     * @param event - The original select start event.
+     * @param target - The object being selected.
+     */
+    callObjectSelectStart(event, target) {
+        if (target == null)
+            return;
+        if (target.isXRScript &&
+            target.onObjectSelectStart(event)) {
+            // The event was handled already so do not propagate up.
+            return;
+        }
+        this.callObjectSelectStart(event, target.parent);
+    }
+    /**
+     * Recursively calls onObjectSelectEnd on a target and its ancestors until
+     * the event is handled.
+     * @param event - The original select end event.
+     * @param target - The object being un-selected.
+     */
+    callObjectSelectEnd(event, target) {
+        if (target == null)
+            return;
+        if (target.isXRScript &&
+            target.onObjectSelectEnd(event)) {
+            // The event was handled already so do not propagate up.
+            return;
+        }
+        this.callObjectSelectEnd(event, target.parent);
+    }
+    /**
+     * Recursively calls onObjectTouchStart on a target and its ancestors.
+     * @param event - The original touch start event.
+     * @param target - The object being touched.
+     */
+    callObjectTouchStart(event, target) {
+        if (target == null)
+            return;
+        if (target.isXRScript) {
+            target.onObjectTouchStart(event);
+        }
+        this.callObjectTouchStart(event, target.parent);
+    }
+    /**
+     * Recursively calls onObjectTouching on a target and its ancestors.
+     * @param event - The original touch event.
+     * @param target - The object being touched.
+     */
+    callObjectTouching(event, target) {
+        if (target == null)
+            return;
+        if (target.isXRScript) {
+            target.onObjectTouching(event);
+        }
+        this.callObjectTouching(event, target.parent);
+    }
+    /**
+     * Recursively calls onObjectTouchEnd on a target and its ancestors.
+     * @param event - The original touch end event.
+     * @param target - The object being un-touched.
+     */
+    callObjectTouchEnd(event, target) {
+        if (target == null)
+            return;
+        if (target.isXRScript) {
+            target.onObjectTouchEnd(event);
+        }
+        this.callObjectTouchEnd(event, target.parent);
+    }
+    /**
+     * Recursively calls onObjectGrabStart on a target and its ancestors.
+     * @param event - The original grab start event.
+     * @param target - The object being grabbed.
+     */
+    callObjectGrabStart(event, target) {
+        if (target == null)
+            return;
+        if (target.isXRScript) {
+            target.onObjectGrabStart(event);
+        }
+        this.callObjectGrabStart(event, target.parent);
+    }
+    /**
+     * Recursively calls onObjectGrabbing on a target and its ancestors.
+     * @param event - The original grabbing event.
+     * @param target - The object being grabbed.
+     */
+    callObjectGrabbing(event, target) {
+        if (target == null)
+            return;
+        if (target.isXRScript) {
+            target.onObjectGrabbing(event);
+        }
+        this.callObjectGrabbing(event, target.parent);
+    }
+    /**
+     * Recursively calls onObjectGrabEnd on a target and its ancestors.
+     * @param event - The original grab end event.
+     * @param target - The object being released.
+     */
+    callObjectGrabEnd(event, target) {
+        if (target == null)
+            return;
+        if (target.isXRScript) {
+            target.onObjectGrabEnd(event);
+        }
+        this.callObjectGrabEnd(event, target.parent);
+    }
+    /**
+     * Checks if a controller is selecting a specific object. Returns the
+     * intersection details if true.
+     * @param obj - The object to check for selection.
+     * @param controller - The controller performing the select.
+     * @returns The intersection object if a match is found, else null.
+     */
+    select(obj, controller) {
+        const intersections = this.input.intersectionsForController.get(controller);
+        return intersections &&
+            intersections.length > 0 &&
+            objectIsDescendantOf(intersections[0].object, obj)
+            ? intersections[0]
+            : null;
+    }
+}
+
+class GestureRecognitionOptions {
+    constructor(options) {
+        /** Master switch for the gesture recognition block. */
+        this.enabled = false;
+        /**
+         * Backing provider that extracts gesture information.
+         *  - 'heuristics': WebXR joint heuristics only (no external ML dependency).
+         *  - 'mediapipe': MediaPipe Hands running via Web APIs / wasm.
+         *  - 'tfjs': TensorFlow.js hand-pose-detection models.
+         */
+        this.provider = 'heuristics';
+        /**
+         * Minimum confidence score to emit gesture events. Different providers map to
+         * different score domains so this value is normalised to [0-1].
+         */
+        this.minimumConfidence = 0.6;
+        /**
+         * Optional throttle window for expensive providers.
+         */
+        this.updateIntervalMs = 33;
+        /**
+         * Default gesture catalogue.
+         */
+        this.gestures = {
+            pinch: { enabled: true, threshold: 0.025 },
+            'open-palm': { enabled: true },
+            fist: { enabled: true },
+            'thumbs-up': { enabled: true },
+            point: { enabled: false },
+            spread: { enabled: false, threshold: 0.04 },
+        };
+        deepMerge(this, options);
+        if (options?.gestures) {
+            for (const [name, config] of Object.entries(options.gestures)) {
+                const gestureName = name;
+                this.gestures[gestureName] = deepMerge({ ...this.gestures[gestureName] }, config);
+            }
+        }
+    }
+    enable() {
+        this.enabled = true;
+        return this;
+    }
+    /**
+     * Convenience helper to toggle specific gestures.
+     */
+    setGestureEnabled(name, enabled) {
+        this.gestures[name] ??= { enabled };
+        this.gestures[name].enabled = enabled;
+        return this;
+    }
+}
+
+const EPSILON = 1e-6;
+const FINGER_ORDER = ['index', 'middle', 'ring', 'pinky'];
+const FINGER_PREFIX = {
+    index: 'index-finger',
+    middle: 'middle-finger',
+    ring: 'ring-finger',
+    pinky: 'pinky-finger',
+};
+const heuristicDetectors = {
+    pinch: computePinch,
+    'open-palm': computeOpenPalm,
+    fist: computeFist,
+    'thumbs-up': computeThumbsUp,
+    point: computePoint,
+    spread: computeSpread,
+};
+function computePinch(context, config) {
+    const thumb = getJoint(context, 'thumb-tip');
+    const index = getJoint(context, 'index-finger-tip');
+    if (!thumb || !index)
+        return undefined;
+    const handScale = estimateHandScale(context);
+    const threshold = config.threshold ?? Math.max(0.018, handScale * 0.35);
+    const distance = thumb.distanceTo(index);
+    if (!Number.isFinite(distance) || distance < EPSILON) {
+        return { confidence: 0 };
+    }
+    const tightness = clamp01(1 - distance / (threshold * 0.85));
+    const loosePenalty = clamp01(1 - distance / (threshold * 1.4));
+    const confidence = clamp01(distance <= threshold ? tightness : loosePenalty * 0.4);
+    return {
+        confidence,
+        data: { distance, threshold },
+    };
+}
+function computeOpenPalm(context, config) {
+    const fingerMetrics = getFingerMetrics(context);
+    if (!fingerMetrics.length)
+        return undefined;
+    const handScale = estimateHandScale(context);
+    const palmWidth = getPalmWidth(context) ?? handScale * 0.85;
+    const extensionScores = fingerMetrics.map(({ tipDistance }) => clamp01((tipDistance - handScale * 0.5) / (handScale * 0.45)));
+    const straightnessScores = fingerMetrics.map(({ curlRatio }) => clamp01((curlRatio - 1.1) / 0.5));
+    const neighbors = getAdjacentFingerDistances(context);
+    const spreadScore = neighbors.average !== Infinity && palmWidth > EPSILON
+        ? clamp01((neighbors.average - palmWidth * 0.55) / (palmWidth * 0.35))
+        : 0;
+    const extensionScore = average(extensionScores);
+    const straightScore = average(straightnessScores);
+    const confidence = clamp01(extensionScore * 0.5 + straightScore * 0.3 + spreadScore * 0.2);
+    return {
+        confidence,
+        data: {
+            extensionScore,
+            straightScore,
+            spreadScore,
+            threshold: config.threshold,
+        },
+    };
+}
+function computeFist(context, config) {
+    const fingerMetrics = getFingerMetrics(context);
+    if (!fingerMetrics.length)
+        return undefined;
+    const handScale = estimateHandScale(context);
+    const palmWidth = getPalmWidth(context) ?? handScale * 0.85;
+    const tipAverage = average(fingerMetrics.map((metrics) => metrics.tipDistance));
+    const curlAverage = average(fingerMetrics.map((metrics) => metrics.curlRatio));
+    const neighbors = getAdjacentFingerDistances(context);
+    const clusterScore = neighbors.average !== Infinity && palmWidth > EPSILON
+        ? clamp01((palmWidth * 0.5 - neighbors.average) / (palmWidth * 0.35))
+        : 0;
+    const tipScore = clamp01((handScale * 0.55 - tipAverage) / (handScale * 0.25));
+    const curlScore = clamp01((1.08 - curlAverage) / 0.25);
+    const confidence = clamp01(tipScore * 0.5 + curlScore * 0.35 + clusterScore * 0.15);
+    return {
+        confidence,
+        data: {
+            tipAverage,
+            curlAverage,
+            clusterScore,
+            threshold: config.threshold,
+        },
+    };
+}
+function computeThumbsUp(context, config) {
+    const thumbMetrics = getThumbMetrics(context);
+    const fingerMetrics = getFingerMetrics(context);
+    if (!thumbMetrics || fingerMetrics.length < 2)
+        return undefined;
+    const handScale = estimateHandScale(context);
+    const palmWidth = getPalmWidth(context) ?? handScale * 0.85;
+    const palmUp = getPalmUp(context);
+    const otherCurls = fingerMetrics.map((m) => m.curlRatio);
+    const curledScore = clamp01((1.05 - average(otherCurls)) / 0.25);
+    const thumbReachRatio = thumbMetrics.referenceDistance > EPSILON
+        ? thumbMetrics.tipDistance / thumbMetrics.referenceDistance
+        : 0;
+    const thumbExtendedScore = clamp01((thumbReachRatio - 1.15) / 0.5);
+    const indexTip = getJoint(context, 'index-finger-tip');
+    const thumbIndexDistance = indexTip
+        ? thumbMetrics.tip.distanceTo(indexTip)
+        : 0;
+    const separationScore = palmWidth > EPSILON
+        ? clamp01((thumbIndexDistance - palmWidth * 0.4) / (palmWidth * 0.25))
+        : 0;
+    let orientationScore = 0;
+    if (palmUp) {
+        const thumbVector = new THREE.Vector3()
+            .copy(thumbMetrics.tip)
+            .sub(thumbMetrics.metacarpal ?? thumbMetrics.tip);
+        if (thumbVector.lengthSq() > EPSILON) {
+            thumbVector.normalize();
+            const alignment = thumbVector.dot(palmUp);
+            orientationScore = clamp01((alignment - 0.35) / 0.35);
+        }
+    }
+    const confidence = clamp01(thumbExtendedScore * 0.35 +
+        curledScore * 0.3 +
+        orientationScore * 0.2 +
+        separationScore * 0.15);
+    return {
+        confidence,
+        data: {
+            thumbReachRatio,
+            curledScore,
+            orientationScore,
+            separationScore,
+            threshold: config.threshold,
+        },
+    };
+}
+function computePoint(context, config) {
+    const indexMetrics = computeFingerMetric(context, 'index');
+    if (!indexMetrics)
+        return undefined;
+    const otherMetrics = FINGER_ORDER.slice(1)
+        .map((finger) => computeFingerMetric(context, finger))
+        .filter(Boolean);
+    if (!otherMetrics.length)
+        return undefined;
+    const handScale = estimateHandScale(context);
+    const indexCurlScore = clamp01((indexMetrics.curlRatio - 1.2) / 0.35);
+    const indexReachScore = clamp01((indexMetrics.tipDistance - handScale * 0.6) / (handScale * 0.25));
+    const othersCurl = average(otherMetrics.map((metrics) => metrics.curlRatio));
+    const othersCurledScore = clamp01((1.05 - othersCurl) / 0.25);
+    const confidence = clamp01(indexCurlScore * 0.45 + indexReachScore * 0.25 + othersCurledScore * 0.3);
+    return {
+        confidence,
+        data: {
+            indexCurlScore,
+            indexReachScore,
+            othersCurledScore,
+            threshold: config.threshold,
+        },
+    };
+}
+function computeSpread(context, config) {
+    const fingerMetrics = getFingerMetrics(context);
+    if (!fingerMetrics.length)
+        return undefined;
+    const handScale = estimateHandScale(context);
+    const palmWidth = getPalmWidth(context) ?? handScale * 0.85;
+    const neighbors = getAdjacentFingerDistances(context);
+    const spreadScore = neighbors.average !== Infinity && palmWidth > EPSILON
+        ? clamp01((neighbors.average - palmWidth * 0.6) / (palmWidth * 0.35))
+        : 0;
+    const extensionScore = clamp01((average(fingerMetrics.map((metrics) => metrics.curlRatio)) - 1.15) / 0.45);
+    const confidence = clamp01(spreadScore * 0.6 + extensionScore * 0.4);
+    return {
+        confidence,
+        data: {
+            spreadScore,
+            extensionScore,
+            threshold: config.threshold,
+        },
+    };
+}
+function computeFingerMetric(context, finger) {
+    const tip = getFingerJoint(context, finger, 'tip');
+    const proximal = getFingerJoint(context, finger, 'phalanx-proximal');
+    const metacarpal = getFingerJoint(context, finger, 'metacarpal');
+    const wrist = getJoint(context, 'wrist');
+    if (!tip || !wrist)
+        return null;
+    const reference = proximal ?? metacarpal;
+    if (!reference)
+        return null;
+    const referenceDistance = reference.distanceTo(wrist);
+    const tipDistance = tip.distanceTo(wrist);
+    const curlRatio = referenceDistance > EPSILON ? tipDistance / referenceDistance : 0;
+    return {
+        tip,
+        metacarpal,
+        referenceDistance,
+        tipDistance,
+        curlRatio,
+    };
+}
+function getFingerMetrics(context) {
+    return FINGER_ORDER.map((finger) => computeFingerMetric(context, finger)).filter(Boolean);
+}
+function getThumbMetrics(context) {
+    const tip = getJoint(context, 'thumb-tip');
+    const wrist = getJoint(context, 'wrist');
+    if (!tip || !wrist)
+        return undefined;
+    const metacarpal = getJoint(context, 'thumb-metacarpal') ??
+        getJoint(context, 'thumb-phalanx-proximal');
+    if (!metacarpal)
+        return undefined;
+    const referenceDistance = metacarpal.distanceTo(wrist);
+    const tipDistance = tip.distanceTo(wrist);
+    return {
+        tip,
+        metacarpal,
+        referenceDistance,
+        tipDistance,
+    };
+}
+function estimateHandScale(context) {
+    const wrist = getJoint(context, 'wrist');
+    const middleTip = getJoint(context, 'middle-finger-tip');
+    const middleBase = getJoint(context, 'middle-finger-metacarpal');
+    const palmWidth = getPalmWidth(context);
+    const measurements = [];
+    if (wrist && middleTip)
+        measurements.push(middleTip.distanceTo(wrist));
+    if (palmWidth)
+        measurements.push(palmWidth);
+    if (wrist && middleBase)
+        measurements.push(middleBase.distanceTo(wrist) * 2);
+    if (!measurements.length)
+        return 0.08;
+    return average(measurements);
+}
+function getPalmWidth(context) {
+    const indexBase = getFingerJoint(context, 'index', 'metacarpal');
+    const pinkyBase = getFingerJoint(context, 'pinky', 'metacarpal');
+    if (!indexBase || !pinkyBase)
+        return null;
+    return indexBase.distanceTo(pinkyBase);
+}
+function getPalmNormal(context) {
+    const wrist = getJoint(context, 'wrist');
+    const indexBase = getFingerJoint(context, 'index', 'metacarpal');
+    const pinkyBase = getFingerJoint(context, 'pinky', 'metacarpal');
+    if (!wrist || !indexBase || !pinkyBase)
+        return null;
+    const u = new THREE.Vector3().subVectors(indexBase, wrist);
+    const v = new THREE.Vector3().subVectors(pinkyBase, wrist);
+    if (u.lengthSq() === 0 || v.lengthSq() === 0)
+        return null;
+    const normal = new THREE.Vector3().crossVectors(u, v);
+    if (normal.lengthSq() === 0)
+        return null;
+    if (context.handLabel === 'left')
+        normal.multiplyScalar(-1);
+    return normal.normalize();
+}
+function getPalmRight(context) {
+    const indexBase = getFingerJoint(context, 'index', 'metacarpal');
+    const pinkyBase = getFingerJoint(context, 'pinky', 'metacarpal');
+    if (!indexBase || !pinkyBase)
+        return null;
+    const right = new THREE.Vector3().subVectors(indexBase, pinkyBase);
+    if (context.handLabel === 'left')
+        right.multiplyScalar(-1);
+    if (right.lengthSq() === 0)
+        return null;
+    return right.normalize();
+}
+function getPalmUp(context) {
+    const normal = getPalmNormal(context);
+    const right = getPalmRight(context);
+    if (!normal || !right)
+        return null;
+    const up = new THREE.Vector3().copy(right).cross(normal);
+    if (up.lengthSq() === 0)
+        return null;
+    return up.normalize();
+}
+function getAdjacentFingerDistances(context) {
+    const tips = FINGER_ORDER.map((finger) => getFingerJoint(context, finger, 'tip'));
+    if (tips.some((tip) => !tip)) {
+        return { average: Infinity };
+    }
+    const distances = [
+        tips[0].distanceTo(tips[1]),
+        tips[1].distanceTo(tips[2]),
+        tips[2].distanceTo(tips[3]),
+    ];
+    return { average: average(distances) };
+}
+function getJoint(context, jointName) {
+    return context.joints.get(jointName);
+}
+function getFingerJoint(context, finger, suffix) {
+    const prefix = FINGER_PREFIX[finger];
+    return getJoint(context, `${prefix}-${suffix}`);
+}
+function clamp01(value) {
+    return THREE.MathUtils.clamp(value, 0, 1);
+}
+function average(values) {
+    if (!values.length)
+        return 0;
+    return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+const HAND_INDEX_TO_LABEL = {
+    [Handedness.LEFT]: 'left',
+    [Handedness.RIGHT]: 'right',
+};
+const JOINT_TEMP_POOL = new Map();
+class GestureRecognition extends Script {
+    constructor() {
+        super(...arguments);
+        this.activeGestures = {
+            left: new Map(),
+            right: new Map(),
+        };
+        this.lastEvaluation = 0;
+        this.detectors = new Map();
+        this.activeProvider = null;
+        this.providerWarned = false;
+    }
+    static { this.dependencies = {
+        input: Input,
+        user: User,
+        options: GestureRecognitionOptions,
+    }; }
+    async init({ options, user, input, }) {
+        this.options = options;
+        this.user = user;
+        this.input = input;
+        this.configureProvider(true);
+        if (!this.options.enabled) {
+            console.info('GestureRecognition initialized but disabled. Call options.enableGestures() to activate.');
+        }
+    }
+    update() {
+        if (!this.options.enabled)
+            return;
+        if (!this.user.hands?.isValid?.())
+            return;
+        this.configureProvider();
+        const now = performance.now();
+        const interval = this.activeProvider === 'heuristics' ? 0 : this.options.updateIntervalMs;
+        if (interval > 0 && now - this.lastEvaluation < interval) {
+            return;
+        }
+        this.lastEvaluation = now;
+        this.evaluateHand(Handedness.LEFT);
+        this.evaluateHand(Handedness.RIGHT);
+    }
+    configureProvider(force = false) {
+        const provider = this.options.provider;
+        if (!force && provider === this.activeProvider)
+            return;
+        this.detectors.clear();
+        switch (provider) {
+            case 'heuristics':
+                this.assignDetectors(heuristicDetectors);
+                this.providerWarned = false;
+                break;
+            case 'mediapipe':
+            case 'tfjs':
+                this.assignDetectors(heuristicDetectors);
+                if (!this.providerWarned) {
+                    console.warn(`GestureRecognition: provider '${provider}' is not yet implemented; falling back to heuristics.`);
+                    this.providerWarned = true;
+                }
+                break;
+            default:
+                this.assignDetectors(heuristicDetectors);
+                if (!this.providerWarned) {
+                    console.warn(`GestureRecognition: provider '${provider}' is unknown; falling back to heuristics.`);
+                    this.providerWarned = true;
+                }
+                break;
+        }
+        this.activeProvider = provider;
+    }
+    assignDetectors(detectors) {
+        for (const [name, detector] of Object.entries(detectors)) {
+            if (!detector)
+                continue;
+            this.detectors.set(name, detector);
+        }
+    }
+    evaluateHand(handedness) {
+        const handLabel = HAND_INDEX_TO_LABEL[handedness];
+        const activeMap = this.activeGestures[handLabel];
+        if (!handLabel)
+            return;
+        const context = this.buildHandContext(handedness, handLabel);
+        if (!context) {
+            for (const [name] of activeMap.entries()) {
+                this.emitGesture('gestureend', { name, hand: handLabel, confidence: 0 });
+            }
+            activeMap.clear();
+            return;
+        }
+        const processed = new Set();
+        for (const [name, config] of Object.entries(this.options.gestures)) {
+            const gestureName = name;
+            if (!config?.enabled)
+                continue;
+            const detector = this.detectors.get(gestureName);
+            if (!detector)
+                continue;
+            const result = detector(context, config);
+            const isActive = result && result.confidence >= this.options.minimumConfidence;
+            processed.add(gestureName);
+            const previousState = activeMap.get(gestureName);
+            if (isActive) {
+                const detail = {
+                    name: gestureName,
+                    hand: handLabel,
+                    confidence: THREE.MathUtils.clamp(result.confidence, 0, 1),
+                    data: result.data,
+                };
+                if (!previousState) {
+                    activeMap.set(gestureName, {
+                        confidence: detail.confidence,
+                        data: detail.data,
+                    });
+                    this.emitGesture('gesturestart', detail);
+                }
+                else {
+                    previousState.confidence = detail.confidence;
+                    previousState.data = detail.data;
+                    this.emitGesture('gestureupdate', detail);
+                }
+            }
+            else if (previousState) {
+                activeMap.delete(gestureName);
+                this.emitGesture('gestureend', {
+                    name: gestureName,
+                    hand: handLabel,
+                    confidence: 0.0,
+                });
+            }
+        }
+        for (const name of Array.from(activeMap.keys())) {
+            if (!processed.has(name)) {
+                activeMap.delete(name);
+                this.emitGesture('gestureend', {
+                    name,
+                    hand: handLabel,
+                    confidence: 0.0,
+                });
+            }
+        }
+    }
+    buildHandContext(handedness, handLabel) {
+        if (!this.user.hands)
+            return null;
+        const hand = this.user.hands.hands[handedness];
+        if (!hand?.joints)
+            return null;
+        let jointCache = JOINT_TEMP_POOL.get(handLabel);
+        if (!jointCache) {
+            jointCache = new Map();
+            JOINT_TEMP_POOL.set(handLabel, jointCache);
+        }
+        const joints = jointCache;
+        joints.clear();
+        for (const jointName of HAND_JOINT_NAMES) {
+            const joint = hand.joints[jointName];
+            if (!joint)
+                continue;
+            let vector = joints.get(jointName);
+            if (!vector) {
+                vector = new THREE.Vector3();
+                joints.set(jointName, vector);
+            }
+            vector.setFromMatrixPosition(joint.matrixWorld);
+        }
+        if (!joints.size)
+            return null;
+        return {
+            handedness,
+            handLabel,
+            joints,
+        };
+    }
+    emitGesture(type, detail) {
+        const event = { type, detail, target: this };
+        this.dispatchEvent(event);
     }
 }
 
@@ -5661,10 +6932,10 @@ class Lighting {
                 dirLight.shadow.camera.near = 0.3;
                 dirLight.shadow.camera.far = 50.0;
                 const cameraFrustrumRadius = 4.0;
-                dirLight.shadow.camera.left = -4;
+                dirLight.shadow.camera.left = -cameraFrustrumRadius;
                 dirLight.shadow.camera.right = cameraFrustrumRadius;
                 dirLight.shadow.camera.top = cameraFrustrumRadius;
-                dirLight.shadow.camera.bottom = -4;
+                dirLight.shadow.camera.bottom = -cameraFrustrumRadius;
                 dirLight.shadow.blurSamples = 25;
                 dirLight.shadow.radius = 5.0;
                 dirLight.shadow.bias = 0.0;
@@ -5692,7 +6963,8 @@ class Lighting {
     update() {
         // Update lights from WebXR estimated light.
         if (this.options.enabled) {
-            this.dirLight.position.copy(this.xrLight.directionalLight.position)
+            this.dirLight.position
+                .copy(this.xrLight.directionalLight.position)
                 .multiplyScalar(20.0);
             this.dirLight.target.position.setScalar(0.0);
             this.dirLight.color = this.xrLight.directionalLight.color;
@@ -5715,7 +6987,7 @@ class Lighting {
                     -0.13088643550872803, -0.1461198776960373, -0.1411236822605133,
                     0.04788218438625336, 0.08909443765878677, 0.10185115039348602,
                     0.020251473411917686, -0.002100071171298623, -0.06455840915441513,
-                    -0.12393051385879517, -0.05158703774213791, -0.00532124936580658
+                    -0.12393051385879517, -0.05158703774213791, -0.00532124936580658,
                 ]);
                 this.ambientProbe.intensity = 1.0;
                 this.ambientLight.copy(this.ambientProbe.sh.coefficients[0]);
@@ -5724,17 +6996,15 @@ class Lighting {
                 this.options.useDynamicSoftShadow) {
                 const ambientLightIntensity = this.ambientLight;
                 const ambientMonoIntensity = 0.21 * ambientLightIntensity.x +
-                    0.72 * ambientLightIntensity.y + 0.07 * ambientLightIntensity.z;
-                const mainLightIntensity = new THREE
-                    .Vector3(this.dirLight.color.r, this.dirLight.color.g, this.dirLight.color.b)
-                    .multiplyScalar(this.dirLight.intensity);
+                    0.72 * ambientLightIntensity.y +
+                    0.07 * ambientLightIntensity.z;
+                const mainLightIntensity = new THREE.Vector3(this.dirLight.color.r, this.dirLight.color.g, this.dirLight.color.b).multiplyScalar(this.dirLight.intensity);
                 const mainMonoIntensity = 0.21 * mainLightIntensity.x +
-                    0.72 * mainLightIntensity.y + 0.07 * mainLightIntensity.z;
+                    0.72 * mainLightIntensity.y +
+                    0.07 * mainLightIntensity.z;
                 const ambientToMain = ambientMonoIntensity / mainMonoIntensity;
-                this.dirLight.shadow.radius =
-                    Math.min(Math.max(1.0, ambientToMain * 30), 10.0);
-                this.shadowOpacity =
-                    Math.max(Math.min((10.0 - ambientToMain * 30) * 0.7, 0.7), 0.3);
+                this.dirLight.shadow.radius = Math.min(Math.max(1.0, ambientToMain * 30), 10.0);
+                this.shadowOpacity = Math.max(Math.min((10.0 - ambientToMain * 30) * 0.7, 0.7), 0.3);
                 // Override depth material opacity with shadowOpacity
                 if (this.depth?.options?.enabled &&
                     this.depth.options.depthMesh.enabled &&
@@ -5901,8 +7171,7 @@ const NEXT_SIMULATOR_MODE = {
 class SimulatorOptions {
     constructor(options) {
         this.initialCameraPosition = { x: 0, y: 1.5, z: 0 };
-        this.scenePath = XR_BLOCKS_ASSETS_PATH +
-            'simulator/scenes/XREmulatorsceneV5_livingRoom.glb';
+        this.scenePath = XR_BLOCKS_ASSETS_PATH + 'simulator/scenes/XREmulatorsceneV5_livingRoom.glb';
         this.initialScenePosition = { x: -1.6, y: 0.3, z: 0 };
         this.defaultMode = SimulatorMode.USER;
         this.defaultHand = Handedness.LEFT;
@@ -5923,9 +7192,8 @@ class SimulatorOptions {
         this.stereo = {
             enabled: false,
         };
-        // Whether to render the main scene to a render texture or directly to the
-        // canvas.
-        // This is a temporary option until we figure out why splats look faded.
+        // Whether to render the main scene to a render texture before rendering the simulator scene
+        // or directly to the canvas after rendering the simulator scene.
         this.renderToRenderTexture = true;
         // Blending mode when rendering the virtual scene.
         this.blendingMode = 'normal';
@@ -6138,6 +7406,7 @@ class Options {
         this.lighting = new LightingOptions();
         this.deviceCamera = new DeviceCameraOptions();
         this.hands = new HandsOptions();
+        this.gestures = new GestureRecognitionOptions();
         this.reticles = new ReticleOptions();
         this.sound = new SoundOptions();
         this.ai = new AIOptions();
@@ -6166,7 +7435,7 @@ class Options {
             showSimulatorButtonOnMobile: false,
             autostartSimulatorOnDesktop: true,
             // Whether to always autostart the simulator.
-            autostartSimulator: false
+            autostartSimulator: false,
         };
         deepMerge(this, options);
     }
@@ -6218,8 +7487,9 @@ class Options {
      * @returns The instance for chaining.
      */
     enableCamera(facingMode = 'environment') {
-        this.deviceCamera = new DeviceCameraOptions(facingMode === 'environment' ? xrDeviceCameraEnvironmentOptions :
-            xrDeviceCameraUserOptions);
+        this.deviceCamera = new DeviceCameraOptions(facingMode === 'environment'
+            ? xrDeviceCameraEnvironmentOptions
+            : xrDeviceCameraUserOptions);
         return this;
     }
     /**
@@ -6228,6 +7498,15 @@ class Options {
      */
     enableHands() {
         this.hands.enabled = true;
+        return this;
+    }
+    /**
+     * Enables the gesture recognition block and ensures hands are available.
+     * @returns The instance for chaining.
+     */
+    enableGestures() {
+        this.enableHands();
+        this.gestures.enable();
         return this;
     }
     /**
@@ -6300,16 +7579,17 @@ function evaluateConstrainDOMString(constraint, value) {
     }
     // A standalone string or array is treated as an implicit 'exact' requirement.
     if (typeof constraint === 'string' || Array.isArray(constraint)) {
-        return matches(constraint, value) ? ConstrainDomStringMatch.EXACT :
-            ConstrainDomStringMatch.UNACCEPTABLE;
+        return matches(constraint, value)
+            ? ConstrainDomStringMatch.EXACT
+            : ConstrainDomStringMatch.UNACCEPTABLE;
     }
     // Handle the object-based constraint.
     if (typeof constraint === 'object') {
         // The 'exact' property is a hard requirement that overrides all others.
         if (constraint.exact !== undefined) {
-            return matches(constraint.exact, value) ?
-                ConstrainDomStringMatch.EXACT :
-                ConstrainDomStringMatch.UNACCEPTABLE;
+            return matches(constraint.exact, value)
+                ? ConstrainDomStringMatch.EXACT
+                : ConstrainDomStringMatch.UNACCEPTABLE;
         }
         // If there's no 'exact' constraint, check 'ideal'.
         if (constraint.ideal !== undefined) {
@@ -6405,8 +7685,7 @@ class SimulatorCamera {
             return;
         }
         if (!constraints?.deviceId ||
-            evaluateConstrainDOMString(constraints?.deviceId, this.cameraInfo.deviceId) !=
-                ConstrainDomStringMatch.UNACCEPTABLE) {
+            evaluateConstrainDOMString(constraints?.deviceId, this.cameraInfo.deviceId) != ConstrainDomStringMatch.UNACCEPTABLE) {
             const videoTrack = this.mediaStream.getVideoTracks()[0];
             if (videoTrack.readyState == 'ended') {
                 this.restartVideoTrack();
@@ -6427,8 +7706,14 @@ var SimulatorRenderMode;
 
 class SimulatorControllerState {
     constructor() {
-        this.localControllerPositions = [new THREE.Vector3(-0.3, -0.1, -0.3), new THREE.Vector3(0.3, -0.1, -0.3)];
-        this.localControllerOrientations = [new THREE.Quaternion(), new THREE.Quaternion()];
+        this.localControllerPositions = [
+            new THREE.Vector3(-0.3, -0.1, -0.3),
+            new THREE.Vector3(0.3, -0.1, -0.3),
+        ];
+        this.localControllerOrientations = [
+            new THREE.Quaternion(),
+            new THREE.Quaternion(),
+        ];
         this.currentControllerIndex = 0;
     }
 }
@@ -6519,7 +7804,7 @@ class SimulatorControlMode {
     /**
      * Initialize the simulator control mode.
      */
-    init({ camera, input, timer }) {
+    init({ camera, input, timer, }) {
         this.camera = camera;
         this.input = input;
         this.timer = timer;
@@ -6586,12 +7871,12 @@ class SimulatorControlMode {
         this.input.dispatchEvent({
             type: 'connected',
             target: this.input.controllers[0],
-            data: { handedness: 'left' }
+            data: { handedness: 'left' },
         });
         this.input.dispatchEvent({
             type: 'connected',
             target: this.input.controllers[1],
-            data: { handedness: 'right' }
+            data: { handedness: 'right' },
         });
     }
     disableSimulatorHands() {
@@ -6599,12 +7884,12 @@ class SimulatorControlMode {
         this.input.dispatchEvent({
             type: 'disconnected',
             target: this.input.controllers[0],
-            data: { handedness: 'left' }
+            data: { handedness: 'left' },
         });
         this.input.dispatchEvent({
             type: 'disconnected',
             target: this.input.controllers[1],
-            data: { handedness: 'right' }
+            data: { handedness: 'right' },
         });
     }
 }
@@ -6614,9 +7899,7 @@ const { A_CODE, D_CODE, E_CODE, Q_CODE, S_CODE, SPACE_CODE, T_CODE, W_CODE } = K
 class SimulatorControllerMode extends SimulatorControlMode {
     onPointerMove(event) {
         if (event.buttons) {
-            const controllerOrientation = this.simulatorControllerState
-                .localControllerOrientations[this.simulatorControllerState
-                .currentControllerIndex];
+            const controllerOrientation = this.simulatorControllerState.localControllerOrientations[this.simulatorControllerState.currentControllerIndex];
             this.rotateOnPointerMove(event, controllerOrientation, -2e-3);
         }
     }
@@ -6632,10 +7915,7 @@ class SimulatorControllerMode extends SimulatorControlMode {
         vector3$5
             .set(Number(downKeys.has(D_CODE)) - Number(downKeys.has(A_CODE)), Number(downKeys.has(Q_CODE)) - Number(downKeys.has(E_CODE)), Number(downKeys.has(S_CODE)) - Number(downKeys.has(W_CODE)))
             .multiplyScalar(deltaTime);
-        this.simulatorControllerState
-            .localControllerPositions[this.simulatorControllerState
-            .currentControllerIndex]
-            .add(vector3$5);
+        this.simulatorControllerState.localControllerPositions[this.simulatorControllerState.currentControllerIndex].add(vector3$5);
         super.updateControllerPositions();
     }
     toggleControllerIndex() {
@@ -6647,9 +7927,7 @@ class SimulatorControllerMode extends SimulatorControlMode {
             this.toggleControllerIndex();
         }
         else if (event.code == SPACE_CODE) {
-            const controllerSelecting = this.input
-                .controllers[this.simulatorControllerState.currentControllerIndex]
-                .userData?.selected;
+            const controllerSelecting = this.input.controllers[this.simulatorControllerState.currentControllerIndex].userData?.selected;
             const newSelectingState = !controllerSelecting;
             if (this.simulatorControllerState.currentControllerIndex == 0) {
                 this.hands.setLeftHandPinching(newSelectingState);
@@ -6741,7 +8019,7 @@ class SimulatorControls {
     /**
      * Initialize the simulator controls.
      */
-    init({ camera, input, timer, renderer, simulatorOptions }) {
+    init({ camera, input, timer, renderer, simulatorOptions, }) {
         for (const mode in this.simulatorModes) {
             this.simulatorModes[mode].init({ camera, input, timer });
         }
@@ -6806,25 +8084,21 @@ class SimulatorControls {
 
 class SimulatorDepthMaterial extends THREE.MeshBasicMaterial {
     onBeforeCompile(shader) {
-        shader.vertexShader =
-            shader.vertexShader
-                .replace('#include <clipping_planes_pars_vertex>', [
-                '#include <clipping_planes_pars_vertex>',
-                'varying vec4 vViewCoordinates;'
-            ].join('\n'))
-                .replace('#include <project_vertex>', [
-                '#include <project_vertex>', 'vViewCoordinates = mvPosition;'
-            ].join('\n'));
-        shader.fragmentShader =
-            shader.fragmentShader
-                .replace('#include <clipping_planes_pars_fragment>', [
-                '#include <clipping_planes_pars_fragment>',
-                'varying vec4 vViewCoordinates;'
-            ].join('\n'))
-                .replace('#include <dithering_fragment>', [
-                '#include <dithering_fragment>',
-                'gl_FragColor = vec4(-vViewCoordinates.z, 0.0, 0.0, 1.0);'
-            ].join('\n'));
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <clipping_planes_pars_vertex>', [
+            '#include <clipping_planes_pars_vertex>',
+            'varying vec4 vViewCoordinates;',
+        ].join('\n'))
+            .replace('#include <project_vertex>', ['#include <project_vertex>', 'vViewCoordinates = mvPosition;'].join('\n'));
+        shader.fragmentShader = shader.fragmentShader
+            .replace('#include <clipping_planes_pars_fragment>', [
+            '#include <clipping_planes_pars_fragment>',
+            'varying vec4 vViewCoordinates;',
+        ].join('\n'))
+            .replace('#include <dithering_fragment>', [
+            '#include <dithering_fragment>',
+            'gl_FragColor = vec4(-vViewCoordinates.z, 0.0, 0.0, 1.0);',
+        ].join('\n'));
     }
 }
 
@@ -6846,11 +8120,10 @@ class SimulatorDepth {
         this.depthMaterial = new SimulatorDepthMaterial();
     }
     createRenderTarget() {
-        this.depthRenderTarget =
-            new THREE.WebGLRenderTarget(this.depthWidth, this.depthHeight, {
-                format: THREE.RedFormat,
-                type: THREE.FloatType,
-            });
+        this.depthRenderTarget = new THREE.WebGLRenderTarget(this.depthWidth, this.depthHeight, {
+            format: THREE.RedFormat,
+            type: THREE.FloatType,
+        });
         this.depthBuffer = new Float32Array(this.depthWidth * this.depthHeight);
     }
     update() {
@@ -6900,1241 +8173,1244 @@ class SimulatorDepth {
 class SimulatorHandPoseChangeRequestEvent extends Event {
     static { this.type = 'SimulatorHandPoseChangeRequestEvent'; }
     constructor(pose) {
-        super(SimulatorHandPoseChangeRequestEvent.type, { bubbles: true, composed: true });
+        super(SimulatorHandPoseChangeRequestEvent.type, {
+            bubbles: true,
+            composed: true,
+        });
         this.pose = pose;
     }
 }
 
 const LEFT_HAND_FIST = [
-    { 't': [-0.0933, -0.0266, -0.1338], 'r': [0.1346, -0.1437, 0.0038, 0.9804] },
-    { 't': [-0.0648, -0.0265, -0.1529], 'r': [0.0354, -0.3351, -0.1786, 0.9244] },
-    { 't': [-0.0318, -0.0293, -0.1932], 'r': [0.0407, -0.2202, -0.5685, 0.7916] },
-    { 't': [-0.0212, -0.0345, -0.2179], 'r': [0.0132, -0.12, -0.576, 0.8084] },
-    { 't': [-0.0161, -0.039, -0.2469], 'r': [0.0132, -0.12, -0.576, 0.8084] },
-    { 't': [-0.0731, -0.0197, -0.1569], 'r': [0.0999, -0.2377, 0.0822, 0.9627] },
-    { 't': [-0.0399, -23e-4, -0.2221], 'r': [-0.4356, -0.1075, -0.0127, 0.8936] },
-    { 't': [-0.0325, -0.0319, -0.246], 'r': [0.9331, 0.066, 0.0832, -0.3436] },
-    { 't': [-0.035, -0.0462, -0.2296], 'r': [0.9874, 0.021, 0.128, -0.0903] },
-    { 't': [-0.0408, -0.0496, -0.2076], 'r': [0.9874, 0.021, 0.128, -0.0903] },
-    { 't': [-0.0853, -0.0187, -0.1614], 'r': [0.115, -0.1594, 0.0889, 0.9765] },
-    { 't': [-0.0646, -7e-4, -0.2271], 'r': [-0.4919, -0.1197, 0.0382, 0.8616] },
-    { 't': [-0.0544, -0.0353, -0.2477], 'r': [0.9309, 0.1571, 0.0605, -0.324] },
-    { 't': [-0.0548, -0.0542, -0.2244], 'r': [0.9835, 0.1315, 0.1097, 0.0583] },
-    { 't': [-0.0607, -0.051, -0.2013], 'r': [0.9835, 0.1315, 0.1097, 0.0583] },
-    { 't': [-0.0972, -0.0213, -0.1628], 'r': [0.0881, -0.0966, 0.0847, 0.9878] },
-    { 't': [-0.0856, -88e-4, -0.2263], 'r': [-0.4818, -0.1075, 0.1033, 0.8635] },
-    { 't': [-0.0742, -0.0406, -0.246], 'r': [0.9378, 0.1774, 0.0089, -0.2983] },
-    { 't': [-0.0715, -0.0585, -0.2205], 'r': [0.9769, 0.1847, 0.0804, 0.0714] },
-    { 't': [-0.0757, -0.0552, -0.1994], 'r': [0.9769, 0.1847, 0.0804, 0.0714] },
-    { 't': [-0.1078, -0.0253, -0.162], 'r': [0.0535, -0.0126, 0.0933, 0.9941] },
-    { 't': [-0.1069, -0.0188, -0.2215], 'r': [-0.4433, -0.1294, 0.1523, 0.8738] },
-    { 't': [-0.0939, -0.0444, -0.2398], 'r': [0.9002, 0.2018, -0.0275, -0.385] },
-    { 't': [-0.0891, -0.0599, -0.2248], 'r': [0.9644, 0.2553, 0.0425, -0.0538] },
-    { 't': [-0.0914, -0.0623, -0.2063], 'r': [0.9644, 0.2553, 0.0425, -0.0538] }
+    { t: [-0.0933, -0.0266, -0.1338], r: [0.1346, -0.1437, 0.0038, 0.9804] },
+    { t: [-0.0648, -0.0265, -0.1529], r: [0.0354, -0.3351, -0.1786, 0.9244] },
+    { t: [-0.0318, -0.0293, -0.1932], r: [0.0407, -0.2202, -0.5685, 0.7916] },
+    { t: [-0.0212, -0.0345, -0.2179], r: [0.0132, -0.12, -0.576, 0.8084] },
+    { t: [-0.0161, -0.039, -0.2469], r: [0.0132, -0.12, -0.576, 0.8084] },
+    { t: [-0.0731, -0.0197, -0.1569], r: [0.0999, -0.2377, 0.0822, 0.9627] },
+    { t: [-0.0399, -23e-4, -0.2221], r: [-0.4356, -0.1075, -0.0127, 0.8936] },
+    { t: [-0.0325, -0.0319, -0.246], r: [0.9331, 0.066, 0.0832, -0.3436] },
+    { t: [-0.035, -0.0462, -0.2296], r: [0.9874, 0.021, 0.128, -0.0903] },
+    { t: [-0.0408, -0.0496, -0.2076], r: [0.9874, 0.021, 0.128, -0.0903] },
+    { t: [-0.0853, -0.0187, -0.1614], r: [0.115, -0.1594, 0.0889, 0.9765] },
+    { t: [-0.0646, -7e-4, -0.2271], r: [-0.4919, -0.1197, 0.0382, 0.8616] },
+    { t: [-0.0544, -0.0353, -0.2477], r: [0.9309, 0.1571, 0.0605, -0.324] },
+    { t: [-0.0548, -0.0542, -0.2244], r: [0.9835, 0.1315, 0.1097, 0.0583] },
+    { t: [-0.0607, -0.051, -0.2013], r: [0.9835, 0.1315, 0.1097, 0.0583] },
+    { t: [-0.0972, -0.0213, -0.1628], r: [0.0881, -0.0966, 0.0847, 0.9878] },
+    { t: [-0.0856, -88e-4, -0.2263], r: [-0.4818, -0.1075, 0.1033, 0.8635] },
+    { t: [-0.0742, -0.0406, -0.246], r: [0.9378, 0.1774, 0.0089, -0.2983] },
+    { t: [-0.0715, -0.0585, -0.2205], r: [0.9769, 0.1847, 0.0804, 0.0714] },
+    { t: [-0.0757, -0.0552, -0.1994], r: [0.9769, 0.1847, 0.0804, 0.0714] },
+    { t: [-0.1078, -0.0253, -0.162], r: [0.0535, -0.0126, 0.0933, 0.9941] },
+    { t: [-0.1069, -0.0188, -0.2215], r: [-0.4433, -0.1294, 0.1523, 0.8738] },
+    { t: [-0.0939, -0.0444, -0.2398], r: [0.9002, 0.2018, -0.0275, -0.385] },
+    { t: [-0.0891, -0.0599, -0.2248], r: [0.9644, 0.2553, 0.0425, -0.0538] },
+    { t: [-0.0914, -0.0623, -0.2063], r: [0.9644, 0.2553, 0.0425, -0.0538] },
 ];
 const RIGHT_HAND_FIST = [
-    { 't': [0.0504, -0.0155, -0.1083], 'r': [0.1392, 0.117, -0.058, 0.9816] },
-    { 't': [0.022, -0.0122, -0.1291], 'r': [-68e-4, 0.3422, 0.1705, 0.924] },
-    { 't': [-0.011, -0.019, -0.1691], 'r': [-0.0952, 0.2257, 0.5977, 0.7634] },
-    { 't': [-0.0171, -0.0305, -0.1932], 'r': [-0.249, 0.0162, 0.627, 0.738] },
-    { 't': [-73e-4, -0.0427, -0.2185], 'r': [-0.249, 0.0162, 0.627, 0.738] },
-    { 't': [0.0314, -68e-4, -0.133], 'r': [0.1126, 0.213, -0.1468, 0.9594] },
-    { 't': [0.0035, 0.014, -0.1987], 'r': [-0.5177, 0.1865, 0.0124, 0.8349] },
-    { 't': [-86e-4, -0.0192, -0.2148], 'r': [0.9671, -0.1129, -0.1466, -0.1747] },
-    { 't': [-31e-4, -0.0274, -0.1952], 'r': [0.9714, -0.0492, -0.2057, 0.1081] },
-    { 't': [0.0063, -0.0222, -0.1749], 'r': [0.9714, -0.0492, -0.2057, 0.1081] },
-    { 't': [0.0441, -73e-4, -0.137], 'r': [0.1251, 0.1341, -0.1467, 0.972] },
-    { 't': [0.0283, 0.0126, -0.2028], 'r': [-0.5227, 0.1469, -0.0852, 0.8354] },
-    { 't': [0.0144, -0.0224, -0.2202], 'r': [0.9399, -0.2078, -0.0451, -0.2671] },
-    { 't': [0.0137, -0.0382, -0.1948], 'r': [0.9665, -0.181, -0.1188, 0.1381] },
-    { 't': [0.0207, -0.0318, -0.1726], 'r': [0.9665, -0.181, -0.1188, 0.1381] },
-    { 't': [0.0559, -0.0112, -0.1379], 'r': [0.0948, 0.0732, -0.1351, 0.9836] },
-    { 't': [0.0482, 0.0022, -0.2011], 'r': [-0.5015, 0.1223, -0.1588, 0.8416] },
-    { 't': [0.0337, -0.0294, -0.2191], 'r': [0.9432, -0.2267, 0.0156, -0.2423] },
-    { 't': [0.0294, -0.0438, -0.1916], 'r': [0.9569, -0.2379, -0.08, 0.1464] },
-    { 't': [0.0346, -0.0376, -0.1714], 'r': [0.9569, -0.2379, -0.08, 0.1464] },
-    { 't': [0.0662, -0.0164, -0.1368], 'r': [0.0546, -84e-4, -0.1349, 0.9893] },
-    { 't': [0.068, -0.0102, -0.1955], 'r': [-0.4587, 0.1335, -0.2099, 0.853] },
-    { 't': [0.0529, -0.0353, -0.2127], 'r': [0.9107, -0.2444, 0.0606, -0.3274] },
-    { 't': [0.0466, -0.0483, -0.1959], 'r': [0.9518, -0.3056, -0.0236, 0.0063] },
-    { 't': [0.0488, -0.0485, -0.1773], 'r': [0.9518, -0.3056, -0.0236, 0.0063] }
+    { t: [0.0504, -0.0155, -0.1083], r: [0.1392, 0.117, -0.058, 0.9816] },
+    { t: [0.022, -0.0122, -0.1291], r: [-68e-4, 0.3422, 0.1705, 0.924] },
+    { t: [-0.011, -0.019, -0.1691], r: [-0.0952, 0.2257, 0.5977, 0.7634] },
+    { t: [-0.0171, -0.0305, -0.1932], r: [-0.249, 0.0162, 0.627, 0.738] },
+    { t: [-73e-4, -0.0427, -0.2185], r: [-0.249, 0.0162, 0.627, 0.738] },
+    { t: [0.0314, -68e-4, -0.133], r: [0.1126, 0.213, -0.1468, 0.9594] },
+    { t: [0.0035, 0.014, -0.1987], r: [-0.5177, 0.1865, 0.0124, 0.8349] },
+    { t: [-86e-4, -0.0192, -0.2148], r: [0.9671, -0.1129, -0.1466, -0.1747] },
+    { t: [-31e-4, -0.0274, -0.1952], r: [0.9714, -0.0492, -0.2057, 0.1081] },
+    { t: [0.0063, -0.0222, -0.1749], r: [0.9714, -0.0492, -0.2057, 0.1081] },
+    { t: [0.0441, -73e-4, -0.137], r: [0.1251, 0.1341, -0.1467, 0.972] },
+    { t: [0.0283, 0.0126, -0.2028], r: [-0.5227, 0.1469, -0.0852, 0.8354] },
+    { t: [0.0144, -0.0224, -0.2202], r: [0.9399, -0.2078, -0.0451, -0.2671] },
+    { t: [0.0137, -0.0382, -0.1948], r: [0.9665, -0.181, -0.1188, 0.1381] },
+    { t: [0.0207, -0.0318, -0.1726], r: [0.9665, -0.181, -0.1188, 0.1381] },
+    { t: [0.0559, -0.0112, -0.1379], r: [0.0948, 0.0732, -0.1351, 0.9836] },
+    { t: [0.0482, 0.0022, -0.2011], r: [-0.5015, 0.1223, -0.1588, 0.8416] },
+    { t: [0.0337, -0.0294, -0.2191], r: [0.9432, -0.2267, 0.0156, -0.2423] },
+    { t: [0.0294, -0.0438, -0.1916], r: [0.9569, -0.2379, -0.08, 0.1464] },
+    { t: [0.0346, -0.0376, -0.1714], r: [0.9569, -0.2379, -0.08, 0.1464] },
+    { t: [0.0662, -0.0164, -0.1368], r: [0.0546, -84e-4, -0.1349, 0.9893] },
+    { t: [0.068, -0.0102, -0.1955], r: [-0.4587, 0.1335, -0.2099, 0.853] },
+    { t: [0.0529, -0.0353, -0.2127], r: [0.9107, -0.2444, 0.0606, -0.3274] },
+    { t: [0.0466, -0.0483, -0.1959], r: [0.9518, -0.3056, -0.0236, 0.0063] },
+    { t: [0.0488, -0.0485, -0.1773], r: [0.9518, -0.3056, -0.0236, 0.0063] },
 ];
 
 const LEFT_HAND_PINCHING = [
-    { 't': [-0.05, -0.08, -0.1], 'r': [0.5373, 0, 0, 0.8434], 's': [1, 1, 1] },
+    { t: [-0.05, -0.08, -0.1], r: [0.5373, 0, 0, 0.8434], s: [1, 1, 1] },
     {
-        't': [-0.0281, -0.0594, -0.1165],
-        'r': [0.3072, -0.0483, -0.257, 0.915],
-        's': [1, 1, 1]
+        t: [-0.0281, -0.0594, -0.1165],
+        r: [0.3072, -0.0483, -0.257, 0.915],
+        s: [1, 1, 1],
     },
     {
-        't': [-83e-4, -0.0299, -0.1581],
-        'r': [0.1832, 0.0632, -0.4718, 0.8602],
-        's': [1, 1, 1]
+        t: [-83e-4, -0.0299, -0.1581],
+        r: [0.1832, 0.0632, -0.4718, 0.8602],
+        s: [1, 1, 1],
     },
     {
-        't': [-69e-4, -0.0195, -0.1841],
-        'r': [0.2232, 0.1362, -0.6112, 0.747],
-        's': [1, 1, 0.9999]
+        t: [-69e-4, -0.0195, -0.1841],
+        r: [0.2232, 0.1362, -0.6112, 0.747],
+        s: [1, 1, 0.9999],
     },
     {
-        't': [-63e-4, -51e-4, -0.2109],
-        'r': [0.2232, 0.1362, -0.6112, 0.747],
-        's': [1, 1, 0.9999]
+        t: [-63e-4, -51e-4, -0.2109],
+        r: [0.2232, 0.1362, -0.6112, 0.747],
+        s: [1, 1, 0.9999],
     },
     {
-        't': [-0.0369, -0.0541, -0.112],
-        'r': [0.5858, -0.1038, 0.0205, 0.8035],
-        's': [1, 1, 1]
+        t: [-0.0369, -0.0541, -0.112],
+        r: [0.5858, -0.1038, 0.0205, 0.8035],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.024, 0.0142, -0.1465],
-        'r': [0.1342, -0.1392, -0.0707, 0.9786],
-        's': [1.0001, 1, 0.9999]
+        t: [-0.024, 0.0142, -0.1465],
+        r: [0.1342, -0.1392, -0.0707, 0.9786],
+        s: [1.0001, 1, 0.9999],
     },
     {
-        't': [-0.0122, 0.0248, -0.1828],
-        'r': [-0.2614, -0.0983, -0.1184, 0.9529],
-        's': [1.0001, 0.9999, 0.9999]
+        t: [-0.0122, 0.0248, -0.1828],
+        r: [-0.2614, -0.0983, -0.1184, 0.9529],
+        s: [1.0001, 0.9999, 0.9999],
     },
     {
-        't': [-95e-4, 0.0131, -0.2017],
-        'r': [-0.3454, -0.0506, -0.1338, 0.9275],
-        's': [1, 0.9999, 1]
+        t: [-95e-4, 0.0131, -0.2017],
+        r: [-0.3454, -0.0506, -0.1338, 0.9275],
+        s: [1, 0.9999, 1],
     },
     {
-        't': [-98e-4, -28e-4, -0.219],
-        'r': [-0.3454, -0.0506, -0.1338, 0.9275],
-        's': [1, 0.9999, 1]
+        t: [-98e-4, -28e-4, -0.219],
+        r: [-0.3454, -0.0506, -0.1338, 0.9275],
+        s: [1, 0.9999, 1],
     },
     {
-        't': [-0.0498, -0.0529, -0.1126],
-        'r': [0.5552, -0.0196, 0.0307, 0.8309],
-        's': [1.0001, 1, 1]
+        t: [-0.0498, -0.0529, -0.1126],
+        r: [0.5552, -0.0196, 0.0307, 0.8309],
+        s: [1.0001, 1, 1],
     },
     {
-        't': [-0.0496, 0.0131, -0.1444],
-        'r': [0.3957, -0.0669, 0.0916, 0.9113],
-        's': [1, 0.9999, 1]
+        t: [-0.0496, 0.0131, -0.1444],
+        r: [0.3957, -0.0669, 0.0916, 0.9113],
+        s: [1, 0.9999, 1],
     },
     {
-        't': [-0.0477, 0.0443, -0.173],
-        'r': [0.0284, -0.1256, 0.0276, 0.9913],
-        's': [1, 1, 0.9999]
+        t: [-0.0477, 0.0443, -0.173],
+        r: [0.0284, -0.1256, 0.0276, 0.9913],
+        s: [1, 1, 0.9999],
     },
     {
-        't': [-0.0403, 0.0463, -0.2027],
-        'r': [-0.1956, -0.1387, -7e-3, 0.9708],
-        's': [1.0001, 1, 1]
+        t: [-0.0403, 0.0463, -0.2027],
+        r: [-0.1956, -0.1387, -7e-3, 0.9708],
+        s: [1.0001, 1, 1],
     },
     {
-        't': [-0.0339, 0.036, -0.224],
-        'r': [-0.1956, -0.1387, -7e-3, 0.9708],
-        's': [1.0001, 1, 1]
+        t: [-0.0339, 0.036, -0.224],
+        r: [-0.1956, -0.1387, -7e-3, 0.9708],
+        s: [1.0001, 1, 1],
     },
     {
-        't': [-0.0612, -0.0561, -0.1137],
-        'r': [0.5088, 0.0591, 0.0245, 0.8585],
-        's': [1, 1.0001, 1]
+        t: [-0.0612, -0.0561, -0.1137],
+        r: [0.5088, 0.0591, 0.0245, 0.8585],
+        s: [1, 1.0001, 1],
     },
     {
-        't': [-0.0697, 0.0021, -0.1467],
-        'r': [0.464, -0.0595, 0.1601, 0.8692],
-        's': [1, 1, 1]
+        t: [-0.0697, 0.0021, -0.1467],
+        r: [0.464, -0.0595, 0.1601, 0.8692],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0713, 0.0348, -0.1698],
-        'r': [0.0595, -0.1373, 0.0948, 0.9842],
-        's': [1.0001, 1.0001, 1]
+        t: [-0.0713, 0.0348, -0.1698],
+        r: [0.0595, -0.1373, 0.0948, 0.9842],
+        s: [1.0001, 1.0001, 1],
     },
     {
-        't': [-0.0633, 0.0395, -0.2003],
-        'r': [-0.1735, -0.159, 0.0354, 0.9713],
-        's': [1, 1, 0.9999]
+        t: [-0.0633, 0.0395, -0.2003],
+        r: [-0.1735, -0.159, 0.0354, 0.9713],
+        s: [1, 1, 0.9999],
     },
     {
-        't': [-0.0561, 0.0313, -0.2197],
-        'r': [-0.1735, -0.159, 0.0354, 0.9713],
-        's': [1, 1, 0.9999]
+        t: [-0.0561, 0.0313, -0.2197],
+        r: [-0.1735, -0.159, 0.0354, 0.9713],
+        s: [1, 1, 0.9999],
     },
     {
-        't': [-0.0707, -0.0617, -0.1146],
-        'r': [0.4573, 0.1467, 0.0408, 0.8762],
-        's': [1, 1, 1]
+        t: [-0.0707, -0.0617, -0.1146],
+        r: [0.4573, 0.1467, 0.0408, 0.8762],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0889, -0.0132, -0.148],
-        'r': [0.4065, 0.0051, 0.2314, 0.8838],
-        's': [1, 0.9999, 1.0001]
+        t: [-0.0889, -0.0132, -0.148],
+        r: [0.4065, 0.0051, 0.2314, 0.8838],
+        s: [1, 0.9999, 1.0001],
     },
     {
-        't': [-0.0946, 0.0109, -0.1723],
-        'r': [0.1595, -0.0578, 0.2175, 0.9612],
-        's': [1, 0.9999, 1]
+        t: [-0.0946, 0.0109, -0.1723],
+        r: [0.1595, -0.0578, 0.2175, 0.9612],
+        s: [1, 0.9999, 1],
     },
     {
-        't': [-0.094, 0.019, -0.1934],
-        'r': [-0.0122, -0.1189, 0.1509, 0.9813],
-        's': [1.0001, 1, 1]
+        t: [-0.094, 0.019, -0.1934],
+        r: [-0.0122, -0.1189, 0.1509, 0.9813],
+        s: [1.0001, 1, 1],
     },
     {
-        't': [-0.0904, 0.0182, -0.2123],
-        'r': [-0.0122, -0.1189, 0.1509, 0.9813],
-        's': [1.0001, 1, 1]
-    }
+        t: [-0.0904, 0.0182, -0.2123],
+        r: [-0.0122, -0.1189, 0.1509, 0.9813],
+        s: [1.0001, 1, 1],
+    },
 ];
 const RIGHT_HAND_PINCHING = [
-    { 't': [0.05, -0.08, -0.1], 'r': [0.5373, 0, 0, 0.8434], 's': [1, 1, 1] },
+    { t: [0.05, -0.08, -0.1], r: [0.5373, 0, 0, 0.8434], s: [1, 1, 1] },
     {
-        't': [0.0279, -0.0593, -0.1166],
-        'r': [0.307, 0.046, 0.2483, 0.9176],
-        's': [1, 1, 1]
+        t: [0.0279, -0.0593, -0.1166],
+        r: [0.307, 0.046, 0.2483, 0.9176],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0082, -0.0291, -0.1587],
-        'r': [0.1833, -0.0669, 0.4657, 0.8632],
-        's': [0.9999, 1, 1]
+        t: [0.0082, -0.0291, -0.1587],
+        r: [0.1833, -0.0669, 0.4657, 0.8632],
+        s: [0.9999, 1, 1],
     },
     {
-        't': [0.0071, -0.0186, -0.185],
-        'r': [0.2256, -0.1369, 0.6093, 0.7477],
-        's': [1, 1, 0.9999]
+        t: [0.0071, -0.0186, -0.185],
+        r: [0.2256, -0.1369, 0.6093, 0.7477],
+        s: [1, 1, 0.9999],
     },
     {
-        't': [0.0064, -39e-4, -0.212],
-        'r': [0.2256, -0.1369, 0.6093, 0.7477],
-        's': [1, 1, 0.9999]
+        t: [0.0064, -39e-4, -0.212],
+        r: [0.2256, -0.1369, 0.6093, 0.7477],
+        s: [1, 1, 0.9999],
     },
     {
-        't': [0.037, -0.0539, -0.1122],
-        'r': [0.5831, 0.1146, -0.0388, 0.8034],
-        's': [1, 0.9999, 1]
+        t: [0.037, -0.0539, -0.1122],
+        r: [0.5831, 0.1146, -0.0388, 0.8034],
+        s: [1, 0.9999, 1],
     },
     {
-        't': [0.0237, 0.0153, -0.147],
-        'r': [0.1209, 0.0891, 0.0196, 0.9885],
-        's': [1, 0.9999, 1]
+        t: [0.0237, 0.0153, -0.147],
+        r: [0.1209, 0.0891, 0.0196, 0.9885],
+        s: [1, 0.9999, 1],
     },
     {
-        't': [0.0163, 0.0257, -0.1849],
-        'r': [-0.2747, 0.0723, 0.0511, 0.9574],
-        's': [1, 0.9999, 0.9999]
+        t: [0.0163, 0.0257, -0.1849],
+        r: [-0.2747, 0.0723, 0.0511, 0.9574],
+        s: [1, 0.9999, 0.9999],
     },
     {
-        't': [0.014, 0.0138, -0.204],
-        'r': [-0.3165, 0.0337, 0.0633, 0.9459],
-        's': [1, 0.9999, 1]
+        t: [0.014, 0.0138, -0.204],
+        r: [-0.3165, 0.0337, 0.0633, 0.9459],
+        s: [1, 0.9999, 1],
     },
     {
-        't': [0.0136, -12e-4, -0.2226],
-        'r': [-0.3165, 0.0337, 0.0633, 0.9459],
-        's': [1, 0.9999, 1]
+        t: [0.0136, -12e-4, -0.2226],
+        r: [-0.3165, 0.0337, 0.0633, 0.9459],
+        s: [1, 0.9999, 1],
     },
     {
-        't': [0.0501, -0.0527, -0.1126],
-        'r': [0.5625, 0.0291, -0.0455, 0.825],
-        's': [1, 1, 1]
+        t: [0.0501, -0.0527, -0.1126],
+        r: [0.5625, 0.0291, -0.0455, 0.825],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0497, 0.0141, -0.1449],
-        'r': [0.3465, 0.0658, -0.0921, 0.9312],
-        's': [1.0001, 0.9999, 0.9999]
+        t: [0.0497, 0.0141, -0.1449],
+        r: [0.3465, 0.0658, -0.0921, 0.9312],
+        s: [1.0001, 0.9999, 0.9999],
     },
     {
-        't': [0.0473, 0.0424, -0.177],
-        'r': [0.0559, 0.1235, -0.0403, 0.9899],
-        's': [1.0001, 1, 0.9999]
+        t: [0.0473, 0.0424, -0.177],
+        r: [0.0559, 0.1235, -0.0403, 0.9899],
+        s: [1.0001, 1, 0.9999],
     },
     {
-        't': [0.0402, 0.0463, -0.2069],
-        'r': [-0.0703, 0.1381, -0.0195, 0.9877],
-        's': [1.0001, 1, 0.9999]
+        t: [0.0402, 0.0463, -0.2069],
+        r: [-0.0703, 0.1381, -0.0195, 0.9877],
+        s: [1.0001, 1, 0.9999],
     },
     {
-        't': [0.0335, 0.0419, -0.2304],
-        'r': [-0.0703, 0.1381, -0.0195, 0.9877],
-        's': [1.0001, 1, 0.9999]
+        t: [0.0335, 0.0419, -0.2304],
+        r: [-0.0703, 0.1381, -0.0195, 0.9877],
+        s: [1.0001, 1, 0.9999],
     },
     {
-        't': [0.0615, -0.0561, -0.1136],
-        'r': [0.5287, -0.0513, -0.0363, 0.8465],
-        's': [1.0001, 1, 0.9999]
+        t: [0.0615, -0.0561, -0.1136],
+        r: [0.5287, -0.0513, -0.0363, 0.8465],
+        s: [1.0001, 1, 0.9999],
     },
     {
-        't': [0.07, 0.003, -0.1472],
-        'r': [0.4197, 0.0598, -0.1607, 0.8913],
-        's': [1, 1, 0.9999]
+        t: [0.07, 0.003, -0.1472],
+        r: [0.4197, 0.0598, -0.1607, 0.8913],
+        s: [1, 1, 0.9999],
     },
     {
-        't': [0.0709, 0.0336, -0.1737],
-        'r': [0.1329, 0.1258, -0.1128, 0.9766],
-        's': [1, 1, 1]
+        t: [0.0709, 0.0336, -0.1737],
+        r: [0.1329, 0.1258, -0.1128, 0.9766],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0643, 0.0431, -0.2038],
-        'r': [-0.0172, 0.145, -0.068, 0.9869],
-        's': [1.0001, 0.9999, 1]
+        t: [0.0643, 0.0431, -0.2038],
+        r: [-0.0172, 0.145, -0.068, 0.9869],
+        s: [1.0001, 0.9999, 1],
     },
     {
-        't': [0.0577, 0.0418, -0.2253],
-        'r': [-0.0172, 0.145, -0.068, 0.9869],
-        's': [1.0001, 0.9999, 1]
+        t: [0.0577, 0.0418, -0.2253],
+        r: [-0.0172, 0.145, -0.068, 0.9869],
+        s: [1.0001, 0.9999, 1],
     },
     {
-        't': [0.0711, -0.0617, -0.1145],
-        'r': [0.4861, -0.139, -0.0517, 0.8612],
-        's': [1.0001, 0.9999, 1]
+        t: [0.0711, -0.0617, -0.1145],
+        r: [0.4861, -0.139, -0.0517, 0.8612],
+        s: [1.0001, 0.9999, 1],
     },
     {
-        't': [0.0893, -0.0125, -0.1485],
-        'r': [0.317, 0.0459, -0.2224, 0.9208],
-        's': [1.0001, 0.9999, 1]
+        t: [0.0893, -0.0125, -0.1485],
+        r: [0.317, 0.0459, -0.2224, 0.9208],
+        s: [1.0001, 0.9999, 1],
     },
     {
-        't': [0.0902, 0.0078, -0.1772],
-        'r': [0.1921, 0.0784, -0.2077, 0.9559],
-        's': [1, 1, 0.9999]
+        t: [0.0902, 0.0078, -0.1772],
+        r: [0.1921, 0.0784, -0.2077, 0.9559],
+        s: [1, 1, 0.9999],
     },
     {
-        't': [0.0889, 0.0174, -0.1979],
-        'r': [0.0936, 0.1253, -0.1462, 0.9768],
-        's': [1.0001, 1, 1]
+        t: [0.0889, 0.0174, -0.1979],
+        r: [0.0936, 0.1253, -0.1462, 0.9768],
+        s: [1.0001, 1, 1],
     },
     {
-        't': [0.0857, 0.0208, -0.2167],
-        'r': [0.0936, 0.1253, -0.1462, 0.9768],
-        's': [1.0001, 1, 1]
-    }
+        t: [0.0857, 0.0208, -0.2167],
+        r: [0.0936, 0.1253, -0.1462, 0.9768],
+        s: [1.0001, 1, 1],
+    },
 ];
 
 const LEFT_HAND_POINTING = [
-    { 't': [-0.0283, -0.0376, -0.0293], 'r': [0.1372, -0.208, 0.241, 0.938] },
-    { 't': [0.0016, -0.0246, -0.0431], 'r': [0.0106, -0.3992, -14e-4, 0.9168] },
-    { 't': [0.0392, -0.0237, -0.0781], 'r': [-0.1, -0.2869, -0.466, 0.831] },
-    { 't': [0.0496, -0.0357, -0.1004], 'r': [-0.1511, -0.183, -0.4918, 0.8377] },
-    { 't': [0.0533, -0.0497, -0.1265], 'r': [-0.1511, -0.183, -0.4918, 0.8377] },
-    { 't': [-78e-4, -0.0226, -0.0496], 'r': [0.1168, -0.3031, 0.3253, 0.8881] },
-    { 't': [0.0265, 0.0074, -0.1082], 'r': [0.0563, -0.1303, 0.2725, 0.9516] },
-    { 't': [0.0346, 0.0153, -0.1453], 'r': [-0.0635, -0.1606, 0.2541, 0.9516] },
-    { 't': [0.0419, 0.0144, -0.1659], 'r': [-0.1073, -0.1342, 0.2464, 0.9538] },
-    { 't': [0.0494, 0.0105, -0.1873], 'r': [-0.1073, -0.1342, 0.2464, 0.9538] },
-    { 't': [-0.0184, -0.0273, -0.0562], 'r': [0.1156, -0.2249, 0.3238, 0.9117] },
-    { 't': [0.0052, -21e-4, -0.1177], 'r': [-0.4452, -0.2871, 0.2041, 0.8233] },
-    { 't': [0.0324, -0.0274, -0.1363], 'r': [0.8476, 0.3909, 0.031, -0.3574] },
-    { 't': [0.0392, -0.0465, -0.1142], 'r': [0.9167, 0.3645, 0.16, -0.0352] },
-    { 't': [0.032, -0.0501, -0.0915], 'r': [0.9167, 0.3645, 0.16, -0.0352] },
-    { 't': [-0.028, -0.0348, -0.0593], 'r': [0.0757, -0.1724, 0.308, 0.9326] },
-    { 't': [-0.01, -0.0186, -0.1201], 'r': [-0.5151, -0.3075, 0.2332, 0.7654] },
-    { 't': [0.018, -0.0439, -0.1306], 'r': [0.8841, 0.4115, 0.0419, -0.2175] },
-    { 't': [0.0214, -0.0572, -0.1026], 'r': [0.8915, 0.3885, 0.1955, 0.1266] },
-    { 't': [0.0111, -0.0549, -0.0835], 'r': [0.8915, 0.3885, 0.1955, 0.1266] },
-    { 't': [-0.0357, -0.0434, -0.0601], 'r': [0.0242, -0.0998, 0.3079, 0.9459] },
-    { 't': [-0.0254, -0.037, -0.1183], 'r': [-0.4608, -0.35, 0.2807, 0.7658] },
-    { 't': [0.0022, -0.0544, -0.1281], 'r': [0.8346, 0.4535, 0.0038, -0.3127] },
-    { 't': [0.0089, -0.0663, -0.1107], 'r': [0.8657, 0.4769, 0.1519, -59e-4] },
-    { 't': [0.003, -0.0699, -0.0932], 'r': [0.8657, 0.4769, 0.1519, -59e-4] }
+    { t: [-0.0283, -0.0376, -0.0293], r: [0.1372, -0.208, 0.241, 0.938] },
+    { t: [0.0016, -0.0246, -0.0431], r: [0.0106, -0.3992, -14e-4, 0.9168] },
+    { t: [0.0392, -0.0237, -0.0781], r: [-0.1, -0.2869, -0.466, 0.831] },
+    { t: [0.0496, -0.0357, -0.1004], r: [-0.1511, -0.183, -0.4918, 0.8377] },
+    { t: [0.0533, -0.0497, -0.1265], r: [-0.1511, -0.183, -0.4918, 0.8377] },
+    { t: [-78e-4, -0.0226, -0.0496], r: [0.1168, -0.3031, 0.3253, 0.8881] },
+    { t: [0.0265, 0.0074, -0.1082], r: [0.0563, -0.1303, 0.2725, 0.9516] },
+    { t: [0.0346, 0.0153, -0.1453], r: [-0.0635, -0.1606, 0.2541, 0.9516] },
+    { t: [0.0419, 0.0144, -0.1659], r: [-0.1073, -0.1342, 0.2464, 0.9538] },
+    { t: [0.0494, 0.0105, -0.1873], r: [-0.1073, -0.1342, 0.2464, 0.9538] },
+    { t: [-0.0184, -0.0273, -0.0562], r: [0.1156, -0.2249, 0.3238, 0.9117] },
+    { t: [0.0052, -21e-4, -0.1177], r: [-0.4452, -0.2871, 0.2041, 0.8233] },
+    { t: [0.0324, -0.0274, -0.1363], r: [0.8476, 0.3909, 0.031, -0.3574] },
+    { t: [0.0392, -0.0465, -0.1142], r: [0.9167, 0.3645, 0.16, -0.0352] },
+    { t: [0.032, -0.0501, -0.0915], r: [0.9167, 0.3645, 0.16, -0.0352] },
+    { t: [-0.028, -0.0348, -0.0593], r: [0.0757, -0.1724, 0.308, 0.9326] },
+    { t: [-0.01, -0.0186, -0.1201], r: [-0.5151, -0.3075, 0.2332, 0.7654] },
+    { t: [0.018, -0.0439, -0.1306], r: [0.8841, 0.4115, 0.0419, -0.2175] },
+    { t: [0.0214, -0.0572, -0.1026], r: [0.8915, 0.3885, 0.1955, 0.1266] },
+    { t: [0.0111, -0.0549, -0.0835], r: [0.8915, 0.3885, 0.1955, 0.1266] },
+    { t: [-0.0357, -0.0434, -0.0601], r: [0.0242, -0.0998, 0.3079, 0.9459] },
+    { t: [-0.0254, -0.037, -0.1183], r: [-0.4608, -0.35, 0.2807, 0.7658] },
+    { t: [0.0022, -0.0544, -0.1281], r: [0.8346, 0.4535, 0.0038, -0.3127] },
+    { t: [0.0089, -0.0663, -0.1107], r: [0.8657, 0.4769, 0.1519, -59e-4] },
+    { t: [0.003, -0.0699, -0.0932], r: [0.8657, 0.4769, 0.1519, -59e-4] },
 ];
 const RIGHT_HAND_POINTING = [
-    { 't': [-42e-4, -0.0248, -0.0222], 'r': [0.1163, -95e-4, -0.3006, 0.9466] },
-    { 't': [-0.024, -0.0114, -0.048], 'r': [-0.052, 0.2376, -0.0719, 0.9673] },
-    { 't': [-0.0482, -0.0149, -0.0937], 'r': [-0.2324, 0.2162, 0.3797, 0.869] },
-    { 't': [-0.0535, -0.0306, -0.1155], 'r': [-0.2846, 0.1212, 0.4068, 0.8595] },
-    { 't': [-0.0521, -0.0492, -0.1388], 'r': [-0.2846, 0.1212, 0.4068, 0.8595] },
-    { 't': [-0.0129, -0.0119, -0.0508], 'r': [0.1258, 0.0866, -0.3895, 0.9083] },
-    { 't': [-0.0173, 0.01, -0.1215], 'r': [0.1174, -0.0564, -0.3421, 0.9306] },
-    { 't': [-97e-4, 0.018, -0.1587], 'r': [-0.0512, 0.0028, -0.347, 0.9365] },
-    { 't': [-0.0105, 0.0158, -0.1805], 'r': [-0.1583, 0.003, -0.3458, 0.9249] },
-    { 't': [-0.0137, 0.0085, -0.2021], 'r': [-0.1583, 0.003, -0.3458, 0.9249] },
-    { 't': [-17e-4, -0.019, -0.052], 'r': [0.1155, 0.0062, -0.386, 0.9152] },
-    { 't': [0.0038, -37e-4, -0.1206], 'r': [-0.2494, 0.0619, -0.3947, 0.8822] },
-    { 't': [-86e-4, -0.0197, -0.1569], 'r': [-0.7146, 0.3231, -0.2612, 0.5628] },
-    { 't': [-0.0306, -0.0389, -0.1502], 'r': [0.8643, -0.4054, 0.1306, -0.2676] },
-    { 't': [-0.0406, -0.0469, -0.1297], 'r': [0.8643, -0.4054, 0.1306, -0.2676] },
-    { 't': [0.0068, -0.0279, -0.0499], 'r': [0.0671, -0.0438, -0.3807, 0.9212] },
-    { 't': [0.0155, -0.022, -0.1146], 'r': [-0.3096, 0.1005, -0.4385, 0.8377] },
-    { 't': [-22e-4, -0.0389, -0.1452], 'r': [0.7388, -0.369, 0.2794, -0.4899] },
-    { 't': [-0.0264, -0.0553, -0.1341], 'r': [0.852, -0.4611, 0.1257, -0.214] },
-    { 't': [-0.0346, -0.0602, -0.1146], 'r': [0.852, -0.4611, 0.1257, -0.214] },
-    { 't': [0.0126, -0.0374, -0.0464], 'r': [0.0105, -0.1129, -0.3882, 0.9146] },
-    { 't': [0.0254, -0.0415, -0.1045], 'r': [-0.3088, 0.1125, -0.4825, 0.8119] },
-    { 't': [0.0078, -0.0548, -0.1304], 'r': [-0.6368, 0.3211, -0.3767, 0.5912] },
-    { 't': [-0.0112, -0.0661, -0.1307], 'r': [0.7535, -0.4639, 0.2523, -0.3916] },
-    { 't': [-0.0244, -0.0737, -0.1196], 'r': [0.7535, -0.4639, 0.2523, -0.3916] }
+    { t: [-42e-4, -0.0248, -0.0222], r: [0.1163, -95e-4, -0.3006, 0.9466] },
+    { t: [-0.024, -0.0114, -0.048], r: [-0.052, 0.2376, -0.0719, 0.9673] },
+    { t: [-0.0482, -0.0149, -0.0937], r: [-0.2324, 0.2162, 0.3797, 0.869] },
+    { t: [-0.0535, -0.0306, -0.1155], r: [-0.2846, 0.1212, 0.4068, 0.8595] },
+    { t: [-0.0521, -0.0492, -0.1388], r: [-0.2846, 0.1212, 0.4068, 0.8595] },
+    { t: [-0.0129, -0.0119, -0.0508], r: [0.1258, 0.0866, -0.3895, 0.9083] },
+    { t: [-0.0173, 0.01, -0.1215], r: [0.1174, -0.0564, -0.3421, 0.9306] },
+    { t: [-97e-4, 0.018, -0.1587], r: [-0.0512, 0.0028, -0.347, 0.9365] },
+    { t: [-0.0105, 0.0158, -0.1805], r: [-0.1583, 0.003, -0.3458, 0.9249] },
+    { t: [-0.0137, 0.0085, -0.2021], r: [-0.1583, 0.003, -0.3458, 0.9249] },
+    { t: [-17e-4, -0.019, -0.052], r: [0.1155, 0.0062, -0.386, 0.9152] },
+    { t: [0.0038, -37e-4, -0.1206], r: [-0.2494, 0.0619, -0.3947, 0.8822] },
+    { t: [-86e-4, -0.0197, -0.1569], r: [-0.7146, 0.3231, -0.2612, 0.5628] },
+    { t: [-0.0306, -0.0389, -0.1502], r: [0.8643, -0.4054, 0.1306, -0.2676] },
+    { t: [-0.0406, -0.0469, -0.1297], r: [0.8643, -0.4054, 0.1306, -0.2676] },
+    { t: [0.0068, -0.0279, -0.0499], r: [0.0671, -0.0438, -0.3807, 0.9212] },
+    { t: [0.0155, -0.022, -0.1146], r: [-0.3096, 0.1005, -0.4385, 0.8377] },
+    { t: [-22e-4, -0.0389, -0.1452], r: [0.7388, -0.369, 0.2794, -0.4899] },
+    { t: [-0.0264, -0.0553, -0.1341], r: [0.852, -0.4611, 0.1257, -0.214] },
+    { t: [-0.0346, -0.0602, -0.1146], r: [0.852, -0.4611, 0.1257, -0.214] },
+    { t: [0.0126, -0.0374, -0.0464], r: [0.0105, -0.1129, -0.3882, 0.9146] },
+    { t: [0.0254, -0.0415, -0.1045], r: [-0.3088, 0.1125, -0.4825, 0.8119] },
+    { t: [0.0078, -0.0548, -0.1304], r: [-0.6368, 0.3211, -0.3767, 0.5912] },
+    { t: [-0.0112, -0.0661, -0.1307], r: [0.7535, -0.4639, 0.2523, -0.3916] },
+    { t: [-0.0244, -0.0737, -0.1196], r: [0.7535, -0.4639, 0.2523, -0.3916] },
 ];
 
 const LEFT_HAND_RELAXED = [
-    { 't': [-0.05, -0.08, -0.1], 'r': [0.5373, 0, 0, 0.8434] },
-    { 't': [-0.0281, -0.0594, -0.1165], 'r': [0.3943, -0.2036, -0.3103, 0.8407] },
-    { 't': [0.0026, -0.0299, -0.1518], 'r': [0.3476, -0.1049, -0.5285, 0.7674] },
-    { 't': [0.0169, -0.0181, -0.1728], 'r': [0.3521, 0.0515, -0.635, 0.6857] },
-    { 't': [0.0268, -18e-4, -0.1966], 'r': [0.3521, 0.0515, -0.635, 0.6857] },
-    { 't': [-0.0369, -0.0541, -0.1121], 'r': [0.5882, -0.1036, 0.0205, 0.8018] },
-    { 't': [-0.024, 0.0143, -0.1465], 'r': [0.3269, -0.0887, -3e-4, 0.9409] },
-    { 't': [-0.0172, 0.0394, -0.1765], 'r': [-0.0114, -0.0813, -0.0286, 0.9962] },
-    { 't': [-0.0138, 0.0388, -0.1986], 'r': [-0.1994, -0.0379, -0.0372, 0.9785] },
-    { 't': [-0.0125, 0.0287, -0.2199], 'r': [-0.1994, -0.0379, -0.0372, 0.9785] },
-    { 't': [-0.0499, -0.0528, -0.1125], 'r': [0.5569, -0.0203, 0.0319, 0.8297] },
-    { 't': [-0.0496, 0.0131, -0.1445], 'r': [0.3908, -0.0273, 0.1089, 0.9136] },
-    { 't': [-0.0513, 0.0438, -0.1738], 'r': [0.0747, -0.0923, 0.0634, 0.9909] },
-    { 't': [-0.0462, 0.0488, -0.2036], 'r': [-0.1936, -0.1156, 0.0299, 0.9738] },
-    { 't': [-0.0404, 0.0387, -0.2253], 'r': [-0.1936, -0.1156, 0.0299, 0.9738] },
-    { 't': [-0.0612, -0.0561, -0.1138], 'r': [0.5095, 0.0572, 0.0274, 0.8581] },
-    { 't': [-0.0698, 0.0022, -0.1468], 'r': [0.4396, -68e-4, 0.1748, 0.881] },
-    { 't': [-0.0751, 0.0329, -0.1719], 'r': [0.071, -0.0911, 0.1344, 0.9842] },
-    { 't': [-0.0703, 0.0383, -0.2029], 'r': [-0.1764, -0.1244, 0.0831, 0.9729] },
-    { 't': [-0.0641, 0.0302, -0.2227], 'r': [-0.1764, -0.1244, 0.0831, 0.9729] },
-    { 't': [-0.0708, -0.0616, -0.1145], 'r': [0.4571, 0.1437, 0.0457, 0.8765] },
-    { 't': [-0.0889, -0.0132, -0.148], 'r': [0.3971, 0.0569, 0.2436, 0.883] },
-    { 't': [-0.098, 0.0096, -0.1727], 'r': [0.1604, -85e-4, 0.243, 0.9566] },
-    { 't': [-0.0997, 0.0171, -0.194], 'r': [-34e-4, -0.0735, 0.1859, 0.9798] },
-    { 't': [-0.0979, 0.0165, -0.2131], 'r': [-34e-4, -0.0735, 0.1859, 0.9798] }
+    { t: [-0.05, -0.08, -0.1], r: [0.5373, 0, 0, 0.8434] },
+    { t: [-0.0281, -0.0594, -0.1165], r: [0.3943, -0.2036, -0.3103, 0.8407] },
+    { t: [0.0026, -0.0299, -0.1518], r: [0.3476, -0.1049, -0.5285, 0.7674] },
+    { t: [0.0169, -0.0181, -0.1728], r: [0.3521, 0.0515, -0.635, 0.6857] },
+    { t: [0.0268, -18e-4, -0.1966], r: [0.3521, 0.0515, -0.635, 0.6857] },
+    { t: [-0.0369, -0.0541, -0.1121], r: [0.5882, -0.1036, 0.0205, 0.8018] },
+    { t: [-0.024, 0.0143, -0.1465], r: [0.3269, -0.0887, -3e-4, 0.9409] },
+    { t: [-0.0172, 0.0394, -0.1765], r: [-0.0114, -0.0813, -0.0286, 0.9962] },
+    { t: [-0.0138, 0.0388, -0.1986], r: [-0.1994, -0.0379, -0.0372, 0.9785] },
+    { t: [-0.0125, 0.0287, -0.2199], r: [-0.1994, -0.0379, -0.0372, 0.9785] },
+    { t: [-0.0499, -0.0528, -0.1125], r: [0.5569, -0.0203, 0.0319, 0.8297] },
+    { t: [-0.0496, 0.0131, -0.1445], r: [0.3908, -0.0273, 0.1089, 0.9136] },
+    { t: [-0.0513, 0.0438, -0.1738], r: [0.0747, -0.0923, 0.0634, 0.9909] },
+    { t: [-0.0462, 0.0488, -0.2036], r: [-0.1936, -0.1156, 0.0299, 0.9738] },
+    { t: [-0.0404, 0.0387, -0.2253], r: [-0.1936, -0.1156, 0.0299, 0.9738] },
+    { t: [-0.0612, -0.0561, -0.1138], r: [0.5095, 0.0572, 0.0274, 0.8581] },
+    { t: [-0.0698, 0.0022, -0.1468], r: [0.4396, -68e-4, 0.1748, 0.881] },
+    { t: [-0.0751, 0.0329, -0.1719], r: [0.071, -0.0911, 0.1344, 0.9842] },
+    { t: [-0.0703, 0.0383, -0.2029], r: [-0.1764, -0.1244, 0.0831, 0.9729] },
+    { t: [-0.0641, 0.0302, -0.2227], r: [-0.1764, -0.1244, 0.0831, 0.9729] },
+    { t: [-0.0708, -0.0616, -0.1145], r: [0.4571, 0.1437, 0.0457, 0.8765] },
+    { t: [-0.0889, -0.0132, -0.148], r: [0.3971, 0.0569, 0.2436, 0.883] },
+    { t: [-0.098, 0.0096, -0.1727], r: [0.1604, -85e-4, 0.243, 0.9566] },
+    { t: [-0.0997, 0.0171, -0.194], r: [-34e-4, -0.0735, 0.1859, 0.9798] },
+    { t: [-0.0979, 0.0165, -0.2131], r: [-34e-4, -0.0735, 0.1859, 0.9798] },
 ];
 const RIGHT_HAND_RELAXED = [
-    { 't': [0.05, -0.08, -0.1], 'r': [0.5373, 0, 0, 0.8434] },
-    { 't': [0.0279, -0.0592, -0.1167], 'r': [0.3237, 0.1161, 0.293, 0.8921] },
-    { 't': [0.0026, -0.0313, -0.158], 'r': [0.2171, 0.0194, 0.5207, 0.8254] },
-    { 't': [-42e-4, -0.0219, -0.1837], 'r': [0.2597, -0.0685, 0.6498, 0.711] },
-    { 't': [-0.01, -84e-4, -0.2107], 'r': [0.2597, -0.0685, 0.6498, 0.711] },
-    { 't': [0.037, -0.0539, -0.1123], 'r': [0.5808, 0.1164, -0.0414, 0.8046] },
-    { 't': [0.0238, 0.0151, -0.147], 'r': [0.3081, 0.0484, -0.0273, 0.9497] },
-    { 't': [0.0206, 0.0393, -0.1786], 'r': [-0.0461, 0.0526, -0.0104, 0.9975] },
-    { 't': [0.0185, 0.0373, -0.201], 'r': [-0.1674, 0.0162, -64e-4, 0.9857] },
-    { 't': [0.0177, 0.0287, -0.223], 'r': [-0.1674, 0.0162, -64e-4, 0.9857] },
-    { 't': [0.05, -0.0527, -0.1126], 'r': [0.5619, 0.0306, -0.0478, 0.8252] },
-    { 't': [0.0497, 0.0138, -0.1449], 'r': [0.353, 0.0474, -0.1014, 0.9289] },
-    { 't': [0.0491, 0.0425, -0.1767], 'r': [0.0777, 0.1076, -0.0559, 0.9896] },
-    { 't': [0.0431, 0.0478, -0.2066], 'r': [-0.0679, 0.1248, -0.0343, 0.9893] },
-    { 't': [0.0369, 0.0436, -0.2302], 'r': [-0.0679, 0.1248, -0.0343, 0.9893] },
-    { 't': [0.0614, -0.0561, -0.1136], 'r': [0.5303, -0.05, -0.0384, 0.8455] },
-    { 't': [0.0699, 0.0028, -0.1472], 'r': [0.4168, 0.0427, -0.1662, 0.8926] },
-    { 't': [0.0722, 0.0331, -0.1739], 'r': [0.1339, 0.1107, -0.1236, 0.977] },
-    { 't': [0.0665, 0.0425, -0.2041], 'r': [-0.0175, 0.1318, -0.0809, 0.9878] },
-    { 't': [0.0606, 0.0413, -0.2257], 'r': [-0.0175, 0.1318, -0.0809, 0.9878] },
-    { 't': [0.0711, -0.0618, -0.1145], 'r': [0.4891, -0.1378, -0.0535, 0.8596] },
-    { 't': [0.0892, -0.0127, -0.1484], 'r': [0.3439, 0.0196, -0.23, 0.9102] },
-    { 't': [0.0924, 0.0087, -0.1761], 'r': [0.1965, 0.0585, -0.2173, 0.9543] },
-    { 't': [0.0921, 0.0184, -0.1968], 'r': [0.0936, 0.1069, -0.1575, 0.9773] },
-    { 't': [0.0896, 0.0217, -0.2157], 'r': [0.0936, 0.1069, -0.1575, 0.9773] }
+    { t: [0.05, -0.08, -0.1], r: [0.5373, 0, 0, 0.8434] },
+    { t: [0.0279, -0.0592, -0.1167], r: [0.3237, 0.1161, 0.293, 0.8921] },
+    { t: [0.0026, -0.0313, -0.158], r: [0.2171, 0.0194, 0.5207, 0.8254] },
+    { t: [-42e-4, -0.0219, -0.1837], r: [0.2597, -0.0685, 0.6498, 0.711] },
+    { t: [-0.01, -84e-4, -0.2107], r: [0.2597, -0.0685, 0.6498, 0.711] },
+    { t: [0.037, -0.0539, -0.1123], r: [0.5808, 0.1164, -0.0414, 0.8046] },
+    { t: [0.0238, 0.0151, -0.147], r: [0.3081, 0.0484, -0.0273, 0.9497] },
+    { t: [0.0206, 0.0393, -0.1786], r: [-0.0461, 0.0526, -0.0104, 0.9975] },
+    { t: [0.0185, 0.0373, -0.201], r: [-0.1674, 0.0162, -64e-4, 0.9857] },
+    { t: [0.0177, 0.0287, -0.223], r: [-0.1674, 0.0162, -64e-4, 0.9857] },
+    { t: [0.05, -0.0527, -0.1126], r: [0.5619, 0.0306, -0.0478, 0.8252] },
+    { t: [0.0497, 0.0138, -0.1449], r: [0.353, 0.0474, -0.1014, 0.9289] },
+    { t: [0.0491, 0.0425, -0.1767], r: [0.0777, 0.1076, -0.0559, 0.9896] },
+    { t: [0.0431, 0.0478, -0.2066], r: [-0.0679, 0.1248, -0.0343, 0.9893] },
+    { t: [0.0369, 0.0436, -0.2302], r: [-0.0679, 0.1248, -0.0343, 0.9893] },
+    { t: [0.0614, -0.0561, -0.1136], r: [0.5303, -0.05, -0.0384, 0.8455] },
+    { t: [0.0699, 0.0028, -0.1472], r: [0.4168, 0.0427, -0.1662, 0.8926] },
+    { t: [0.0722, 0.0331, -0.1739], r: [0.1339, 0.1107, -0.1236, 0.977] },
+    { t: [0.0665, 0.0425, -0.2041], r: [-0.0175, 0.1318, -0.0809, 0.9878] },
+    { t: [0.0606, 0.0413, -0.2257], r: [-0.0175, 0.1318, -0.0809, 0.9878] },
+    { t: [0.0711, -0.0618, -0.1145], r: [0.4891, -0.1378, -0.0535, 0.8596] },
+    { t: [0.0892, -0.0127, -0.1484], r: [0.3439, 0.0196, -0.23, 0.9102] },
+    { t: [0.0924, 0.0087, -0.1761], r: [0.1965, 0.0585, -0.2173, 0.9543] },
+    { t: [0.0921, 0.0184, -0.1968], r: [0.0936, 0.1069, -0.1575, 0.9773] },
+    { t: [0.0896, 0.0217, -0.2157], r: [0.0936, 0.1069, -0.1575, 0.9773] },
 ];
 
 const LEFT_HAND_ROCK = [
     {
-        't': [-0.0123, -0.0183, -0.0267],
-        'r': [0.5149, -0.0845, -0.1158, 0.8452],
-        's': [1, 1, 1]
+        t: [-0.0123, -0.0183, -0.0267],
+        r: [0.5149, -0.0845, -0.1158, 0.8452],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0153, -52e-4, -0.0437],
-        'r': [0.2665, -0.0899, -0.3721, 0.8846],
-        's': [1, 1, 1]
+        t: [0.0153, -52e-4, -0.0437],
+        r: [0.2665, -0.0899, -0.3721, 0.8846],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0335, 0.0154, -0.0867],
-        'r': [0.0177, 0.1842, -0.6731, 0.716],
-        's': [1, 1, 1]
+        t: [0.0335, 0.0154, -0.0867],
+        r: [0.0177, 0.1842, -0.6731, 0.716],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0267, 0.0228, -0.1122],
-        'r': [0.0728, 0.2226, -0.6735, 0.7011],
-        's': [1, 1, 1]
+        t: [0.0267, 0.0228, -0.1122],
+        r: [0.0728, 0.2226, -0.6735, 0.7011],
+        s: [1, 1, 1],
     },
     {
-        't': [0.019, 0.0341, -0.1386],
-        'r': [0.0728, 0.2226, -0.6735, 0.7011],
-        's': [1, 1, 1]
+        t: [0.019, 0.0341, -0.1386],
+        r: [0.0728, 0.2226, -0.6735, 0.7011],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0067, 0.0029, -0.0406],
-        'r': [0.475, -0.2118, -0.0726, 0.851],
-        's': [1, 1, 1]
+        t: [0.0067, 0.0029, -0.0406],
+        r: [0.475, -0.2118, -0.0726, 0.851],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0388, 0.061, -0.0749],
-        'r': [0.5779, -0.1002, -0.0602, 0.8077],
-        's': [1, 1, 1]
+        t: [0.0388, 0.061, -0.0749],
+        r: [0.5779, -0.1002, -0.0602, 0.8077],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0481, 0.097, -0.086],
-        'r': [0.5059, -0.0922, -0.0672, 0.855],
-        's': [1, 1, 1]
+        t: [0.0481, 0.097, -0.086],
+        r: [0.5059, -0.0922, -0.0672, 0.855],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0529, 0.1158, -0.0964],
-        'r': [0.4458, -0.0565, -0.053, 0.8918],
-        's': [1, 1, 1]
+        t: [0.0529, 0.1158, -0.0964],
+        r: [0.4458, -0.0565, -0.053, 0.8918],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0562, 0.1334, -0.1107],
-        'r': [0.4458, -0.0565, -0.053, 0.8918],
-        's': [1, 1, 1]
+        t: [0.0562, 0.1334, -0.1107],
+        r: [0.4458, -0.0565, -0.053, 0.8918],
+        s: [1, 1, 1],
     },
     {
-        't': [-52e-4, 0.0075, -0.0412],
-        'r': [0.5055, -0.126, -0.0623, 0.8513],
-        's': [1, 1, 1]
+        t: [-52e-4, 0.0075, -0.0412],
+        r: [0.5055, -0.126, -0.0623, 0.8513],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0144, 0.0671, -0.0735],
-        'r': [0.1227, -0.0631, -0.0269, 0.9901],
-        's': [1, 1, 1]
+        t: [0.0144, 0.0671, -0.0735],
+        r: [0.1227, -0.0631, -0.0269, 0.9901],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0199, 0.0775, -0.1133],
-        'r': [-0.4479, -0.0687, -0.0876, 0.8871],
-        's': [1, 1, 1]
+        t: [0.0199, 0.0775, -0.1133],
+        r: [-0.4479, -0.0687, -0.0876, 0.8871],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0211, 0.0534, -0.1312],
-        'r': [-0.6828, -0.0523, -0.1046, 0.7212],
-        's': [1, 1, 1]
+        t: [0.0211, 0.0534, -0.1312],
+        r: [-0.6828, -0.0523, -0.1046, 0.7212],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0192, 0.0294, -0.1316],
-        'r': [-0.6828, -0.0523, -0.1046, 0.7212],
-        's': [1, 1, 1]
+        t: [0.0192, 0.0294, -0.1316],
+        r: [-0.6828, -0.0523, -0.1046, 0.7212],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0167, 0.0074, -0.0424],
-        'r': [0.491, -0.0372, -0.0778, 0.8669],
-        's': [1, 1, 1]
+        t: [-0.0167, 0.0074, -0.0424],
+        r: [0.491, -0.0372, -0.0778, 0.8669],
+        s: [1, 1, 1],
     },
     {
-        't': [-75e-4, 0.0623, -0.0758],
-        'r': [0.1717, -0.0904, 0.0273, 0.9806],
-        's': [1, 1, 1]
+        t: [-75e-4, 0.0623, -0.0758],
+        r: [0.1717, -0.0904, 0.0273, 0.9806],
+        s: [1, 1, 1],
     },
     {
-        't': [-7e-4, 0.0753, -0.1121],
-        'r': [-0.3257, -0.1136, -0.0418, 0.9377],
-        's': [1, 1, 1]
+        t: [-7e-4, 0.0753, -0.1121],
+        r: [-0.3257, -0.1136, -0.0418, 0.9377],
+        s: [1, 1, 1],
     },
     {
-        't': [0.005, 0.0561, -0.1361],
-        'r': [-0.5492, -0.1111, -0.0905, 0.8233],
-        's': [1, 1, 1]
+        t: [0.005, 0.0561, -0.1361],
+        r: [-0.5492, -0.1111, -0.0905, 0.8233],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0066, 0.0356, -0.1433],
-        'r': [-0.5492, -0.1111, -0.0905, 0.8233],
-        's': [1, 1, 1]
+        t: [0.0066, 0.0356, -0.1433],
+        r: [-0.5492, -0.1111, -0.0905, 0.8233],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0273, 0.0051, -0.0431],
-        'r': [0.4566, 0.0629, -0.0766, 0.8841],
-        's': [1, 1, 1]
+        t: [-0.0273, 0.0051, -0.0431],
+        r: [0.4566, 0.0629, -0.0766, 0.8841],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0297, 0.0531, -0.0769],
-        'r': [0.3942, -35e-4, 0.1163, 0.9116],
-        's': [1, 1, 1]
+        t: [-0.0297, 0.0531, -0.0769],
+        r: [0.3942, -35e-4, 0.1163, 0.9116],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0317, 0.0768, -0.1013],
-        'r': [0.4582, 0.0006, 0.1099, 0.882],
-        's': [1, 1, 1]
+        t: [-0.0317, 0.0768, -0.1013],
+        r: [0.4582, 0.0006, 0.1099, 0.882],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0341, 0.0951, -0.1136],
-        'r': [0.4085, -0.0179, 0.0535, 0.911],
-        's': [1, 1, 1]
+        t: [-0.0341, 0.0951, -0.1136],
+        r: [0.4085, -0.0179, 0.0535, 0.911],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0354, 0.1086, -0.1266],
-        'r': [0.4085, -0.0179, 0.0535, 0.911],
-        's': [1, 1, 1]
-    }
+        t: [-0.0354, 0.1086, -0.1266],
+        r: [0.4085, -0.0179, 0.0535, 0.911],
+        s: [1, 1, 1],
+    },
 ];
 const RIGHT_HAND_ROCK = [
     {
-        't': [0.0015, -0.0417, -0.0513],
-        'r': [0.5617, 0.0123, 0.1355, 0.8161],
-        's': [1, 1, 1]
+        t: [0.0015, -0.0417, -0.0513],
+        r: [0.5617, 0.0123, 0.1355, 0.8161],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0235, -0.025, -0.07],
-        'r': [0.2818, 0.0046, 0.4006, 0.8718],
-        's': [1, 1, 1]
+        t: [-0.0235, -0.025, -0.07],
+        r: [0.2818, 0.0046, 0.4006, 0.8718],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0354, -1e-4, -0.1128],
-        'r': [-0.0257, -0.2764, 0.6652, 0.6931],
-        's': [1, 1, 1]
+        t: [-0.0354, -1e-4, -0.1128],
+        r: [-0.0257, -0.2764, 0.6652, 0.6931],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0238, 0.0089, -0.1359],
-        'r': [-6e-4, -0.3419, 0.6556, 0.6733],
-        's': [1, 1, 1]
+        t: [-0.0238, 0.0089, -0.1359],
+        r: [-6e-4, -0.3419, 0.6556, 0.6733],
+        s: [1, 1, 1],
     },
     {
-        't': [-88e-4, 0.0215, -0.1584],
-        'r': [-6e-4, -0.3419, 0.6556, 0.6733],
-        's': [1, 1, 1]
+        t: [-88e-4, 0.0215, -0.1584],
+        r: [-6e-4, -0.3419, 0.6556, 0.6733],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.015, -0.0179, -0.0645],
-        'r': [0.5302, 0.1299, 0.1154, 0.8299],
-        's': [1, 1, 1]
+        t: [-0.015, -0.0179, -0.0645],
+        r: [0.5302, 0.1299, 0.1154, 0.8299],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0403, 0.0456, -0.0947],
-        'r': [0.5874, 0.0115, 0.0813, 0.8051],
-        's': [1, 1, 1]
+        t: [-0.0403, 0.0456, -0.0947],
+        r: [0.5874, 0.0115, 0.0813, 0.8051],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0451, 0.0825, -0.1058],
-        'r': [0.5048, 0.001, 0.0806, 0.8595],
-        's': [1, 1, 1]
+        t: [-0.0451, 0.0825, -0.1058],
+        r: [0.5048, 0.001, 0.0806, 0.8595],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0468, 0.1015, -0.1165],
-        'r': [0.4494, -0.0352, 0.0601, 0.8906],
-        's': [1, 1, 1]
+        t: [-0.0468, 0.1015, -0.1165],
+        r: [0.4494, -0.0352, 0.0601, 0.8906],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0465, 0.1195, -0.1308],
-        'r': [0.4494, -0.0352, 0.0601, 0.8906],
-        's': [1, 1, 1]
+        t: [-0.0465, 0.1195, -0.1308],
+        r: [0.4494, -0.0352, 0.0601, 0.8906],
+        s: [1, 1, 1],
     },
     {
-        't': [-29e-4, -0.0139, -0.063],
-        'r': [0.5567, 0.046, 0.0996, 0.8234],
-        's': [1, 1, 1]
+        t: [-29e-4, -0.0139, -0.063],
+        r: [0.5567, 0.046, 0.0996, 0.8234],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.016, 0.0502, -0.0895],
-        'r': [0.1657, -0.0189, 0.0053, 0.986],
-        's': [1, 1, 1]
+        t: [-0.016, 0.0502, -0.0895],
+        r: [0.1657, -0.0189, 0.0053, 0.986],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0146, 0.0642, -0.1285],
-        'r': [-0.4455, 0.0104, 0.0258, 0.8948],
-        's': [1, 1, 1]
+        t: [-0.0146, 0.0642, -0.1285],
+        r: [-0.4455, 0.0104, 0.0258, 0.8948],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0143, 0.0404, -0.1468],
-        'r': [-0.7027, 0.0133, 0.0292, 0.7107],
-        's': [1, 1, 1]
+        t: [-0.0143, 0.0404, -0.1468],
+        r: [-0.7027, 0.0133, 0.0292, 0.7107],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0137, 0.0163, -0.146],
-        'r': [-0.7027, 0.0133, 0.0292, 0.7107],
-        's': [1, 1, 1]
+        t: [-0.0137, 0.0163, -0.146],
+        r: [-0.7027, 0.0133, 0.0292, 0.7107],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0087, -0.0144, -0.0627],
-        'r': [0.5389, -0.0411, 0.1061, 0.8346],
-        's': [1, 1, 1]
+        t: [0.0087, -0.0144, -0.0627],
+        r: [0.5389, -0.0411, 0.1061, 0.8346],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0058, 0.0446, -0.0897],
-        'r': [0.2331, 0.0139, -0.0389, 0.9716],
-        's': [1, 1, 1]
+        t: [0.0058, 0.0446, -0.0897],
+        r: [0.2331, 0.0139, -0.0389, 0.9716],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0052, 0.0621, -0.1248],
-        'r': [-0.3041, 0.0513, -24e-4, 0.9512],
-        's': [1, 1, 1]
+        t: [0.0052, 0.0621, -0.1248],
+        r: [-0.3041, 0.0513, -24e-4, 0.9512],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0022, 0.0442, -0.1503],
-        'r': [-0.5472, 0.0609, 0.0335, 0.8341],
-        's': [1, 1, 1]
+        t: [0.0022, 0.0442, -0.1503],
+        r: [-0.5472, 0.0609, 0.0335, 0.8341],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0009, 0.0239, -0.1579],
-        'r': [-0.5472, 0.0609, 0.0335, 0.8341],
-        's': [1, 1, 1]
+        t: [0.0009, 0.0239, -0.1579],
+        r: [-0.5472, 0.0609, 0.0335, 0.8341],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0194, -0.0172, -0.0627],
-        'r': [0.5054, -0.1365, 0.0899, 0.8473],
-        's': [1, 1, 1]
+        t: [0.0194, -0.0172, -0.0627],
+        r: [0.5054, -0.1365, 0.0899, 0.8473],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0276, 0.0346, -0.0893],
-        'r': [0.4597, -0.0527, -0.1093, 0.8797],
-        's': [1, 1, 1]
+        t: [0.0276, 0.0346, -0.0893],
+        r: [0.4597, -0.0527, -0.1093, 0.8797],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0334, 0.0611, -0.1099],
-        'r': [0.5162, -0.056, -0.0989, 0.8489],
-        's': [1, 1, 1]
+        t: [0.0334, 0.0611, -0.1099],
+        r: [0.5162, -0.056, -0.0989, 0.8489],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0378, 0.0805, -0.1194],
-        'r': [0.4448, -0.0407, -0.0462, 0.8935],
-        's': [1, 1, 1]
+        t: [0.0378, 0.0805, -0.1194],
+        r: [0.4448, -0.0407, -0.0462, 0.8935],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0411, 0.0949, -0.1311],
-        'r': [0.4448, -0.0407, -0.0462, 0.8935],
-        's': [1, 1, 1]
-    }
+        t: [0.0411, 0.0949, -0.1311],
+        r: [0.4448, -0.0407, -0.0462, 0.8935],
+        s: [1, 1, 1],
+    },
 ];
 
 const LEFT_HAND_THUMBS_DOWN = [
     {
-        't': [-0.0169, 0.0317, -0.0845],
-        'r': [0.2721, -0.3488, -0.6314, 0.6369],
-        's': [1, 1, 1]
+        t: [-0.0169, 0.0317, -0.0845],
+        r: [0.2721, -0.3488, -0.6314, 0.6369],
+        s: [1, 1, 1],
     },
     {
-        't': [-19e-4, 0.008, -0.1021],
-        'r': [-0.0533, 0.5043, 0.7891, -0.3467],
-        's': [1, 1, 1]
+        t: [-19e-4, 0.008, -0.1021],
+        r: [-0.0533, 0.5043, 0.7891, -0.3467],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0208, -0.0318, -0.1276],
-        'r': [-0.2229, 0.6138, 0.7555, 0.0539],
-        's': [1, 1, 1]
+        t: [0.0208, -0.0318, -0.1276],
+        r: [-0.2229, 0.6138, 0.7555, 0.0539],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0282, -0.0578, -0.1318],
-        'r': [-0.2724, 0.6476, 0.7112, 0.0242],
-        's': [1, 1, 1]
+        t: [0.0282, -0.0578, -0.1318],
+        r: [-0.2724, 0.6476, 0.7112, 0.0242],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0389, -0.0856, -0.1338],
-        'r': [-0.2724, 0.6476, 0.7112, 0.0242],
-        's': [1, 1, 1]
+        t: [0.0389, -0.0856, -0.1338],
+        r: [-0.2724, 0.6476, 0.7112, 0.0242],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0046, 0.0177, -0.0997],
-        'r': [0.1919, -0.3993, -0.6438, 0.6238],
-        's': [1, 1, 1]
+        t: [0.0046, 0.0177, -0.0997],
+        r: [0.1919, -0.3993, -0.6438, 0.6238],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0618, -34e-4, -0.1463],
-        'r': [-0.1884, 0.0883, -0.6795, 0.7035],
-        's': [1, 1, 1]
+        t: [0.0618, -34e-4, -0.1463],
+        r: [-0.1884, 0.0883, -0.6795, 0.7035],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0481, -93e-4, -0.1821],
-        'r': [0.6204, -0.5352, 0.4297, -0.3794],
-        's': [1, 1, 1]
+        t: [0.0481, -93e-4, -0.1821],
+        r: [0.6204, -0.5352, 0.4297, -0.3794],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0275, -94e-4, -0.1746],
-        'r': [0.6806, -0.6532, 0.2814, -0.176],
-        's': [1, 1, 1]
+        t: [0.0275, -94e-4, -0.1746],
+        r: [0.6806, -0.6532, 0.2814, -0.176],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0141, -64e-4, -0.1561],
-        'r': [0.6806, -0.6532, 0.2814, -0.176],
-        's': [1, 1, 1]
+        t: [0.0141, -64e-4, -0.1561],
+        r: [0.6806, -0.6532, 0.2814, -0.176],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0062, 0.0299, -0.1019],
-        'r': [0.2399, -0.3631, -0.598, 0.6731],
-        's': [1, 1, 1]
+        t: [0.0062, 0.0299, -0.1019],
+        r: [0.2399, -0.3631, -0.598, 0.6731],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0621, 0.0218, -0.1466],
-        'r': [-0.241, 0.1225, -0.6156, 0.7403],
-        's': [1, 1, 1]
+        t: [0.0621, 0.0218, -0.1466],
+        r: [-0.241, 0.1225, -0.6156, 0.7403],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0427, 0.0133, -0.1823],
-        'r': [0.7097, -0.4862, 0.373, -0.3475],
-        's': [1, 1, 1]
+        t: [0.0427, 0.0133, -0.1823],
+        r: [0.7097, -0.4862, 0.373, -0.3475],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0165, 0.0095, -0.1681],
-        'r': [0.7968, -0.5892, 0.1321, -0.0209],
-        's': [1, 1, 1]
+        t: [0.0165, 0.0095, -0.1681],
+        r: [0.7968, -0.5892, 0.1321, -0.0209],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0119, 0.0128, -0.1447],
-        'r': [0.7968, -0.5892, 0.1321, -0.0209],
-        's': [1, 1, 1]
+        t: [0.0119, 0.0128, -0.1447],
+        r: [0.7968, -0.5892, 0.1321, -0.0209],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0033, 0.0406, -0.1037],
-        'r': [0.2574, -0.3085, -0.5681, 0.7183],
-        's': [1, 1, 1]
+        t: [0.0033, 0.0406, -0.1037],
+        r: [0.2574, -0.3085, -0.5681, 0.7183],
+        s: [1, 1, 1],
     },
     {
-        't': [0.052, 0.0419, -0.1485],
-        'r': [-0.2306, 0.1278, -0.5499, 0.7925],
-        's': [1, 1, 1]
+        t: [0.052, 0.0419, -0.1485],
+        r: [-0.2306, 0.1278, -0.5499, 0.7925],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0339, 0.0328, -0.182],
-        'r': [0.7575, -0.4754, 0.2861, -0.344],
-        's': [1, 1, 1]
+        t: [0.0339, 0.0328, -0.182],
+        r: [0.7575, -0.4754, 0.2861, -0.344],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0099, 0.025, -0.1634],
-        'r': [0.843, -0.5293, 0.0926, -0.0248],
-        's': [1, 1, 1]
+        t: [0.0099, 0.025, -0.1634],
+        r: [0.843, -0.5293, 0.0926, -0.0248],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0068, 0.0266, -0.142],
-        'r': [0.843, -0.5293, 0.0926, -0.0248],
-        's': [1, 1, 1]
+        t: [0.0068, 0.0266, -0.142],
+        r: [0.843, -0.5293, 0.0926, -0.0248],
+        s: [1, 1, 1],
     },
     {
-        't': [-18e-4, 0.0508, -0.104],
-        'r': [0.2798, -0.2351, -0.5355, 0.7614],
-        's': [1, 1, 1]
+        t: [-18e-4, 0.0508, -0.104],
+        r: [0.2798, -0.2351, -0.5355, 0.7614],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0378, 0.0613, -0.1483],
-        'r': [-0.1652, 0.0952, -0.5046, 0.842],
-        's': [1, 1, 1]
+        t: [0.0378, 0.0613, -0.1483],
+        r: [-0.1652, 0.0952, -0.5046, 0.842],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0259, 0.054, -0.1792],
-        'r': [0.7429, -0.4404, 0.2677, -0.4273],
-        's': [1, 1, 1]
+        t: [0.0259, 0.054, -0.1792],
+        r: [0.7429, -0.4404, 0.2677, -0.4273],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0084, 0.0449, -0.169],
-        'r': [0.8704, -0.4542, 0.1121, -0.1532],
-        's': [1, 1, 1]
+        t: [0.0084, 0.0449, -0.169],
+        r: [0.8704, -0.4542, 0.1121, -0.1532],
+        s: [1, 1, 1],
     },
     {
-        't': [0.002, 0.0431, -0.1514],
-        'r': [0.8704, -0.4542, 0.1121, -0.1532],
-        's': [1, 1, 1]
-    }
+        t: [0.002, 0.0431, -0.1514],
+        r: [0.8704, -0.4542, 0.1121, -0.1532],
+        s: [1, 1, 1],
+    },
 ];
 const RIGHT_HAND_THUMBS_DOWN = [
     {
-        't': [0.0237, 0.033, -0.083],
-        'r': [0.325, 0.2979, 0.5612, 0.7004],
-        's': [1, 1, 1]
+        t: [0.0237, 0.033, -0.083],
+        r: [0.325, 0.2979, 0.5612, 0.7004],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0039, 0.0142, -0.1018],
-        'r': [0.0744, 0.4501, 0.7672, 0.4508],
-        's': [1, 1, 1]
+        t: [0.0039, 0.0142, -0.1018],
+        r: [0.0744, 0.4501, 0.7672, 0.4508],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0239, -0.0191, -0.133],
-        'r': [0.2089, 0.5732, 0.7915, 0.0363],
-        's': [1, 1, 1]
+        t: [-0.0239, -0.0191, -0.133],
+        r: [0.2089, 0.5732, 0.7915, 0.0363],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0341, -0.0435, -0.1401],
-        'r': [0.2664, 0.6251, 0.7316, 0.0555],
-        's': [1, 1, 1]
+        t: [-0.0341, -0.0435, -0.1401],
+        r: [0.2664, 0.6251, 0.7316, 0.0555],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0476, -0.0698, -0.144],
-        'r': [0.2664, 0.6251, 0.7316, 0.0555],
-        's': [1, 1, 1]
+        t: [-0.0476, -0.0698, -0.144],
+        r: [0.2664, 0.6251, 0.7316, 0.0555],
+        s: [1, 1, 1],
     },
     {
-        't': [-3e-4, 0.0251, -0.0989],
-        'r': [0.2488, 0.3591, 0.5717, 0.6944],
-        's': [1, 1, 1]
+        t: [-3e-4, 0.0251, -0.0989],
+        r: [0.2488, 0.3591, 0.5717, 0.6944],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0603, 0.0201, -0.1463],
-        'r': [-0.2217, -0.1036, 0.5936, 0.7667],
-        's': [1, 1, 1]
+        t: [-0.0603, 0.0201, -0.1463],
+        r: [-0.2217, -0.1036, 0.5936, 0.7667],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.045, 0.0116, -0.1809],
-        'r': [0.681, 0.4806, -0.3657, -0.4143],
-        's': [1, 1, 1]
+        t: [-0.045, 0.0116, -0.1809],
+        r: [0.681, 0.4806, -0.3657, -0.4143],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0253, 0.0071, -0.1724],
-        'r': [0.7487, 0.5817, -0.2444, -0.2032],
-        's': [1, 1, 1]
+        t: [-0.0253, 0.0071, -0.1724],
+        r: [0.7487, 0.5817, -0.2444, -0.2032],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0121, 0.0068, -0.1535],
-        'r': [0.7487, 0.5817, -0.2444, -0.2032],
-        's': [1, 1, 1]
+        t: [-0.0121, 0.0068, -0.1535],
+        r: [0.7487, 0.5817, -0.2444, -0.2032],
+        s: [1, 1, 1],
     },
     {
-        't': [0.001, 0.0374, -0.1005],
-        'r': [0.2971, 0.3158, 0.527, 0.7309],
-        's': [1, 1, 1]
+        t: [0.001, 0.0374, -0.1005],
+        r: [0.2971, 0.3158, 0.527, 0.7309],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0548, 0.0447, -0.1454],
-        'r': [-0.2475, -0.1117, 0.5236, 0.8076],
-        's': [1, 1, 1]
+        t: [-0.0548, 0.0447, -0.1454],
+        r: [-0.2475, -0.1117, 0.5236, 0.8076],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0369, 0.0331, -0.181],
-        'r': [0.759, 0.413, -0.3155, -0.3922],
-        's': [1, 1, 1]
+        t: [-0.0369, 0.0331, -0.181],
+        r: [0.759, 0.413, -0.3155, -0.3922],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0126, 0.0231, -0.1665],
-        'r': [0.8595, 0.4988, -0.1065, -0.0339],
-        's': [1, 1, 1]
+        t: [-0.0126, 0.0231, -0.1665],
+        r: [0.8595, 0.4988, -0.1065, -0.0339],
+        s: [1, 1, 1],
     },
     {
-        't': [-84e-4, 0.0248, -0.1428],
-        'r': [0.8595, 0.4988, -0.1065, -0.0339],
-        's': [1, 1, 1]
+        t: [-84e-4, 0.0248, -0.1428],
+        r: [0.8595, 0.4988, -0.1065, -0.0339],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0064, 0.0472, -0.1018],
-        'r': [0.3122, 0.2567, 0.4998, 0.766],
-        's': [1, 1, 1]
+        t: [0.0064, 0.0472, -0.1018],
+        r: [0.3122, 0.2567, 0.4998, 0.766],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0402, 0.0619, -0.1463],
-        'r': [-0.22, -0.1072, 0.4537, 0.8569],
-        's': [1, 1, 1]
+        t: [-0.0402, 0.0619, -0.1463],
+        r: [-0.22, -0.1072, 0.4537, 0.8569],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.025, 0.0506, -0.1806],
-        'r': [0.8003, 0.3914, -0.2353, -0.3886],
-        's': [1, 1, 1]
+        t: [-0.025, 0.0506, -0.1806],
+        r: [0.8003, 0.3914, -0.2353, -0.3886],
+        s: [1, 1, 1],
     },
     {
-        't': [-35e-4, 0.0369, -0.1624],
-        'r': [0.8979, 0.4322, -0.0728, -0.0395],
-        's': [1, 1, 1]
+        t: [-35e-4, 0.0369, -0.1624],
+        r: [0.8979, 0.4322, -0.0728, -0.0395],
+        s: [1, 1, 1],
     },
     {
-        't': [-8e-4, 0.0373, -0.1409],
-        'r': [0.8979, 0.4322, -0.0728, -0.0395],
-        's': [1, 1, 1]
+        t: [-8e-4, 0.0373, -0.1409],
+        r: [0.8979, 0.4322, -0.0728, -0.0395],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0136, 0.0558, -0.1017],
-        'r': [0.3278, 0.1772, 0.4672, 0.8018],
-        's': [1, 1, 1]
+        t: [0.0136, 0.0558, -0.1017],
+        r: [0.3278, 0.1772, 0.4672, 0.8018],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0219, 0.0775, -0.1452],
-        'r': [-0.1811, -0.0932, 0.4016, 0.8929],
-        's': [1, 1, 1]
+        t: [-0.0219, 0.0775, -0.1452],
+        r: [-0.1811, -0.0932, 0.4016, 0.8929],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0108, 0.0677, -0.1758],
-        'r': [0.7842, 0.3582, -0.2073, -0.4623],
-        's': [1, 1, 1]
+        t: [-0.0108, 0.0677, -0.1758],
+        r: [0.7842, 0.3582, -0.2073, -0.4623],
+        s: [1, 1, 1],
     },
     {
-        't': [0.004, 0.0547, -0.1656],
-        'r': [0.9158, 0.3542, -0.0821, -0.1706],
-        's': [1, 1, 1]
+        t: [0.004, 0.0547, -0.1656],
+        r: [0.9158, 0.3542, -0.0821, -0.1706],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0096, 0.0511, -0.1481],
-        'r': [0.9158, 0.3542, -0.0821, -0.1706],
-        's': [1, 1, 1]
-    }
+        t: [0.0096, 0.0511, -0.1481],
+        r: [0.9158, 0.3542, -0.0821, -0.1706],
+        s: [1, 1, 1],
+    },
 ];
 
 const LEFT_HAND_THUMBS_UP = [
-    { 't': [-0.011, -0.0299, -0.0701], 'r': [0.1224, -0.1562, 0.6052, 0.771] },
-    { 't': [0.0025, -17e-4, -0.0854], 'r': [0.3796, -0.3776, 0.3843, 0.7521] },
-    { 't': [0.0162, 0.041, -0.1065], 'r': [0.6152, -0.1749, 0.0935, 0.763] },
-    { 't': [0.0204, 0.0676, -0.1116], 'r': [0.5992, -0.1247, 0.1335, 0.7795] },
-    { 't': [0.0225, 0.096, -0.1202], 'r': [0.5992, -0.1247, 0.1335, 0.7795] },
-    { 't': [-42e-4, -8e-3, -0.0928], 'r': [0.1427, -0.2467, 0.6763, 0.6793] },
-    { 't': [0.0063, 0.0312, -0.155], 'r': [-0.4551, -0.5645, 0.3425, 0.5974] },
-    { 't': [0.0447, 0.0257, -0.1538], 'r': [0.7509, 0.6277, 0.1981, -0.053] },
-    { 't': [0.0396, 0.0184, -0.1338], 'r': [0.7246, 0.5124, 0.4244, 0.1797] },
-    { 't': [0.0207, 0.0148, -0.1212], 'r': [0.7246, 0.5124, 0.4244, 0.1797] },
-    { 't': [-78e-4, -0.0192, -0.0982], 'r': [0.109, -0.1737, 0.6698, 0.7137] },
-    { 't': [-6e-4, 0.0083, -0.163], 'r': [-0.4929, -0.5301, 0.4215, 0.5462] },
-    { 't': [0.0407, 0.0046, -0.1614], 'r': [0.705, 0.703, 0.0897, -0.0263] },
-    { 't': [0.0382, -5e-4, -0.132], 'r': [0.6279, 0.5816, 0.4074, 0.3186] },
-    { 't': [0.0165, -21e-4, -0.1217], 'r': [0.6279, 0.5816, 0.4074, 0.3186] },
-    { 't': [-92e-4, -0.031, -0.0993], 'r': [0.0472, -0.1416, 0.6514, 0.7439] },
-    { 't': [0.0006, -0.0142, -0.1626], 'r': [-0.5202, -0.4929, 0.4819, 0.5042] },
-    { 't': [0.0398, -0.0159, -0.1611], 'r': [0.6996, 0.7076, 0.0706, 0.0696] },
-    { 't': [0.0338, -0.0161, -0.1304], 'r': [0.5876, 0.6289, 0.3607, 0.3593] },
-    { 't': [0.0143, -0.0168, -0.1208], 'r': [0.5876, 0.6289, 0.3607, 0.3593] },
-    { 't': [-81e-4, -0.0426, -0.0982], 'r': [-0.0269, -0.0934, 0.6476, 0.7558] },
-    { 't': [0.0026, -0.0377, -0.1578], 'r': [0.5435, 0.4612, -0.5243, -0.4658] },
-    { 't': [0.0366, -0.0376, -0.1559], 'r': [0.6991, 0.7017, 0.0384, 0.1318] },
-    { 't': [0.032, -0.0347, -0.1344], 'r': [0.575, 0.6796, 0.2522, 0.3795] },
-    { 't': [0.0166, -0.0342, -0.1237], 'r': [0.575, 0.6796, 0.2522, 0.3795] }
+    { t: [-0.011, -0.0299, -0.0701], r: [0.1224, -0.1562, 0.6052, 0.771] },
+    { t: [0.0025, -17e-4, -0.0854], r: [0.3796, -0.3776, 0.3843, 0.7521] },
+    { t: [0.0162, 0.041, -0.1065], r: [0.6152, -0.1749, 0.0935, 0.763] },
+    { t: [0.0204, 0.0676, -0.1116], r: [0.5992, -0.1247, 0.1335, 0.7795] },
+    { t: [0.0225, 0.096, -0.1202], r: [0.5992, -0.1247, 0.1335, 0.7795] },
+    { t: [-42e-4, -8e-3, -0.0928], r: [0.1427, -0.2467, 0.6763, 0.6793] },
+    { t: [0.0063, 0.0312, -0.155], r: [-0.4551, -0.5645, 0.3425, 0.5974] },
+    { t: [0.0447, 0.0257, -0.1538], r: [0.7509, 0.6277, 0.1981, -0.053] },
+    { t: [0.0396, 0.0184, -0.1338], r: [0.7246, 0.5124, 0.4244, 0.1797] },
+    { t: [0.0207, 0.0148, -0.1212], r: [0.7246, 0.5124, 0.4244, 0.1797] },
+    { t: [-78e-4, -0.0192, -0.0982], r: [0.109, -0.1737, 0.6698, 0.7137] },
+    { t: [-6e-4, 0.0083, -0.163], r: [-0.4929, -0.5301, 0.4215, 0.5462] },
+    { t: [0.0407, 0.0046, -0.1614], r: [0.705, 0.703, 0.0897, -0.0263] },
+    { t: [0.0382, -5e-4, -0.132], r: [0.6279, 0.5816, 0.4074, 0.3186] },
+    { t: [0.0165, -21e-4, -0.1217], r: [0.6279, 0.5816, 0.4074, 0.3186] },
+    { t: [-92e-4, -0.031, -0.0993], r: [0.0472, -0.1416, 0.6514, 0.7439] },
+    { t: [0.0006, -0.0142, -0.1626], r: [-0.5202, -0.4929, 0.4819, 0.5042] },
+    { t: [0.0398, -0.0159, -0.1611], r: [0.6996, 0.7076, 0.0706, 0.0696] },
+    { t: [0.0338, -0.0161, -0.1304], r: [0.5876, 0.6289, 0.3607, 0.3593] },
+    { t: [0.0143, -0.0168, -0.1208], r: [0.5876, 0.6289, 0.3607, 0.3593] },
+    { t: [-81e-4, -0.0426, -0.0982], r: [-0.0269, -0.0934, 0.6476, 0.7558] },
+    { t: [0.0026, -0.0377, -0.1578], r: [0.5435, 0.4612, -0.5243, -0.4658] },
+    { t: [0.0366, -0.0376, -0.1559], r: [0.6991, 0.7017, 0.0384, 0.1318] },
+    { t: [0.032, -0.0347, -0.1344], r: [0.575, 0.6796, 0.2522, 0.3795] },
+    { t: [0.0166, -0.0342, -0.1237], r: [0.575, 0.6796, 0.2522, 0.3795] },
 ];
 const RIGHT_HAND_THUMBS_UP = [
-    { 't': [0.0317, -0.0212, -0.089], 'r': [0.2199, 0.1003, -0.594, 0.7673] },
-    { 't': [0.0223, 0.009, -0.1042], 'r': [0.4294, 0.285, -0.3619, 0.7768] },
-    { 't': [0.0158, 0.0521, -0.1273], 'r': [0.6012, 0.067, -0.0513, 0.7947] },
-    { 't': [0.0145, 0.0784, -0.1348], 'r': [0.597, 0.0134, -0.0918, 0.7968] },
-    { 't': [0.0163, 0.1065, -0.1446], 'r': [0.597, 0.0134, -0.0918, 0.7968] },
-    { 't': [0.0303, 0.0032, -0.1103], 'r': [0.2434, 0.2002, -0.656, 0.6858] },
-    { 't': [0.0337, 0.0475, -0.1698], 'r': [-0.3298, 0.4729, -0.4297, 0.6949] },
-    { 't': [-26e-4, 0.0462, -0.1835], 'r': [0.7134, -0.6368, -2e-4, -0.2925] },
-    { 't': [-0.0107, 0.0369, -0.1654], 'r': [0.7745, -0.5891, -0.2133, -0.0877] },
-    { 't': [-47e-4, 0.0282, -0.145], 'r': [0.7745, -0.5891, -0.2133, -0.0877] },
-    { 't': [0.0347, -77e-4, -0.1158], 'r': [0.2088, 0.1254, -0.6589, 0.7117] },
-    { 't': [0.0416, 0.0251, -0.1782], 'r': [-0.3597, 0.4829, -0.4746, 0.6421] },
-    { 't': [0.0018, 0.0251, -0.19], 'r': [-0.673, 0.7069, -14e-4, 0.2177] },
-    { 't': [-77e-4, 0.0162, -0.163], 'r': [0.6957, -0.6456, -0.2988, 0.0994] },
-    { 't': [0.0063, 0.0104, -0.1443], 'r': [0.6957, -0.6456, -0.2988, 0.0994] },
-    { 't': [0.0361, -0.0196, -0.1178], 'r': [0.1467, 0.0923, -0.6537, 0.7367] },
-    { 't': [0.0398, 0.0027, -0.1801], 'r': [-0.3611, 0.446, -0.5466, 0.6099] },
-    { 't': [0.0028, 0.0047, -0.193], 'r': [-0.6782, 0.7246, -14e-4, 0.1226] },
-    { 't': [-3e-3, -6e-4, -0.1628], 'r': [-0.652, 0.6801, 0.2937, -0.1613] },
-    { 't': [0.0108, -46e-4, -0.1465], 'r': [-0.652, 0.6801, 0.2937, -0.1613] },
-    { 't': [0.0343, -0.0315, -0.1182], 'r': [0.0757, 0.0463, -0.6692, 0.7378] },
-    { 't': [0.0363, -0.021, -0.1779], 'r': [-0.3141, 0.3981, -0.6168, 0.602] },
-    { 't': [0.0062, -0.0166, -0.1931], 'r': [-0.6691, 0.7354, -0.0331, 0.1021] },
-    { 't': [0.0012, -0.0185, -0.1716], 'r': [-0.6175, 0.7316, 0.235, -0.168] },
-    { 't': [0.0116, -0.0223, -0.1564], 'r': [-0.6175, 0.7316, 0.235, -0.168] }
+    { t: [0.0317, -0.0212, -0.089], r: [0.2199, 0.1003, -0.594, 0.7673] },
+    { t: [0.0223, 0.009, -0.1042], r: [0.4294, 0.285, -0.3619, 0.7768] },
+    { t: [0.0158, 0.0521, -0.1273], r: [0.6012, 0.067, -0.0513, 0.7947] },
+    { t: [0.0145, 0.0784, -0.1348], r: [0.597, 0.0134, -0.0918, 0.7968] },
+    { t: [0.0163, 0.1065, -0.1446], r: [0.597, 0.0134, -0.0918, 0.7968] },
+    { t: [0.0303, 0.0032, -0.1103], r: [0.2434, 0.2002, -0.656, 0.6858] },
+    { t: [0.0337, 0.0475, -0.1698], r: [-0.3298, 0.4729, -0.4297, 0.6949] },
+    { t: [-26e-4, 0.0462, -0.1835], r: [0.7134, -0.6368, -2e-4, -0.2925] },
+    { t: [-0.0107, 0.0369, -0.1654], r: [0.7745, -0.5891, -0.2133, -0.0877] },
+    { t: [-47e-4, 0.0282, -0.145], r: [0.7745, -0.5891, -0.2133, -0.0877] },
+    { t: [0.0347, -77e-4, -0.1158], r: [0.2088, 0.1254, -0.6589, 0.7117] },
+    { t: [0.0416, 0.0251, -0.1782], r: [-0.3597, 0.4829, -0.4746, 0.6421] },
+    { t: [0.0018, 0.0251, -0.19], r: [-0.673, 0.7069, -14e-4, 0.2177] },
+    { t: [-77e-4, 0.0162, -0.163], r: [0.6957, -0.6456, -0.2988, 0.0994] },
+    { t: [0.0063, 0.0104, -0.1443], r: [0.6957, -0.6456, -0.2988, 0.0994] },
+    { t: [0.0361, -0.0196, -0.1178], r: [0.1467, 0.0923, -0.6537, 0.7367] },
+    { t: [0.0398, 0.0027, -0.1801], r: [-0.3611, 0.446, -0.5466, 0.6099] },
+    { t: [0.0028, 0.0047, -0.193], r: [-0.6782, 0.7246, -14e-4, 0.1226] },
+    { t: [-3e-3, -6e-4, -0.1628], r: [-0.652, 0.6801, 0.2937, -0.1613] },
+    { t: [0.0108, -46e-4, -0.1465], r: [-0.652, 0.6801, 0.2937, -0.1613] },
+    { t: [0.0343, -0.0315, -0.1182], r: [0.0757, 0.0463, -0.6692, 0.7378] },
+    { t: [0.0363, -0.021, -0.1779], r: [-0.3141, 0.3981, -0.6168, 0.602] },
+    { t: [0.0062, -0.0166, -0.1931], r: [-0.6691, 0.7354, -0.0331, 0.1021] },
+    { t: [0.0012, -0.0185, -0.1716], r: [-0.6175, 0.7316, 0.235, -0.168] },
+    { t: [0.0116, -0.0223, -0.1564], r: [-0.6175, 0.7316, 0.235, -0.168] },
 ];
 
 const LEFT_HAND_VICTORY = [
     {
-        't': [-0.0485, -0.0629, -0.0748],
-        'r': [0.5235, 0.0269, -0.0122, 0.8515],
-        's': [1, 1, 1]
+        t: [-0.0485, -0.0629, -0.0748],
+        r: [0.5235, 0.0269, -0.0122, 0.8515],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0274, -0.0424, -0.0935],
-        'r': [0.2683, -91e-4, -0.2476, 0.9309],
-        's': [1, 1, 1]
+        t: [-0.0274, -0.0424, -0.0935],
+        r: [0.2683, -91e-4, -0.2476, 0.9309],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0197, -0.0171, -0.1372],
-        'r': [-0.0874, 0.2587, -0.5403, 0.7959],
-        's': [1, 1, 1]
+        t: [-0.0197, -0.0171, -0.1372],
+        r: [-0.0874, 0.2587, -0.5403, 0.7959],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0337, -0.0134, -0.1604],
-        'r': [-0.1021, 0.3471, -0.5231, 0.7717],
-        's': [1, 1, 1]
+        t: [-0.0337, -0.0134, -0.1604],
+        r: [-0.1021, 0.3471, -0.5231, 0.7717],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0538, -84e-4, -0.1819],
-        'r': [-0.1021, 0.3471, -0.5231, 0.7717],
-        's': [1, 1, 1]
+        t: [-0.0538, -84e-4, -0.1819],
+        r: [-0.1021, 0.3471, -0.5231, 0.7717],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0376, -0.037, -0.0897],
-        'r': [0.5048, -0.107, 0.0348, 0.8559],
-        's': [1, 1, 1]
+        t: [-0.0376, -0.037, -0.0897],
+        r: [0.5048, -0.107, 0.0348, 0.8559],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0266, 0.0281, -0.1246],
-        'r': [0.567, -0.0696, 0.0098, 0.8207],
-        's': [1, 1, 1]
+        t: [-0.0266, 0.0281, -0.1246],
+        r: [0.567, -0.0696, 0.0098, 0.8207],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0224, 0.0646, -0.1371],
-        'r': [0.5031, -0.0677, 0.0059, 0.8615],
-        's': [1, 1, 1]
+        t: [-0.0224, 0.0646, -0.1371],
+        r: [0.5031, -0.0677, 0.0059, 0.8615],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0201, 0.0836, -0.1477],
-        'r': [0.4589, -0.0365, 0.0223, 0.8874],
-        's': [1, 1, 1]
+        t: [-0.0201, 0.0836, -0.1477],
+        r: [0.4589, -0.0365, 0.0223, 0.8874],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.019, 0.1018, -0.1617],
-        'r': [0.4589, -0.0365, 0.0223, 0.8874],
-        's': [1, 1, 1]
+        t: [-0.019, 0.1018, -0.1617],
+        r: [0.4589, -0.0365, 0.0223, 0.8874],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0503, -0.0361, -0.0891],
-        'r': [0.5225, -0.0136, 0.0382, 0.8517],
-        's': [1, 1, 1]
+        t: [-0.0503, -0.0361, -0.0891],
+        r: [0.5225, -0.0136, 0.0382, 0.8517],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0515, 0.0267, -0.1211],
-        'r': [0.5428, 0.1035, 0.1149, 0.8255],
-        's': [1, 1, 1]
+        t: [-0.0515, 0.0267, -0.1211],
+        r: [0.5428, 0.1035, 0.1149, 0.8255],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0638, 0.0631, -0.1369],
-        'r': [0.5306, 0.067, 0.0906, 0.8401],
-        's': [1, 1, 1]
+        t: [-0.0638, 0.0631, -0.1369],
+        r: [0.5306, 0.067, 0.0906, 0.8401],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0702, 0.0896, -0.1495],
-        'r': [0.5467, 0.0608, 0.081, 0.8312],
-        's': [1, 1, 1]
+        t: [-0.0702, 0.0896, -0.1495],
+        r: [0.5467, 0.0608, 0.081, 0.8312],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0747, 0.1108, -0.1601],
-        'r': [0.5467, 0.0608, 0.081, 0.8312],
-        's': [1, 1, 1]
+        t: [-0.0747, 0.1108, -0.1601],
+        r: [0.5467, 0.0608, 0.081, 0.8312],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0613, -0.0396, -0.0891],
-        'r': [0.4925, 0.0763, 0.0204, 0.8667],
-        's': [1, 1, 1]
+        t: [-0.0613, -0.0396, -0.0891],
+        r: [0.4925, 0.0763, 0.0204, 0.8667],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0712, 0.0158, -0.1219],
-        'r': [0.2546, -0.0246, 0.1592, 0.9535],
-        's': [1, 1, 1]
+        t: [-0.0712, 0.0158, -0.1219],
+        r: [0.2546, -0.0246, 0.1592, 0.9535],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0722, 0.0349, -0.1561],
-        'r': [-0.2354, -0.1181, 0.1042, 0.959],
-        's': [1, 1, 1]
+        t: [-0.0722, 0.0349, -0.1561],
+        r: [-0.2354, -0.1181, 0.1042, 0.959],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0638, 0.0217, -0.1832],
-        'r': [-0.4573, -0.1496, 0.0503, 0.8752],
-        's': [1, 1, 1]
+        t: [-0.0638, 0.0217, -0.1832],
+        r: [-0.4573, -0.1496, 0.0503, 0.8752],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0571, 0.0041, -0.1941],
-        'r': [-0.4573, -0.1496, 0.0503, 0.8752],
-        's': [1, 1, 1]
+        t: [-0.0571, 0.0041, -0.1941],
+        r: [-0.4573, -0.1496, 0.0503, 0.8752],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0706, -0.045, -0.0892],
-        'r': [0.4433, 0.1733, 0.0233, 0.8791],
-        's': [1, 1, 1]
+        t: [-0.0706, -0.045, -0.0892],
+        r: [0.4433, 0.1733, 0.0233, 0.8791],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0898, 0.0006, -0.1216],
-        'r': [0.0458, -0.1976, 0.107, 0.9733],
-        's': [1, 1, 1]
+        t: [-0.0898, 0.0006, -0.1216],
+        r: [0.0458, -0.1976, 0.107, 0.9733],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0762, 0.0038, -0.1526],
-        'r': [-0.348, -0.2273, 0.0117, 0.9095],
-        's': [1, 1, 1]
+        t: [-0.0762, 0.0038, -0.1526],
+        r: [-0.348, -0.2273, 0.0117, 0.9095],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0668, -95e-4, -0.1675],
-        'r': [-0.5475, -0.2656, -0.0806, 0.7894],
-        's': [1, 1, 1]
+        t: [-0.0668, -95e-4, -0.1675],
+        r: [-0.5475, -0.2656, -0.0806, 0.7894],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0618, -0.0269, -0.1725],
-        'r': [-0.5475, -0.2656, -0.0806, 0.7894],
-        's': [1, 1, 1]
-    }
+        t: [-0.0618, -0.0269, -0.1725],
+        r: [-0.5475, -0.2656, -0.0806, 0.7894],
+        s: [1, 1, 1],
+    },
 ];
 const RIGHT_HAND_VICTORY = [
     {
-        't': [-17e-4, -0.0652, -0.0663],
-        'r': [0.5651, 0.0392, -0.0573, 0.8221],
-        's': [1, 1, 1]
+        t: [-17e-4, -0.0652, -0.0663],
+        r: [0.5651, 0.0392, -0.0573, 0.8221],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0247, -0.042, -0.0786],
-        'r': [0.3207, 0.0849, 0.243, 0.9115],
-        's': [1, 1, 1]
+        t: [-0.0247, -0.042, -0.0786],
+        r: [0.3207, 0.0849, 0.243, 0.9115],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0407, -0.0141, -0.1186],
-        'r': [-0.0285, -0.1953, 0.5625, 0.8029],
-        's': [1, 1, 1]
+        t: [-0.0407, -0.0141, -0.1186],
+        r: [-0.0285, -0.1953, 0.5625, 0.8029],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.031, -94e-4, -0.1439],
-        'r': [-0.0751, -0.3079, 0.5331, 0.7845],
-        's': [1, 1, 1]
+        t: [-0.031, -94e-4, -0.1439],
+        r: [-0.0751, -0.3079, 0.5331, 0.7845],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0133, -43e-4, -0.1673],
-        'r': [-0.0751, -0.3079, 0.5331, 0.7845],
-        's': [1, 1, 1]
+        t: [-0.0133, -43e-4, -0.1673],
+        r: [-0.0751, -0.3079, 0.5331, 0.7845],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0136, -0.0376, -0.076],
-        'r': [0.5464, 0.1682, -0.0848, 0.8161],
-        's': [1, 1, 1]
+        t: [-0.0136, -0.0376, -0.076],
+        r: [0.5464, 0.1682, -0.0848, 0.8161],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0272, 0.0313, -0.1019],
-        'r': [0.6129, 0.1411, -0.0752, 0.7738],
-        's': [1, 1, 1]
+        t: [-0.0272, 0.0313, -0.1019],
+        r: [0.6129, 0.1411, -0.0752, 0.7738],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.032, 0.0692, -0.1089],
-        'r': [0.5643, 0.143, -0.0679, 0.8103],
-        's': [1, 1, 1]
+        t: [-0.032, 0.0692, -0.1089],
+        r: [0.5643, 0.143, -0.0679, 0.8103],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0353, 0.0897, -0.1161],
-        'r': [0.5256, 0.1162, -0.0834, 0.8386],
-        's': [1, 1, 1]
+        t: [-0.0353, 0.0897, -0.1161],
+        r: [0.5256, 0.1162, -0.0834, 0.8386],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.038, 0.11, -0.1265],
-        'r': [0.5256, 0.1162, -0.0834, 0.8386],
-        's': [1, 1, 1]
+        t: [-0.038, 0.11, -0.1265],
+        r: [0.5256, 0.1162, -0.0834, 0.8386],
+        s: [1, 1, 1],
     },
     {
-        't': [-9e-4, -0.0372, -0.0776],
-        'r': [0.5593, 0.0765, -0.0968, 0.8197],
-        's': [1, 1, 1]
+        t: [-9e-4, -0.0372, -0.0776],
+        r: [0.5593, 0.0765, -0.0968, 0.8197],
+        s: [1, 1, 1],
     },
     {
-        't': [-21e-4, 0.0287, -0.1033],
-        'r': [0.6072, -0.0412, -0.1868, 0.7712],
-        's': [1, 1, 1]
+        t: [-21e-4, 0.0287, -0.1033],
+        r: [0.6072, -0.0412, -0.1868, 0.7712],
+        s: [1, 1, 1],
     },
     {
-        't': [0.01, 0.0671, -0.1136],
-        'r': [0.5687, 0.0002, -0.1587, 0.8071],
-        's': [1, 1, 1]
+        t: [0.01, 0.0671, -0.1136],
+        r: [0.5687, 0.0002, -0.1587, 0.8071],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0156, 0.0946, -0.124],
-        'r': [0.5609, 0.0092, -0.1498, 0.8142],
-        's': [1, 1, 1]
+        t: [0.0156, 0.0946, -0.124],
+        r: [0.5609, 0.0092, -0.1498, 0.8142],
+        s: [1, 1, 1],
     },
     {
-        't': [0.019, 0.1163, -0.1339],
-        'r': [0.5609, 0.0092, -0.1498, 0.8142],
-        's': [1, 1, 1]
+        t: [0.019, 0.1163, -0.1339],
+        r: [0.5609, 0.0092, -0.1498, 0.8142],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0096, -0.0411, -0.08],
-        'r': [0.5291, -92e-4, -0.0837, 0.8443],
-        's': [1, 1, 1]
+        t: [0.0096, -0.0411, -0.08],
+        r: [0.5291, -92e-4, -0.0837, 0.8443],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0165, 0.0173, -0.1087],
-        'r': [0.2191, 0.1389, -0.1874, 0.9474],
-        's': [1, 1, 1]
+        t: [0.0165, 0.0173, -0.1087],
+        r: [0.2191, 0.1389, -0.1874, 0.9474],
+        s: [1, 1, 1],
     },
     {
-        't': [0.009, 0.0353, -0.1427],
-        'r': [-0.3548, 0.2386, -0.0503, 0.9026],
-        's': [1, 1, 1]
+        t: [0.009, 0.0353, -0.1427],
+        r: [-0.3548, 0.2386, -0.0503, 0.9026],
+        s: [1, 1, 1],
     },
     {
-        't': [-55e-4, 0.0162, -0.1628],
-        'r': [-0.5898, 0.2546, 0.0402, 0.7653],
-        's': [1, 1, 1]
+        t: [-55e-4, 0.0162, -0.1628],
+        r: [-0.5898, 0.2546, 0.0402, 0.7653],
+        s: [1, 1, 1],
     },
     {
-        't': [-0.0126, -42e-4, -0.1657],
-        'r': [-0.5898, 0.2546, 0.0402, 0.7653],
-        's': [1, 1, 1]
+        t: [-0.0126, -42e-4, -0.1657],
+        r: [-0.5898, 0.2546, 0.0402, 0.7653],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0184, -0.0469, -0.0826],
-        'r': [0.4806, -0.0996, -0.0936, 0.8662],
-        's': [1, 1, 1]
+        t: [0.0184, -0.0469, -0.0826],
+        r: [0.4806, -0.0996, -0.0936, 0.8662],
+        s: [1, 1, 1],
     },
     {
-        't': [0.034, 0.0014, -0.1134],
-        'r': [0.079, 0.2891, -0.1225, 0.9461],
-        's': [1, 1, 1]
+        t: [0.034, 0.0014, -0.1134],
+        r: [0.079, 0.2891, -0.1225, 0.9461],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0152, 0.0077, -0.141],
-        'r': [-0.2784, 0.3171, 0.0012, 0.9066],
-        's': [1, 1, 1]
+        t: [0.0152, 0.0077, -0.141],
+        r: [-0.2784, 0.3171, 0.0012, 0.9066],
+        s: [1, 1, 1],
     },
     {
-        't': [0.0023, -29e-4, -0.1556],
-        'r': [-0.458, 0.3482, 0.1094, 0.8106],
-        's': [1, 1, 1]
+        t: [0.0023, -29e-4, -0.1556],
+        r: [-0.458, 0.3482, 0.1094, 0.8106],
+        s: [1, 1, 1],
     },
     {
-        't': [-53e-4, -0.0187, -0.1623],
-        'r': [-0.458, 0.3482, 0.1094, 0.8106],
-        's': [1, 1, 1]
-    }
+        t: [-53e-4, -0.0187, -0.1623],
+        r: [-0.458, 0.3482, 0.1094, 0.8106],
+        s: [1, 1, 1],
+    },
 ];
 
 // Enum of hand poses.
@@ -8157,7 +9433,7 @@ const SIMULATOR_HAND_POSE_TO_JOINTS_LEFT = Object.freeze({
     [SimulatorHandPose.POINTING]: LEFT_HAND_POINTING,
     [SimulatorHandPose.ROCK]: LEFT_HAND_ROCK,
     [SimulatorHandPose.THUMBS_DOWN]: LEFT_HAND_THUMBS_DOWN,
-    [SimulatorHandPose.VICTORY]: LEFT_HAND_VICTORY
+    [SimulatorHandPose.VICTORY]: LEFT_HAND_VICTORY,
 });
 const SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT = Object.freeze({
     [SimulatorHandPose.RELAXED]: RIGHT_HAND_RELAXED,
@@ -8167,7 +9443,7 @@ const SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT = Object.freeze({
     [SimulatorHandPose.POINTING]: RIGHT_HAND_POINTING,
     [SimulatorHandPose.ROCK]: RIGHT_HAND_ROCK,
     [SimulatorHandPose.THUMBS_DOWN]: RIGHT_HAND_THUMBS_DOWN,
-    [SimulatorHandPose.VICTORY]: RIGHT_HAND_VICTORY
+    [SimulatorHandPose.VICTORY]: RIGHT_HAND_VICTORY,
 });
 const SIMULATOR_HAND_POSE_NAMES = Object.freeze({
     [SimulatorHandPose.RELAXED]: 'Relaxed',
@@ -8177,7 +9453,7 @@ const SIMULATOR_HAND_POSE_NAMES = Object.freeze({
     [SimulatorHandPose.POINTING]: 'Pointing',
     [SimulatorHandPose.ROCK]: 'Rock',
     [SimulatorHandPose.THUMBS_DOWN]: 'Thumbs Down',
-    [SimulatorHandPose.VICTORY]: 'Victory'
+    [SimulatorHandPose.VICTORY]: 'Victory',
 });
 
 class SimulatorXRHand {
@@ -8215,10 +9491,10 @@ class SimulatorHands {
     loadMeshes() {
         this.loader = new GLTFLoader();
         this.loader.setPath(DEFAULT_HAND_PROFILE_PATH);
-        this.loader.load('left.glb', gltf => {
+        this.loader.load('left.glb', (gltf) => {
             this.leftHand = gltf.scene;
             this.leftController.add(this.leftHand);
-            HAND_JOINT_NAMES.forEach(jointName => {
+            HAND_JOINT_NAMES.forEach((jointName) => {
                 const bone = gltf.scene.getObjectByName(jointName);
                 if (bone) {
                     this.leftHandBones.push(bone);
@@ -8230,13 +9506,13 @@ class SimulatorHands {
             this.setLeftHandJoints(this.leftHandTargetJoints);
             this.input.hands[0]?.dispatchEvent?.({
                 type: 'connected',
-                data: { hand: this.leftXRHand, handedness: 'left' }
+                data: { hand: this.leftXRHand, handedness: 'left' },
             });
         });
-        this.loader.load('right.glb', gltf => {
+        this.loader.load('right.glb', (gltf) => {
             this.rightHand = gltf.scene;
             this.rightController.add(this.rightHand);
-            HAND_JOINT_NAMES.forEach(jointName => {
+            HAND_JOINT_NAMES.forEach((jointName) => {
                 const bone = gltf.scene.getObjectByName(jointName);
                 if (bone) {
                     this.rightHandBones.push(bone);
@@ -8248,7 +9524,7 @@ class SimulatorHands {
             this.setRightHandJoints(this.rightHandTargetJoints);
             this.input.hands[1]?.dispatchEvent?.({
                 type: 'connected',
-                data: { hand: this.rightXRHand, handedness: 'right' }
+                data: { hand: this.rightXRHand, handedness: 'right' },
             });
         });
     }
@@ -8261,7 +9537,7 @@ class SimulatorHands {
                 target: this.input.controllers[0],
                 data: {
                     handedness: 'left',
-                }
+                },
             });
         }
         else if (this.leftHandPose === SimulatorHandPose.PINCHING) {
@@ -8270,7 +9546,7 @@ class SimulatorHands {
                 target: this.input.controllers[0],
                 data: {
                     handedness: 'left',
-                }
+                },
             });
         }
         this.leftHandPose = pose;
@@ -8286,7 +9562,7 @@ class SimulatorHands {
                 target: this.input.controllers[1],
                 data: {
                     handedness: 'right',
-                }
+                },
             });
         }
         else if (this.rightHandPose === SimulatorHandPose.PINCHING) {
@@ -8295,7 +9571,7 @@ class SimulatorHands {
                 target: this.input.controllers[1],
                 data: {
                     handedness: 'right',
-                }
+                },
             });
         }
         this.rightHandPose = pose;
@@ -8310,7 +9586,7 @@ class SimulatorHands {
                 target: this.input.controllers[1],
                 data: {
                     handedness: 'left',
-                }
+                },
             });
         }
         if (joints != this.leftHandTargetJoints) {
@@ -8335,7 +9611,7 @@ class SimulatorHands {
                 target: this.input.controllers[1],
                 data: {
                     handedness: 'right',
-                }
+                },
             });
         }
         if (joints != this.rightHandTargetJoints) {
@@ -8619,10 +9895,17 @@ class SimulatorUser extends Script {
             await actions[i].play({
                 simulatorUser: this,
                 journeyId: currentJourneyId,
-                waitFrame: this.waitFrame
+                waitFrame: this.waitFrame,
             });
         }
         console.log('Journey finished');
+    }
+}
+
+// Object which just holds the spark renderer so other classes don't need to import spark.
+class SparkRendererHolder {
+    constructor(renderer) {
+        this.renderer = renderer;
     }
 }
 
@@ -8686,20 +9969,21 @@ class Simulator extends Script {
             this.setupStereoCameras(camera);
         }
         this.virtualSceneRenderTarget = new THREE.WebGLRenderTarget(renderer.domElement.width, renderer.domElement.height, { stencilBuffer: options.stencil });
-        const virtualSceneMaterial = new THREE.MeshBasicMaterial({ map: this.virtualSceneRenderTarget.texture, transparent: true });
+        const virtualSceneMaterial = new THREE.MeshBasicMaterial({
+            map: this.virtualSceneRenderTarget.texture,
+            transparent: true,
+        });
         if (this.options.blendingMode === 'screen') {
             virtualSceneMaterial.blending = THREE.CustomBlending;
             virtualSceneMaterial.blendSrc = THREE.OneFactor;
-            virtualSceneMaterial.blendDst =
-                THREE.OneMinusSrcColorFactor;
-            virtualSceneMaterial.blendEquation =
-                THREE.AddEquation;
+            virtualSceneMaterial.blendDst = THREE.OneMinusSrcColorFactor;
+            virtualSceneMaterial.blendEquation = THREE.AddEquation;
         }
-        this.virtualSceneFullScreenQuad =
-            new FullScreenQuad(virtualSceneMaterial);
+        this.virtualSceneFullScreenQuad = new FullScreenQuad(virtualSceneMaterial);
         this.renderer = renderer;
         this.mainCamera = camera;
         this.mainScene = scene;
+        this.registry = registry;
         this.initialized = true;
     }
     simulatorUpdate() {
@@ -8723,7 +10007,7 @@ class Simulator extends Script {
         rightCamera.layers.disableAll();
         rightCamera.layers.enable(0);
         rightCamera.layers.enable(2);
-        leftCamera.position.set(-0.063 / 2, 0, 0);
+        leftCamera.position.set(-AVERAGE_IPD_METERS / 2, 0, 0);
         rightCamera.position.set(AVERAGE_IPD_METERS / 2, 0, 0);
         leftCamera.updateWorldMatrix(true, false);
         rightCamera.updateWorldMatrix(true, false);
@@ -8746,7 +10030,7 @@ class Simulator extends Script {
         return {
             [SimulatorRenderMode.DEFAULT]: this.mainCamera,
             [SimulatorRenderMode.STEREO_LEFT]: this.stereoCameras[0],
-            [SimulatorRenderMode.STEREO_RIGHT]: this.stereoCameras[1]
+            [SimulatorRenderMode.STEREO_RIGHT]: this.stereoCameras[1],
         }[this.renderMode];
     }
     // Called by core when the simulator is running.
@@ -8756,15 +10040,17 @@ class Simulator extends Script {
         if (!this.options.renderToRenderTexture)
             return;
         // Allocate a new render target if the resolution changes.
-        if (this.virtualSceneRenderTarget.width !=
-            this.renderer.domElement.width ||
-            this.virtualSceneRenderTarget.height !=
-                this.renderer.domElement.height) {
+        if (this.virtualSceneRenderTarget.width != this.renderer.domElement.width ||
+            this.virtualSceneRenderTarget.height != this.renderer.domElement.height) {
             const stencilEnabled = !!this.virtualSceneRenderTarget?.stencilBuffer;
             this.virtualSceneRenderTarget.dispose();
             this.virtualSceneRenderTarget = new THREE.WebGLRenderTarget(this.renderer.domElement.width, this.renderer.domElement.height, { stencilBuffer: stencilEnabled });
-            this.virtualSceneFullScreenQuad.material
-                .map = this.virtualSceneRenderTarget.texture;
+            this.virtualSceneFullScreenQuad.material.map = this.virtualSceneRenderTarget.texture;
+        }
+        this.sparkRenderer =
+            this.sparkRenderer || this.registry.get(SparkRendererHolder)?.renderer;
+        if (this.sparkRenderer) {
+            this.sparkRenderer.defaultView.encodeLinear = true;
         }
         this.renderer.setRenderTarget(this.virtualSceneRenderTarget);
         this.renderer.clear();
@@ -8787,6 +10073,9 @@ class Simulator extends Script {
         }
     }
     renderSimulatorSceneToCanvas(camera) {
+        if (this.sparkRenderer) {
+            this.sparkRenderer.defaultView.encodeLinear = false;
+        }
         this.renderer.setRenderTarget(null);
         this.renderer.render(this.simulatorScene, camera);
         this.renderer.clearDepth();
@@ -8815,7 +10104,7 @@ class AudioListener extends Script {
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
-            ...options
+            ...options,
         };
     }
     /**
@@ -8850,15 +10139,17 @@ class AudioListener extends Script {
         this.isCapturing = false;
     }
     async setupAudioCapture() {
-        this.audioStream =
-            await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        const actualSampleRate = this.audioStream.getAudioTracks()[0].getSettings().sampleRate;
+        this.audioStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false,
+        });
+        const actualSampleRate = this.audioStream
+            .getAudioTracks()[0]
+            .getSettings().sampleRate;
         this.audioContext = new AudioContext({ sampleRate: actualSampleRate });
         await this.setupAudioWorklet();
-        this.sourceNode =
-            this.audioContext.createMediaStreamSource(this.audioStream);
-        this.processorNode =
-            new AudioWorkletNode(this.audioContext, 'audio-capture-processor');
+        this.sourceNode = this.audioContext.createMediaStreamSource(this.audioStream);
+        this.processorNode = new AudioWorkletNode(this.audioContext, 'audio-capture-processor');
         this.processorNode.port.onmessage = (event) => {
             if (event.data.type === 'audioData') {
                 this.latestAudioBuffer = event.data.data;
@@ -8905,7 +10196,10 @@ class AudioListener extends Script {
         const base64Audio = arrayBufferToBase64(audioBuffer);
         const actualSampleRate = this.audioContext?.sampleRate || this.options.sampleRate;
         this.aiService.sendRealtimeInput({
-            audio: { data: base64Audio, mimeType: `audio/pcm;rate=${actualSampleRate}` }
+            audio: {
+                data: base64Audio,
+                mimeType: `audio/pcm;rate=${actualSampleRate}`,
+            },
         });
     }
     setAIStreaming(enabled) {
@@ -8917,7 +10211,7 @@ class AudioListener extends Script {
         if (this.audioContext && this.audioContext.state !== 'closed') {
             this.audioContext.close();
         }
-        this.audioStream?.getTracks().forEach(track => track.stop());
+        this.audioStream?.getTracks().forEach((track) => track.stop());
         this.processorNode = undefined;
         this.sourceNode = undefined;
         this.audioContext = undefined;
@@ -9018,8 +10312,9 @@ class AudioPlayer extends Script {
     }
     async initializeAudioContext() {
         if (!this.audioContext) {
-            this.audioContext =
-                new AudioContext({ sampleRate: this.options.sampleRate });
+            this.audioContext = new AudioContext({
+                sampleRate: this.options.sampleRate,
+            });
             this.nextStartTime = this.audioContext.currentTime;
             // Create gain node for volume control
             this.gainNode = this.audioContext.createGain();
@@ -9048,8 +10343,7 @@ class AudioPlayer extends Script {
     scheduleAudioBuffers() {
         const SCHEDULE_AHEAD_TIME = 0.2;
         while (this.audioQueue.length > 0 &&
-            this.nextStartTime <=
-                this.audioContext.currentTime + SCHEDULE_AHEAD_TIME) {
+            this.nextStartTime <= this.audioContext.currentTime + SCHEDULE_AHEAD_TIME) {
             const audioBuffer = this.audioQueue.shift();
             const currentTime = this.audioContext.currentTime;
             const startTime = Math.max(this.nextStartTime, currentTime);
@@ -9100,11 +10394,11 @@ class AudioPlayer extends Script {
 
 const MUSIC_LIBRARY_PATH = XR_BLOCKS_ASSETS_PATH + 'musicLibrary/';
 const musicLibrary = {
-    'ambient': MUSIC_LIBRARY_PATH + 'AmbientLoop.opus',
-    'background': MUSIC_LIBRARY_PATH + 'BackgroundMusic4.mp3',
-    'buttonHover': MUSIC_LIBRARY_PATH + 'ButtonHover.opus',
-    'buttonPress': MUSIC_LIBRARY_PATH + 'ButtonPress.opus',
-    'menuDismiss': MUSIC_LIBRARY_PATH + 'MenuDismiss.opus'
+    ambient: MUSIC_LIBRARY_PATH + 'AmbientLoop.opus',
+    background: MUSIC_LIBRARY_PATH + 'BackgroundMusic4.mp3',
+    buttonHover: MUSIC_LIBRARY_PATH + 'ButtonHover.opus',
+    buttonPress: MUSIC_LIBRARY_PATH + 'ButtonPress.opus',
+    menuDismiss: MUSIC_LIBRARY_PATH + 'MenuDismiss.opus',
 };
 class BackgroundMusic extends Script {
     constructor(listener, categoryVolumes) {
@@ -9145,8 +10439,7 @@ class BackgroundMusic extends Script {
             console.log(`BackgroundMusic: Successfully loaded ${soundPath}`);
             const audio = new THREE.Audio(listener);
             audio.setBuffer(buffer);
-            audio.setLoop(this.musicCategory === 'music' ||
-                this.musicCategory === 'ambient');
+            audio.setLoop(this.musicCategory === 'music' || this.musicCategory === 'ambient');
             const effectiveVolume = this.categoryVolumes.getEffectiveVolume(this.musicCategory, this.specificVolume);
             audio.setVolume(effectiveVolume);
             console.log(`BackgroundMusic: Setting volume for "${musicKey}" to ${effectiveVolume}`);
@@ -9155,7 +10448,8 @@ class BackgroundMusic extends Script {
             this.isPlaying = true;
             console.log(`BackgroundMusic: Playing "${musicKey}" in category "${this.musicCategory}"`);
         }, (xhr) => {
-            console.log(`BackgroundMusic: Loading ${soundPath} - ${(xhr.loaded / xhr.total * 100).toFixed(0)}% loaded`);
+            console.log(`BackgroundMusic: Loading ${soundPath} - ${((xhr.loaded / xhr.total) *
+                100).toFixed(0)}% loaded`);
         }, (error) => {
             console.error(`BackgroundMusic: Error loading sound ${soundPath}:`, error);
             this.currentAudio = null;
@@ -9187,7 +10481,7 @@ class CategoryVolumes {
     constructor() {
         this.isMuted = false;
         this.masterVolume = 1.0;
-        this.volumes = Object.fromEntries(Object.values(VolumeCategory).map(cat => [cat, 1.0]));
+        this.volumes = Object.fromEntries(Object.values(VolumeCategory).map((cat) => [cat, 1.0]));
     }
     getCategoryVolume(category) {
         return this.volumes[category] ?? 1.0;
@@ -9212,12 +10506,12 @@ const SOUND_PRESETS = {
     ],
     ACTIVATE: [
         { frequency: 800, duration: 0.05, waveformType: 'sine', delay: 0 },
-        { frequency: 1200, duration: 0.07, waveformType: 'sine', delay: 50 }
+        { frequency: 1200, duration: 0.07, waveformType: 'sine', delay: 50 },
     ],
     DEACTIVATE: [
         { frequency: 1200, duration: 0.05, waveformType: 'sine', delay: 0 },
-        { frequency: 800, duration: 0.07, waveformType: 'sine', delay: 50 }
-    ]
+        { frequency: 800, duration: 0.07, waveformType: 'sine', delay: 50 },
+    ],
 };
 class SoundSynthesizer extends Script {
     constructor() {
@@ -9286,7 +10580,7 @@ class SoundSynthesizer extends Script {
         }
         else {
             // Handle multi-tone sequences
-            preset.forEach(toneConfig => {
+            preset.forEach((toneConfig) => {
                 setTimeout(() => {
                     this.playTone(toneConfig.frequency, toneConfig.duration, volume, toneConfig.waveformType);
                 }, toneConfig.delay || 0);
@@ -9296,9 +10590,9 @@ class SoundSynthesizer extends Script {
 }
 
 const spatialSoundLibrary = {
-    'ambient': 'musicLibrary/AmbientLoop.opus',
-    'buttonHover': 'musicLibrary/ButtonHover.opus',
-    'paintOneShot1': 'musicLibrary/PaintOneShot1.opus',
+    ambient: 'musicLibrary/AmbientLoop.opus',
+    buttonHover: 'musicLibrary/ButtonHover.opus',
+    paintOneShot1: 'musicLibrary/PaintOneShot1.opus',
 };
 let soundIdCounter = 0;
 class SpatialAudio extends Script {
@@ -9339,12 +10633,12 @@ class SpatialAudio extends Script {
         const soundId = ++soundIdCounter;
         const specificVolume = options.volume !== undefined ? options.volume : this.specificVolume;
         const loop = options.loop || false;
-        const refDistance = options.refDistance !== undefined ?
-            options.refDistance :
-            this.defaultRefDistance;
-        const rolloffFactor = options.rolloffFactor !== undefined ?
-            options.rolloffFactor :
-            this.defaultRolloffFactor;
+        const refDistance = options.refDistance !== undefined
+            ? options.refDistance
+            : this.defaultRefDistance;
+        const rolloffFactor = options.rolloffFactor !== undefined
+            ? options.rolloffFactor
+            : this.defaultRolloffFactor;
         console.log(`SpatialAudio: Loading sound "${soundKey}" (${soundPath})`);
         this.audioLoader.load(soundPath, (buffer) => {
             console.log(`SpatialAudio: Successfully loaded "${soundKey}"`);
@@ -9360,7 +10654,11 @@ class SpatialAudio extends Script {
             const effectiveVolume = this.categoryVolumes.getEffectiveVolume(this.category, specificVolume);
             audio.setVolume(effectiveVolume);
             targetObject.add(audio);
-            this.activeSounds.set(soundId, { audio: audio, target: targetObject, options: options });
+            this.activeSounds.set(soundId, {
+                audio: audio,
+                target: targetObject,
+                options: options,
+            });
             // Set up cleanup for non-looping sounds
             if (!loop) {
                 audio.onEnded = () => {
@@ -9375,10 +10673,10 @@ class SpatialAudio extends Script {
                 };
             }
             audio.play();
-            console.log(`SpatialAudio: Playing "${soundKey}" (ID: ${soundId}) at object ${targetObject.name ||
-                targetObject.uuid}, Volume: ${effectiveVolume}`);
+            console.log(`SpatialAudio: Playing "${soundKey}" (ID: ${soundId}) at object ${targetObject.name || targetObject.uuid}, Volume: ${effectiveVolume}`);
         }, (xhr) => {
-            console.log(`SpatialAudio: Loading "${soundKey}" - ${(xhr.loaded / xhr.total * 100).toFixed(0)}% loaded`);
+            console.log(`SpatialAudio: Loading "${soundKey}" - ${((xhr.loaded / xhr.total) *
+                100).toFixed(0)}% loaded`);
         }, (error) => {
             console.error(`SpatialAudio: Error loading sound "${soundKey}":`, error);
             this.activeSounds.delete(soundId); // Clean up if loading failed
@@ -9442,9 +10740,9 @@ class SpatialAudio extends Script {
             return;
         console.log(`SpatialAudio: Updating volumes for ${this.activeSounds.size} active sounds.`);
         this.activeSounds.forEach((soundData) => {
-            const specificVolume = soundData.options.volume !== undefined ?
-                soundData.options.volume :
-                this.specificVolume;
+            const specificVolume = soundData.options.volume !== undefined
+                ? soundData.options.volume
+                : this.specificVolume;
             const effectiveVolume = this.categoryVolumes.getEffectiveVolume(this.category, specificVolume);
             soundData.audio.setVolume(effectiveVolume);
         });
@@ -9452,7 +10750,7 @@ class SpatialAudio extends Script {
     destroy() {
         console.log('SpatialAudio Destroying...');
         const idsToStop = Array.from(this.activeSounds.keys());
-        idsToStop.forEach(id => this.stopSound(id));
+        idsToStop.forEach((id) => this.stopSound(id));
         this.activeSounds.clear();
         console.log('SpatialAudio Destroyed.');
     }
@@ -9587,14 +10885,15 @@ class SpeechRecognizer extends Script {
             transcript: this.lastTranscript,
             confidence: this.lastConfidence,
             command: this.lastCommand,
-            isFinal: !!finalTranscript
+            isFinal: !!finalTranscript,
         });
     }
     // Private handler for the 'end' event (e.g., when silence is detected)
     _handleEnd() {
         this.isListening = false;
         this.dispatchEvent({ type: 'end' });
-        if (this.options.continuous && this.error !== 'aborted' &&
+        if (this.options.continuous &&
+            this.error !== 'aborted' &&
             this.error !== 'no-speech') {
             console.debug('SpeechRecognizer: Restarting continuous listening...');
             setTimeout(() => this.start(), 100);
@@ -9662,9 +10961,8 @@ class SpeechSynthesizer extends Script {
         if (this.debug) {
             console.log('SpeechSynthesizer: Voices loaded:', this.voices.length);
         }
-        this.selectedVoice = this.voices.find(voice => voice.name.includes('Google') &&
-            voice.lang.startsWith('en')) ||
-            this.voices.find(voice => voice.lang.startsWith('en'));
+        this.selectedVoice =
+            this.voices.find((voice) => voice.name.includes('Google') && voice.lang.startsWith('en')) || this.voices.find((voice) => voice.lang.startsWith('en'));
         if (this.selectedVoice) {
             if (this.debug) {
                 console.log('SpeechSynthesizer: Selected voice:', this.selectedVoice.name);
@@ -9724,11 +11022,12 @@ class SpeechSynthesizer extends Script {
             // Find a suitable voice if not already selected or if lang changed
             let voice = this.selectedVoice;
             if (!voice || !voice.lang.startsWith(lang.substring(0, 2))) {
-                voice = this.voices.find(v => v.lang === lang && v.name.includes('Google')) ||
-                    this.voices.find(v => v.lang.startsWith(lang.substring(0, 2)) &&
-                        v.name.includes('Google')) ||
-                    this.voices.find(v => v.lang === lang) ||
-                    this.voices.find(v => v.lang.startsWith(lang.substring(0, 2)));
+                voice =
+                    this.voices.find((v) => v.lang === lang && v.name.includes('Google')) ||
+                        this.voices.find((v) => v.lang.startsWith(lang.substring(0, 2)) &&
+                            v.name.includes('Google')) ||
+                        this.voices.find((v) => v.lang === lang) ||
+                        this.voices.find((v) => v.lang.startsWith(lang.substring(0, 2)));
             }
             if (voice) {
                 utterance.voice = voice;
@@ -9780,10 +11079,9 @@ class CoreSound extends Script {
         this.listener = new THREE.AudioListener();
     }
     static { this.dependencies = { camera: THREE.Camera, soundOptions: SoundOptions }; }
-    init({ camera, soundOptions }) {
+    init({ camera, soundOptions, }) {
         this.options = soundOptions;
-        this.backgroundMusic =
-            new BackgroundMusic(this.listener, this.categoryVolumes);
+        this.backgroundMusic = new BackgroundMusic(this.listener, this.categoryVolumes);
         this.spatialAudio = new SpatialAudio(this.listener, this.categoryVolumes);
         this.audioListener = new AudioListener();
         // Initialize with 48kHz for general audio playback
@@ -9813,19 +11111,19 @@ class CoreSound extends Script {
         this.audioPlayer?.updateGainNodeVolume();
     }
     getMasterVolume() {
-        return this.categoryVolumes.isMuted ? 0.0 :
-            this.categoryVolumes.masterVolume;
+        return this.categoryVolumes.isMuted
+            ? 0.0
+            : this.categoryVolumes.masterVolume;
     }
     setCategoryVolume(category, level) {
         if (category in this.categoryVolumes.volumes) {
-            this.categoryVolumes.volumes[category] =
-                THREE.MathUtils.clamp(level, 0.0, 1.0);
+            this.categoryVolumes.volumes[category] = THREE.MathUtils.clamp(level, 0.0, 1.0);
         }
     }
     getCategoryVolume(category) {
-        return category in this.categoryVolumes.volumes ?
-            this.categoryVolumes.volumes[category] :
-            1.0;
+        return category in this.categoryVolumes.volumes
+            ? this.categoryVolumes.volumes[category]
+            : 1.0;
     }
     async enableAudio(options = {}) {
         const { streamToAI = true, accumulate = false } = options;
@@ -10220,7 +11518,7 @@ class TextView extends View {
         /** The font file to use. Defaults to Roboto. */
         this.font = FONT_FAMILIES.Roboto;
         /** The color of the font. */
-        this.fontColor = 0xFFFFFF;
+        this.fontColor = 0xffffff;
         /**
          * The maximum width the text can occupy before wrapping.
          * To fit a long TextView within a container, this value should be its
@@ -10273,7 +11571,7 @@ class TextView extends View {
      * and then creates the text object, sets up aspect ratio, and loads overlays.
      */
     async init(_) {
-        this.useSDFText = this.useSDFText && await importTroika();
+        this.useSDFText = this.useSDFText && (await importTroika());
         this._initializeText();
     }
     /**
@@ -10365,12 +11663,11 @@ class TextView extends View {
         canvas.width = this.width * resolution;
         canvas.height = this.height * resolution;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const fontSize = this.fontSizeDp !== undefined ?
-            this.dpToLocalUnits(this.fontSizeDp) :
-            this.fontSize ?? 0.06;
+        const fontSize = this.fontSizeDp !== undefined
+            ? this.dpToLocalUnits(this.fontSizeDp)
+            : (this.fontSize ?? 0.06);
         ctx.font = `${fontSize * resolution}px ${this.font}`;
-        ctx.fillStyle =
-            `#${getColorHex(this.fontColor).toString(16).padStart(6, '0')}`;
+        ctx.fillStyle = `#${getColorHex(this.fontColor).toString(16).padStart(6, '0')}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         // TODO: add line-break for canvas-based text.
@@ -10384,7 +11681,8 @@ class TextView extends View {
      * It captures layout data like total height and line count.
      */
     onSyncComplete() {
-        if (!this.useSDFText || !(this.textObj instanceof Text) ||
+        if (!this.useSDFText ||
+            !(this.textObj instanceof Text) ||
             !this.textObj.textRenderInfo) {
             return;
         }
@@ -10434,12 +11732,11 @@ class TextView extends View {
             // @ts-expect-error Missing type in Troika
             'synccomplete', this.onSyncComplete.bind(this));
             if (this.imageOverlay) {
-                (new THREE.TextureLoader()).load(this.imageOverlay, (texture) => {
+                new THREE.TextureLoader().load(this.imageOverlay, (texture) => {
                     texture.colorSpace = THREE.SRGBColorSpace;
                     texture.offset.x = this.imageOffsetX;
                     const textObj = this.textObj;
                     textObj.material.map = texture;
-                    textObj.material.needsUpdate = true;
                     textObj.sync();
                 });
             }
@@ -10460,7 +11757,9 @@ class TextView extends View {
      * Disposes of resources used by the TextView, such as event listeners.
      */
     dispose() {
-        if (this.useSDFText && this.textObj && Text &&
+        if (this.useSDFText &&
+            this.textObj &&
+            Text &&
             this.textObj instanceof Text) {
             this.textObj.removeEventListener(
             // @ts-expect-error Missing type in Troika
@@ -10501,7 +11800,7 @@ class IconButton extends TextView {
             depthWrite: false,
             opacity: 0, // Start with zero opacity, will be controlled by interaction
             // logic
-            side: THREE.FrontSide
+            side: THREE.FrontSide,
         });
         // Pass geometry and material to the TextView -> View chain.
         super(options, geometry, material);
@@ -10557,9 +11856,9 @@ class IconButton extends TextView {
         if (!this.ux)
             return;
         if (this.ux.isHovered() || this.ux.isSelected()) {
-            this.mesh.material.opacity = this.ux.isSelected() ?
-                this.selectedOpacity * this.opacity :
-                this.hoverOpacity * this.opacity;
+            this.mesh.material.opacity = this.ux.isSelected()
+                ? this.selectedOpacity * this.opacity
+                : this.hoverOpacity * this.opacity;
         }
         else {
             this.mesh.material.opacity = this.defaultOpacity * this.opacity;
@@ -10639,7 +11938,6 @@ class ImageView extends View {
             // If no source, ensure no texture is displayed.
             if (this.material.map) {
                 this.material.map = null;
-                this.material.needsUpdate = true;
             }
             this.texture?.dispose();
             this.texture = undefined;
@@ -10649,7 +11947,6 @@ class ImageView extends View {
         this.texture = this.textureLoader.load(this.src, (loadedTexture) => {
             loadedTexture.colorSpace = THREE.SRGBColorSpace;
             this.material.map = loadedTexture;
-            this.material.needsUpdate = true;
             // Updates layout after the image has loaded to get correct dimensions.
             this.updateLayout();
         });
@@ -10715,14 +12012,14 @@ class LabelView extends TextView {
  */
 const SquircleShader = {
     uniforms: {
-        'uMainTex': { value: null },
-        'uUseImage': { value: 0.0 },
-        'uBackgroundColor': {
+        uMainTex: { value: null },
+        uUseImage: { value: 0.0 },
+        uBackgroundColor: {
             value: new THREE.Vector4(0.4, 0.8, 1.0, 1.0),
         },
-        'uBoxSize': { value: new THREE.Vector2(0.5, 0.5) },
-        'uRadius': { value: 0.05 },
-        'uOpacity': { value: 1.0 }
+        uBoxSize: { value: new THREE.Vector2(0.5, 0.5) },
+        uRadius: { value: 0.05 },
+        uOpacity: { value: 1.0 },
     },
     vertexShader: /* glsl */ `
     #define USE_UV
@@ -10834,7 +12131,7 @@ const SquircleShader = {
       // Return premultiplied alpha.
       gl_FragColor = uOpacity * finalColor.a * vec4(finalColor.rgb, 1.0);
     }
-  `
+  `,
 };
 
 class TextButton extends TextView {
@@ -10844,20 +12141,20 @@ class TextButton extends TextView {
     constructor(options = {}) {
         const geometry = new THREE.PlaneGeometry(1, 1);
         const colorVec4 = getVec4ByColorString(options.backgroundColor ?? '#00000000');
-        const { opacity = 0.0, radius = SquircleShader.uniforms.uRadius.value, boxSize = SquircleShader.uniforms.uBoxSize.value } = options;
+        const { opacity = 0.0, radius = SquircleShader.uniforms.uRadius.value, boxSize = SquircleShader.uniforms.uBoxSize.value, } = options;
         const uniforms = {
             ...SquircleShader.uniforms,
             uBackgroundColor: { value: colorVec4 },
             uOpacity: { value: opacity },
             uAspect: { value: 1.0 },
             uRadius: { value: radius },
-            uBoxSize: { value: boxSize }
+            uBoxSize: { value: boxSize },
         };
         const material = new THREE.ShaderMaterial({
             ...SquircleShader,
             transparent: true,
             uniforms: uniforms,
-            depthWrite: false
+            depthWrite: false,
         });
         super(options, geometry, material);
         /** Default description of this view in Three.js DevTools. */
@@ -10865,7 +12162,7 @@ class TextButton extends TextView {
         /** The font size of the text label. */
         this.fontSize = 0.05;
         /** The color of the text in its default state. */
-        this.fontColor = 0xFFFFFF;
+        this.fontColor = 0xffffff;
         /** The opacity multiplier of the button. */
         this.opacity = 1.0;
         /** The intrinsic opacity of the button. */
@@ -10910,7 +12207,6 @@ class TextButton extends TextView {
         // with the main button geometry's interaction.
         this.textObj.raycast = () => { };
     }
-    ;
     // TODO: Implement onHoverOver() and onHoverOut().
     update() {
         if (!this.textObj) {
@@ -11034,7 +12330,9 @@ class VideoView extends View {
         };
         if (this.stream_.loaded) {
             // If the stream is already loaded, manually trigger the handler
-            this.streamReadyCallback_({ details: { aspectRatio: this.stream_.aspectRatio } });
+            this.streamReadyCallback_({
+                details: { aspectRatio: this.stream_.aspectRatio },
+            });
         }
         else {
             // Otherwise, wait for the 'ready' event
@@ -11063,7 +12361,7 @@ class VideoView extends View {
     loadFromVideoElement(videoElement) {
         this.video = videoElement;
         if (this.video.autoplay && this.video.paused) {
-            this.video.play().catch(error => {
+            this.video.play().catch((error) => {
                 console.warn('VideoView: Autoplay prevented for video element.', error);
             });
         }
@@ -11071,7 +12369,6 @@ class VideoView extends View {
         videoTextureInstance.colorSpace = THREE.SRGBColorSpace;
         this.texture = videoTextureInstance; // Update internal texture reference
         this.material.map = this.texture;
-        this.material.needsUpdate = true;
         const onLoadedMetadata = () => {
             if (this.video.videoWidth && this.video.videoHeight) {
                 this.videoAspectRatio =
@@ -11087,7 +12384,9 @@ class VideoView extends View {
             onLoadedMetadata();
         }
         else {
-            this.video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+            this.video.addEventListener('loadedmetadata', onLoadedMetadata, {
+                once: true,
+            });
         }
     }
     /**
@@ -11097,7 +12396,6 @@ class VideoView extends View {
     loadFromVideoTexture(videoTextureInstance) {
         this.texture = videoTextureInstance;
         this.material.map = this.texture;
-        this.material.needsUpdate = true;
         this.video = this.texture.image; // Underlying HTMLVideoElement
         if (this.video && this.video.videoWidth && this.video.videoHeight) {
             this.videoAspectRatio = this.video.videoWidth / this.video.videoHeight;
@@ -11124,7 +12422,9 @@ class VideoView extends View {
     /** Starts video playback. */
     play() {
         if (this.video && this.video.paused) {
-            this.video.play().catch(e => console.warn('VideoView: Error playing video:', e));
+            this.video
+                .play()
+                .catch((e) => console.warn('VideoView: Error playing video:', e));
         }
     }
     /** Pauses video playback. */
@@ -11164,638 +12464,12 @@ class VideoView extends View {
      */
     updateLayout() {
         super.updateLayout();
-        if (this.mode === 'stretch' || this.videoAspectRatio <= 0 ||
+        if (this.mode === 'stretch' ||
+            this.videoAspectRatio <= 0 ||
             !this.material.map) {
             return;
         }
         this.mesh.scale.set(Math.min(this.rangeX, this.videoAspectRatio * this.rangeY), Math.min(this.rangeY, this.rangeX / this.videoAspectRatio), 1);
-    }
-}
-
-/**
- * Checks if a given object is a descendant of another object in the scene
- * graph. This function is useful for determining if an interaction (like a
- * raycast hit) has occurred on a component that is part of a larger, complex
- * entity.
- *
- * It uses an iterative approach to traverse up the hierarchy from the child.
- *
- * @param child - The potential descendant object.
- * @param parent - The potential ancestor object.
- * @returns True if `child` is the same as `parent` or is a descendant of
- *     `parent`.
- */
-function objectIsDescendantOf(child, parent) {
-    // Starts the search from the child object.
-    let currentNode = child;
-    // Traverses up the scene graph hierarchy until we reach the top (null parent)
-    // or find the target parent.
-    while (currentNode) {
-        // If the current node is the parent we're looking for, we've found a match.
-        if (currentNode === parent) {
-            return true;
-        }
-        // Moves up to the next level in the hierarchy.
-        currentNode = currentNode.parent;
-    }
-    // If we reach the top of the hierarchy without finding the parent,
-    // it is not an ancestor.
-    return false;
-}
-/**
- * Traverses the scene graph from a given node, calling a callback function for
- * each node. The traversal stops if the callback returns true.
- *
- * This function is similar to THREE.Object3D.traverse, but allows for early
- * exit from the traversal based on the callback's return value.
- *
- * @param node - The starting node for the traversal.
- * @param callback - The function to call for each node. It receives the current
- *     node as an argument. If the callback returns `true`, the traversal will
- *     stop.
- * @returns Whether the callback returned true for any node.
- */
-function traverseUtil(node, callback) {
-    if (callback(node)) {
-        return true;
-    }
-    for (const child of node.children) {
-        if (traverseUtil(child, callback)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-/**
- * User is an embodied instance to manage hands, controllers, speech, and
- * avatars. It extends Script to update human-world interaction.
- *
- * In the long run, User is to manages avatars, hands, and everything of Human
- * I/O. In third-person view simulation, it should come with an low-poly avatar.
- * To support multi-user social XR planned for future iterations.
- */
-class User extends Script {
-    static { this.dependencies = {
-        input: Input,
-        scene: THREE.Scene,
-    }; }
-    /**
-     * Constructs a new User.
-     */
-    constructor() {
-        super();
-        /**
-         * Whether to represent a local user, or another user in a multi-user session.
-         */
-        this.local = true;
-        /**
-         * The number of hands associated with the XR user.
-         */
-        this.numHands = 2;
-        /**
-         * The height of the user in meters.
-         */
-        this.height = 1.6;
-        /**
-         * The default distance of a UI panel from the user in meters.
-         */
-        this.panelDistance = 1.75;
-        /**
-         * The handedness (primary hand) of the user (0 for left, 1 for right, 2 for
-         * both).
-         */
-        this.handedness = 1;
-        /**
-         * The radius of the safe space around the user in meters.
-         */
-        this.safeSpaceRadius = 0.2;
-        /**
-         * The distance of a newly spawned object from the user in meters.
-         */
-        this.objectDistance = 1.5;
-        /**
-         * The angle of a newly spawned object from the user in radians.
-         */
-        this.objectAngle = -18 / 180.0 * Math.PI;
-        /**
-         * An array of pivot objects. Pivot are sphere at the **starting** tip of
-         * user's hand / controller / mouse rays for debugging / drawing applications.
-         */
-        this.pivots = [];
-        /**
-         * Maps a controller to the object it is currently hovering over.
-         */
-        this.hoveredObjectsForController = new Map();
-        /**
-         * Maps a controller to the object it has currently selected.
-         */
-        this.selectedObjectsForController = new Map();
-        /**
-         * Maps a hand index (0 or 1) to a set of meshes it is currently touching.
-         */
-        this.touchedObjects = new Map();
-        /**
-         * Maps a hand index to another map that associates a grabbed mesh with its
-         * initial grab event data.
-         */
-        this.grabbedObjects = new Map();
-    }
-    /**
-     * Initializes the User.
-     */
-    init({ input, scene }) {
-        this.input = input;
-        this.controllers = input.controllers;
-        this.scene = scene;
-    }
-    /**
-     * Sets the user's height on the first frame.
-     * @param camera -
-     */
-    setHeight(camera) {
-        this.height = camera.position.y;
-    }
-    /**
-     * Adds pivots at the starting tip of user's hand / controller / mouse rays.
-     */
-    enablePivots() {
-        this.input.enablePivots();
-    }
-    /**
-     * Gets the pivot object for a given controller id.
-     * @param id - The controller id.
-     * @returns The pivot object.
-     */
-    getPivot(id) {
-        return this.controllers[id].getObjectByName('pivot');
-    }
-    /**
-     * Gets the world position of the pivot for a given controller id.
-     * @param id - The controller id.
-     * @returns The world position of the pivot.
-     */
-    getPivotPosition(id) {
-        return this.getPivot(id)?.getWorldPosition(new THREE.Vector3());
-    }
-    /**
-     * Gets reticle's direction in THREE.Vector3.
-     * Requires reticle enabled to be called.
-     * @param controllerId -
-     */
-    getReticleDirection(controllerId) {
-        return this.controllers[controllerId].reticle?.direction;
-    }
-    /**
-     * Gets the object targeted by the reticle.
-     * Requires `options.reticle.enabled`.
-     * @param id - The controller id.
-     * @returns The targeted object, or null.
-     */
-    getReticleTarget(id) {
-        return this.controllers[id].reticle?.targetObject;
-    }
-    /**
-     * Gets the intersection details from the reticle's raycast.
-     * Requires `options.reticle.enabled`.
-     * @param id - The controller id.
-     * @returns The intersection object, or null if no intersection.
-     */
-    getReticleIntersection(id) {
-        return this.controllers[id].reticle?.intersection;
-    }
-    /**
-     * Checks if any controller is pointing at the given object or its children.
-     * @param obj - The object to check against.
-     * @returns True if a controller is pointing at the object.
-     */
-    isPointingAt(obj) {
-        for (const selected of this.hoveredObjectsForController.values()) {
-            if (objectIsDescendantOf(selected, obj)) {
-                return true;
-            }
-        }
-        return false;
-    }
-    /**
-     * Checks if any controller is selecting the given object or its children.
-     * @param obj - The object to check against.
-     * @returns True if a controller is selecting the object.
-     */
-    isSelectingAt(obj) {
-        for (const selected of this.selectedObjectsForController.values()) {
-            if (objectIsDescendantOf(selected, obj)) {
-                return true;
-            }
-        }
-        return false;
-    }
-    /**
-     * Gets the intersection point on a specific object.
-     * Not recommended for general use, since a View / ModelView's
-     * ux.positions contains the intersected points.
-     * @param obj - The object to check for intersection.
-     * @param id - The controller ID, or -1 for any controller.
-     * @returns The intersection details, or null if no intersection.
-     */
-    getIntersectionAt(obj, id = -1) {
-        if (id == -1) {
-            for (let i = 0; i < 2; ++i) {
-                if (this.getReticleTarget(i) === obj) {
-                    return this.getReticleIntersection(i);
-                }
-            }
-        }
-        else {
-            if (this.getReticleTarget(id) === obj) {
-                return this.getReticleIntersection(id);
-            }
-        }
-        return null;
-    }
-    /**
-     * Gets the world position of a controller.
-     * @param id - The controller id.
-     * @param target - The target vector to
-     * store the result.
-     * @returns The world position of the controller.
-     */
-    getControllerPosition(id, target = new THREE.Vector3()) {
-        this.controllers[id].getWorldPosition(target);
-        return target;
-    }
-    /**
-     * Calculates the distance between a controller and an object.
-     * @param id - The controller id.
-     * @param object - The object to measure the distance to.
-     * @returns The distance between the controller and the object.
-     */
-    getControllerObjectDistance(id, object) {
-        const controllerPos = this.getControllerPosition(id);
-        const objPos = new THREE.Vector3();
-        object.getWorldPosition(objPos);
-        return controllerPos.distanceTo(objPos);
-    }
-    /**
-     * Checks if either controller is selecting.
-     * @param id - The controller id. If -1, check both controllers.
-     * @returns True if selecting, false otherwise.
-     */
-    isSelecting(id = -1) {
-        if (id == -1) {
-            return this.input.controllers.some((controller) => {
-                return controller.userData.selected;
-            });
-        }
-        return this.input.controllers[id].userData.selected;
-    }
-    /**
-     * Checks if either controller is squeezing.
-     * @param id - The controller id. If -1, check both controllers.
-     * @returns True if squeezing, false otherwise.
-     */
-    isSqueezing(id = -1) {
-        if (id == -1) {
-            return this.input.controllers.some((controller) => {
-                return controller.userData.squeezing;
-            });
-        }
-        return this.input.controllers[id].userData.squeezing;
-    }
-    /**
-     * Handles the select start event for a controller.
-     * @param event - The event object.
-     */
-    onSelectStart(event) {
-        const controller = event.target;
-        const intersections = this.input.intersectionsForController.get(controller).filter(intersection => {
-            let target = intersection.object;
-            while (target) {
-                if (target
-                    .ignoreReticleRaycast === true) {
-                    return false;
-                }
-                target = target.parent;
-            }
-            return true;
-        });
-        if (intersections && intersections.length > 0) {
-            this.selectedObjectsForController.set(controller, intersections[0].object);
-            this.callObjectSelectStart(event, intersections[0].object);
-        }
-    }
-    /**
-     * Handles the select end event for a controller.
-     * @param event - The event object.
-     */
-    onSelectEnd(event) {
-        const controller = event.target;
-        const intersections = this.input.intersectionsForController.get(controller);
-        if (intersections && intersections.length > 0) {
-            const selectedObject = this.selectedObjectsForController.get(controller);
-            this.callObjectSelectEnd(event, selectedObject || null);
-            this.selectedObjectsForController.delete(controller);
-            let ancestor = selectedObject || null;
-            while (ancestor) {
-                if (ancestor.isView && ancestor.visible) {
-                    ancestor.onTriggered(controller.userData.id);
-                    break;
-                }
-                ancestor = ancestor.parent;
-            }
-        }
-    }
-    /**
-     * Handles the squeeze start event for a controller.
-     * @param _event - The event object.
-     */
-    onSqueezeStart(_event) { }
-    /**
-     * Handles the squeeze end event for a controller.
-     * @param _event - The event object.
-     */
-    onSqueezeEnd(_event) { }
-    /**
-     * The main update loop called each frame. Updates hover state for all
-     * controllers.
-     */
-    update() {
-        if (this.input.controllersEnabled) {
-            for (const controller of this.input.controllers) {
-                this.updateForController(controller);
-            }
-        }
-        // Direct touch detection.
-        this.updateTouchState();
-        // Direct grab detection.
-        this.updateGrabState();
-    }
-    /**
-     * Checks for and handles grab events (touching + pinching).
-     */
-    updateGrabState() {
-        if (!this.hands) {
-            return;
-        }
-        for (let i = 0; i < this.numHands; i++) {
-            const isPinching = this.isSelecting(i);
-            const touchedMeshes = this.touchedObjects.get(i) || new Set();
-            const currentlyGrabbedMeshes = isPinching ? touchedMeshes : new Set();
-            const previouslyGrabbedMeshesMap = this.grabbedObjects.get(i) || new Map();
-            const newlyGrabbedMeshes = [...currentlyGrabbedMeshes].filter(mesh => !previouslyGrabbedMeshesMap.has(mesh));
-            const releasedMeshes = [...previouslyGrabbedMeshesMap.keys()].filter(mesh => !currentlyGrabbedMeshes.has(mesh));
-            for (const mesh of newlyGrabbedMeshes) {
-                const hand = this.hands.getWrist(i);
-                if (!hand)
-                    continue;
-                const grabEvent = { handIndex: i, hand: hand };
-                if (!this.grabbedObjects.has(i)) {
-                    this.grabbedObjects.set(i, new Map());
-                }
-                this.grabbedObjects.get(i).set(mesh, grabEvent);
-                this.callObjectGrabStart(grabEvent, mesh);
-            }
-            for (const mesh of releasedMeshes) {
-                const grabEvent = previouslyGrabbedMeshesMap.get(mesh);
-                this.callObjectGrabEnd(grabEvent, mesh);
-                previouslyGrabbedMeshesMap.delete(mesh);
-            }
-            for (const mesh of currentlyGrabbedMeshes) {
-                if (previouslyGrabbedMeshesMap.has(mesh)) {
-                    const grabEvent = previouslyGrabbedMeshesMap.get(mesh);
-                    this.callObjectGrabbing(grabEvent, mesh);
-                }
-            }
-        }
-    }
-    /**
-     * Checks for and handles touch events for the hands' index fingers.
-     */
-    updateTouchState() {
-        if (!this.hands) {
-            return;
-        }
-        for (let i = 0; i < this.numHands; i++) {
-            const indexTip = this.hands.getIndexTip(i);
-            if (!indexTip) {
-                continue;
-            }
-            const indexTipPosition = new THREE.Vector3();
-            indexTip.getWorldPosition(indexTipPosition);
-            const currentlyTouchedMeshes = [];
-            this.scene.traverse((object) => {
-                if (object.isMesh && object.visible) {
-                    const boundingBox = new THREE.Box3().setFromObject(object);
-                    if (boundingBox.containsPoint(indexTipPosition)) {
-                        currentlyTouchedMeshes.push(object);
-                    }
-                }
-            });
-            const previouslyTouchedMeshes = this.touchedObjects.get(i) || new Set();
-            const currentMeshesSet = new Set(currentlyTouchedMeshes);
-            const newlyTouchedMeshes = currentlyTouchedMeshes.filter(mesh => !previouslyTouchedMeshes.has(mesh));
-            const removedMeshes = [...previouslyTouchedMeshes].filter(mesh => !currentMeshesSet.has(mesh));
-            const touchingEvent = { handIndex: i, touchPosition: indexTipPosition };
-            if (newlyTouchedMeshes.length > 0) {
-                for (const mesh of newlyTouchedMeshes) {
-                    this.callObjectTouchStart(touchingEvent, mesh);
-                }
-            }
-            if (removedMeshes.length > 0) {
-                for (const mesh of removedMeshes) {
-                    this.callObjectTouchEnd(touchingEvent, mesh);
-                }
-            }
-            for (const mesh of currentMeshesSet) {
-                this.callObjectTouching(touchingEvent, mesh);
-            }
-            if (currentMeshesSet.size > 0) {
-                this.touchedObjects.set(i, currentMeshesSet);
-            }
-            else {
-                this.touchedObjects.delete(i);
-            }
-        }
-    }
-    /**
-     * Updates the hover state for a single controller.
-     * @param controller - The controller to update.
-     */
-    updateForController(controller) {
-        const intersections = this.input.intersectionsForController.get(controller);
-        const currentHoverTarget = intersections.length > 0 ? intersections[0].object : null;
-        const previousHoverTarget = this.hoveredObjectsForController.get(controller);
-        if (previousHoverTarget !== currentHoverTarget) {
-            this.callHoverExit(controller, previousHoverTarget || null);
-            this.hoveredObjectsForController.set(controller, currentHoverTarget);
-            this.callHoverEnter(controller, currentHoverTarget);
-        }
-        else if (previousHoverTarget) {
-            this.callOnHovering(controller, previousHoverTarget);
-        }
-    }
-    /**
-     * Recursively calls onHoverExit on a target and its ancestors.
-     * @param controller - The controller exiting hover.
-     * @param target - The object being exited.
-     */
-    callHoverExit(controller, target) {
-        if (target == null)
-            return;
-        if (target.isXRScript) {
-            target.onHoverExit(controller);
-        }
-        this.callHoverExit(controller, target.parent);
-    }
-    /**
-     * Recursively calls onHoverEnter on a target and its ancestors.
-     * @param controller - The controller entering hover.
-     * @param target - The object being entered.
-     */
-    callHoverEnter(controller, target) {
-        if (target == null)
-            return;
-        if (target.isXRScript) {
-            target.onHoverEnter(controller);
-        }
-        this.callHoverEnter(controller, target.parent);
-    }
-    /**
-     * Recursively calls onHovering on a target and its ancestors.
-     * @param controller - The controller hovering.
-     * @param target - The object being entered.
-     */
-    callOnHovering(controller, target) {
-        if (target == null)
-            return;
-        if (target.isXRScript) {
-            target.onHovering(controller);
-        }
-        this.callOnHovering(controller, target.parent);
-    }
-    /**
-     * Recursively calls onObjectSelectStart on a target and its ancestors until
-     * the event is handled.
-     * @param event - The original select start event.
-     * @param target - The object being selected.
-     */
-    callObjectSelectStart(event, target) {
-        if (target == null)
-            return;
-        if (target.isXRScript &&
-            target.onObjectSelectStart(event)) {
-            // The event was handled already so do not propagate up.
-            return;
-        }
-        this.callObjectSelectStart(event, target.parent);
-    }
-    /**
-     * Recursively calls onObjectSelectEnd on a target and its ancestors until
-     * the event is handled.
-     * @param event - The original select end event.
-     * @param target - The object being un-selected.
-     */
-    callObjectSelectEnd(event, target) {
-        if (target == null)
-            return;
-        if (target.isXRScript &&
-            target.onObjectSelectEnd(event)) {
-            // The event was handled already so do not propagate up.
-            return;
-        }
-        this.callObjectSelectEnd(event, target.parent);
-    }
-    /**
-     * Recursively calls onObjectTouchStart on a target and its ancestors.
-     * @param event - The original touch start event.
-     * @param target - The object being touched.
-     */
-    callObjectTouchStart(event, target) {
-        if (target == null)
-            return;
-        if (target.isXRScript) {
-            target.onObjectTouchStart(event);
-        }
-        this.callObjectTouchStart(event, target.parent);
-    }
-    /**
-     * Recursively calls onObjectTouching on a target and its ancestors.
-     * @param event - The original touch event.
-     * @param target - The object being touched.
-     */
-    callObjectTouching(event, target) {
-        if (target == null)
-            return;
-        if (target.isXRScript) {
-            target.onObjectTouching(event);
-        }
-        this.callObjectTouching(event, target.parent);
-    }
-    /**
-     * Recursively calls onObjectTouchEnd on a target and its ancestors.
-     * @param event - The original touch end event.
-     * @param target - The object being un-touched.
-     */
-    callObjectTouchEnd(event, target) {
-        if (target == null)
-            return;
-        if (target.isXRScript) {
-            target.onObjectTouchEnd(event);
-        }
-        this.callObjectTouchEnd(event, target.parent);
-    }
-    /**
-     * Recursively calls onObjectGrabStart on a target and its ancestors.
-     * @param event - The original grab start event.
-     * @param target - The object being grabbed.
-     */
-    callObjectGrabStart(event, target) {
-        if (target == null)
-            return;
-        if (target.isXRScript) {
-            target.onObjectGrabStart(event);
-        }
-        this.callObjectGrabStart(event, target.parent);
-    }
-    /**
-     * Recursively calls onObjectGrabbing on a target and its ancestors.
-     * @param event - The original grabbing event.
-     * @param target - The object being grabbed.
-     */
-    callObjectGrabbing(event, target) {
-        if (target == null)
-            return;
-        if (target.isXRScript) {
-            target.onObjectGrabbing(event);
-        }
-        this.callObjectGrabbing(event, target.parent);
-    }
-    /**
-     * Recursively calls onObjectGrabEnd on a target and its ancestors.
-     * @param event - The original grab end event.
-     * @param target - The object being released.
-     */
-    callObjectGrabEnd(event, target) {
-        if (target == null)
-            return;
-        if (target.isXRScript) {
-            target.onObjectGrabEnd(event);
-        }
-        this.callObjectGrabEnd(event, target.parent);
-    }
-    /**
-     * Checks if a controller is selecting a specific object. Returns the
-     * intersection details if true.
-     * @param obj - The object to check for selection.
-     * @param controller - The controller performing the select.
-     * @returns The intersection object if a match is found, else null.
-     */
-    select(obj, controller) {
-        const intersections = this.input.intersectionsForController.get(controller);
-        return intersections && intersections.length > 0 &&
-            objectIsDescendantOf(intersections[0].object, obj) ?
-            intersections[0] :
-            null;
     }
 }
 
@@ -11860,7 +12534,8 @@ class DragManager extends Script {
     }
     beginDragging(intersection, controller) {
         const [draggableObject, draggingMode] = this.findDraggableObjectAndDraggingMode(intersection.object);
-        if (draggableObject == null || draggingMode == null ||
+        if (draggableObject == null ||
+            draggingMode == null ||
             draggingMode == DragManager.DO_NOT_DRAG) {
             return false;
         }
@@ -11869,13 +12544,16 @@ class DragManager extends Script {
             return this.beginScaling(controller);
         }
         this.draggableObject = draggableObject;
-        this.mode = draggingMode == DragManager.ROTATING ? DragManager.ROTATING :
-            DragManager.TRANSLATING;
+        this.mode =
+            draggingMode == DragManager.ROTATING
+                ? DragManager.ROTATING
+                : DragManager.TRANSLATING;
         this.originalController1Position.copy(controller.position);
         this.originalController1MatrixInverse
             .compose(controller.position, controller.quaternion, controller.scale)
             .invert();
-        this.originalController1RotationInverse.copy(controller.quaternion)
+        this.originalController1RotationInverse
+            .copy(controller.quaternion)
             .invert();
         this.intersection = intersection;
         this.controller1 = controller;
@@ -11888,10 +12566,9 @@ class DragManager extends Script {
     // hands.
     beginScaling(controller) {
         this.controller2 = controller;
-        this.originalScalingControllerDistance =
-            _vector3
-                .subVectors(this.controller1.position, this.controller2.position)
-                .length();
+        this.originalScalingControllerDistance = _vector3
+            .subVectors(this.controller1.position, this.controller2.position)
+            .length();
         this.originalScalingObjectScale.copy(this.intersection.object.scale);
         this.mode = DragManager.SCALING;
         return true;
@@ -11916,7 +12593,8 @@ class DragManager extends Script {
         model.scale.copy(this.originalObjectScale);
         model.updateMatrix();
         this.controller1.updateMatrix();
-        model.matrix.premultiply(this.originalController1MatrixInverse)
+        model.matrix
+            .premultiply(this.originalController1MatrixInverse)
             .premultiply(this.controller1.matrix);
         model.position.setFromMatrixPosition(model.matrix);
         if (model.dragFacingCamera) {
@@ -11952,14 +12630,15 @@ class DragManager extends Script {
             .length();
         const distanceRatio = newControllerDistance / this.originalScalingControllerDistance;
         const model = this.draggableObject;
-        model.scale.copy(this.originalScalingObjectScale)
+        model.scale
+            .copy(this.originalScalingObjectScale)
             .multiplyScalar(distanceRatio);
         return true;
     }
     turnPanelToFaceTheCamera() {
         const model = this.draggableObject;
         _vector3.subVectors(model.position, this.camera.position);
-        model.quaternion.setFromAxisAngle(UP, (3 * Math.PI / 2) - Math.atan2(_vector3.z, _vector3.x));
+        model.quaternion.setFromAxisAngle(UP, (3 * Math.PI) / 2 - Math.atan2(_vector3.z, _vector3.x));
     }
     /**
      * Seach up the scene graph to find the first draggable object and the first
@@ -11973,11 +12652,12 @@ class DragManager extends Script {
         let draggableObject;
         let draggingMode;
         while (currentTarget && !draggableObject) {
-            draggableObject = currentTarget.draggable ?
-                currentTarget :
-                undefined;
-            draggingMode = draggingMode ??
-                currentTarget.draggingMode;
+            draggableObject = currentTarget.draggable
+                ? currentTarget
+                : undefined;
+            draggingMode =
+                draggingMode ??
+                    currentTarget.draggingMode;
             currentTarget = currentTarget.parent;
         }
         return [draggableObject, draggingMode];
@@ -12208,19 +12888,19 @@ class Grid extends View {
  */
 const SpatialPanelShader = {
     uniforms: {
-        'uMainTex': { value: null },
-        'uUseImage': { value: 0.0 },
-        'uBackgroundColor': {
+        uMainTex: { value: null },
+        uUseImage: { value: 0.0 },
+        uBackgroundColor: {
             value: new THREE.Vector4(0.4, 0.8, 1.0, 1.0),
         },
-        'uBoxSize': { value: new THREE.Vector2(0.5, 0.5) },
-        'uRadius': { value: 0.05 },
-        'uReticleUVs': { value: new THREE.Vector4(0.5, 0.5, 0.5, 0.5) },
-        'uSelected': { value: new THREE.Vector2(0.0, 0.0) },
-        'uBorderWidth': { value: 0.1 },
-        'uHighlightRadius': { value: 0.2 },
-        'uOutlineWidth': { value: 0.01 },
-        'uOpacity': { value: 1.0 }
+        uBoxSize: { value: new THREE.Vector2(0.5, 0.5) },
+        uRadius: { value: 0.05 },
+        uReticleUVs: { value: new THREE.Vector4(0.5, 0.5, 0.5, 0.5) },
+        uSelected: { value: new THREE.Vector2(0.0, 0.0) },
+        uBorderWidth: { value: 0.1 },
+        uHighlightRadius: { value: 0.2 },
+        uOutlineWidth: { value: 0.01 },
+        uOpacity: { value: 1.0 },
     },
     vertexShader: /* glsl */ `
     varying vec2 vTexCoord;
@@ -12327,7 +13007,7 @@ const SpatialPanelShader = {
 
       gl_FragColor = uOpacity * max(finalColor1, finalColor2);
     }
-  `
+  `,
 };
 
 /**
@@ -12464,7 +13144,7 @@ class Panel extends View {
          */
         this._targetOpacity = 1.0;
         const isDraggable = options.draggable ?? this.draggable;
-        const useBorderlessShader = options.useBorderlessShader ?? (!isDraggable);
+        const useBorderlessShader = options.useBorderlessShader ?? !isDraggable;
         // Draggable panels have a larger geometry for interaction padding.
         const panelScale = useBorderlessShader ? 1.0 : 1.3;
         // Use SpatialPanelShader for SpatialPanel, while developers can choose
@@ -12475,9 +13155,10 @@ class Panel extends View {
         // Applies user-provided options or default options.
         this.backgroundColor = options.backgroundColor ?? this.backgroundColor;
         this.draggable = isDraggable;
-        this.draggingMode = options.draggingMode ?? this.draggable ?
-            DragMode.TRANSLATING :
-            DragMode.DO_NOT_DRAG;
+        this.draggingMode =
+            (options.draggingMode ?? this.draggable)
+                ? DragMode.TRANSLATING
+                : DragMode.DO_NOT_DRAG;
         this.touchable = options.touchable ?? this.touchable;
         this.isRoot = options.isRoot ?? true;
         this.width = options.width ?? (this.isRoot ? DEFAULT_WIDTH_M : 1);
@@ -12500,7 +13181,8 @@ class Panel extends View {
         this.timer = timer;
         // A manual position set in .position.set() will override the
         // default position to create the SpatialPanel.
-        if (this.position.x !== 0 || this.position.y !== 0 ||
+        if (this.position.x !== 0 ||
+            this.position.y !== 0 ||
             this.position.z !== 0) {
             this.useDefaultPosition = false;
         }
@@ -12555,8 +13237,10 @@ class Panel extends View {
     _prepareMaterialsForFade() {
         this.traverse((child) => {
             if (child instanceof THREE.Mesh && child.material) {
-                const materials = Array.isArray(child.material) ? child.material : [child.material];
-                materials.forEach(material => {
+                const materials = Array.isArray(child.material)
+                    ? child.material
+                    : [child.material];
+                materials.forEach((material) => {
                     material.transparent = true;
                 });
             }
@@ -12570,8 +13254,10 @@ class Panel extends View {
             if (child instanceof View)
                 child.opacity = opacityValue;
             if (child instanceof THREE.Mesh && child.material) {
-                const materials = Array.isArray(child.material) ? child.material : [child.material];
-                materials.forEach(material => {
+                const materials = Array.isArray(child.material)
+                    ? child.material
+                    : [child.material];
+                materials.forEach((material) => {
                     if (material instanceof THREE.ShaderMaterial) {
                         material.uniforms.uOpacity.value = opacityValue;
                     }
@@ -12701,14 +13387,14 @@ class SpatialPanel extends Panel {
         }
         const [id1, id2] = this.ux.getPrimaryTwoControllerIds();
         // --- Update Selection Uniform ---
-        const isSelected1 = (id1 !== null) ? this.ux.selected[id1] : false;
-        const isSelected2 = (id2 !== null) ? this.ux.selected[id2] : false;
+        const isSelected1 = id1 !== null ? this.ux.selected[id1] : false;
+        const isSelected2 = id2 !== null ? this.ux.selected[id2] : false;
         this.mesh.material.uniforms.uSelected.value.set(isSelected1 ? 1.0 : 0.0, isSelected2 ? 1.0 : 0.0);
         // --- Update Reticle UVs Uniform ---
-        const u1 = (id1 !== null) ? this.ux.uvs[id1].x : -1;
-        const v1 = (id1 !== null) ? this.ux.uvs[id1].y : -1;
-        const u2 = (id2 !== null) ? this.ux.uvs[id2].x : -1;
-        const v2 = (id2 !== null) ? this.ux.uvs[id2].y : -1;
+        const u1 = id1 !== null ? this.ux.uvs[id1].x : -1;
+        const v1 = id1 !== null ? this.ux.uvs[id1].y : -1;
+        const u2 = id2 !== null ? this.ux.uvs[id2].x : -1;
+        const v2 = id2 !== null ? this.ux.uvs[id2].y : -1;
         this.mesh.material.uniforms.uReticleUVs.value.set(u1, v1, u2, v2);
     }
 }
@@ -12773,7 +13459,7 @@ class UI extends Script {
      * @returns The composed UI object for this node, or null on error.
      */
     _composeNode(nodeJson) {
-        const { type, options = {}, position = { x: 0, y: 0, z: 0 }, rotation = { x: 0, y: 0, z: 0 }, children = [] } = nodeJson;
+        const { type, options = {}, position = { x: 0, y: 0, z: 0 }, rotation = { x: 0, y: 0, z: 0 }, children = [], } = nodeJson;
         const ComponentClass = UI.ComponentRegistry.get(type);
         if (!ComponentClass) {
             console.error(`UI Error: Unknown component type "${type}". Make sure it's registered.`);
@@ -12908,8 +13594,8 @@ class LoadingSpinnerManager {
                 type: 'XR_LOADING_PROGRESS',
                 payload: {
                     progress: itemsLoaded / itemsTotal,
-                    message: 'Loading assets...'
-                }
+                    message: 'Loading assets...',
+                },
             }, '*');
         };
         /**
@@ -12925,8 +13611,8 @@ class LoadingSpinnerManager {
                 type: 'XR_LOADING_PROGRESS',
                 payload: {
                     progress: itemsLoaded / itemsTotal,
-                    message: `Loading ${Math.round((itemsLoaded / itemsTotal) * 100)}%`
-                }
+                    message: `Loading ${Math.round((itemsLoaded / itemsTotal) * 100)}%`,
+                },
             }, '*');
         };
         /**
@@ -12951,7 +13637,7 @@ class LoadingSpinnerManager {
             this.hideSpinner();
             window.parent.postMessage({
                 type: 'XR_LOADING_ERROR',
-                payload: { url, message: 'Failed to load assets.' }
+                payload: { url, message: 'Failed to load assets.' },
             }, '*');
         };
     }
@@ -12995,9 +13681,11 @@ function placeObjectAtIntersectionFacingTarget(obj, intersection, target) {
     // 3. Determine the desired forward direction.
     // This is the vector from the object to the target, projected onto the
     // surface plane.
-    const worldNormal = vector3b.copy(intersection.normal)
+    const worldNormal = vector3b
+        .copy(intersection.normal)
         .transformDirection(intersection.object.matrixWorld);
-    const forwardVector = target.getWorldPosition(vector3$3)
+    const forwardVector = target
+        .getWorldPosition(vector3$3)
         .sub(obj.position)
         .cross(worldNormal)
         .cross(worldNormal)
@@ -13069,7 +13757,7 @@ class ObjectDetector extends Script {
      * Initializes the ObjectDetector.
      * @override
      */
-    init({ options, ai, aiOptions, deviceCamera, depth, camera }) {
+    init({ options, ai, aiOptions, deviceCamera, depth, camera, }) {
         this.options = options;
         this.ai = ai;
         this.aiOptions = aiOptions;
@@ -13098,8 +13786,7 @@ class ObjectDetector extends Script {
             // case 'mediapipe':
             //   return this._runMediaPipeDetection();
             default:
-                console.warn(`ObjectDetector backend '${this.options.objects.backendConfig
-                    .activeBackend}' is not supported.`);
+                console.warn(`ObjectDetector backend '${this.options.objects.backendConfig.activeBackend}' is not supported.`);
                 return [];
         }
     }
@@ -13111,7 +13798,9 @@ class ObjectDetector extends Script {
             console.error('Gemini is unavailable for object detection.');
             return [];
         }
-        const base64Image = this.deviceCamera.getSnapshot({ outputFormat: 'base64' });
+        const base64Image = this.deviceCamera.getSnapshot({
+            outputFormat: 'base64',
+        });
         if (!base64Image) {
             console.warn('Could not get device camera snapshot.');
             return [];
@@ -13129,8 +13818,8 @@ class ObjectDetector extends Script {
                 type: 'multiPart',
                 parts: [
                     { inlineData: { mimeType: mimeType || undefined, data: strippedBase64 } },
-                    { text: textPrompt }
-                ]
+                    { text: textPrompt },
+                ],
             });
             let parsedResponse;
             try {
@@ -13155,7 +13844,7 @@ class ObjectDetector extends Script {
             }
             const detectionPromises = parsedResponse.map(async (item) => {
                 const { ymin, xmin, ymax, xmax, objectName, ...additionalData } = item || {};
-                if ([ymin, xmin, ymax, xmax].some(coord => typeof coord !== 'number')) {
+                if ([ymin, xmin, ymax, xmax].some((coord) => typeof coord !== 'number')) {
                     return null;
                 }
                 // Bounding box from AI is 0-1000, convert to normalized 0-1.
@@ -13163,9 +13852,9 @@ class ObjectDetector extends Script {
                 const center = new THREE.Vector2();
                 boundingBox.getCenter(center);
                 const uvInput = { u: center.x, v: center.y };
-                const projectionMatrix = this.deviceCamera.simulatorCamera ?
-                    this.camera.projectionMatrix :
-                    new THREE.Matrix4().fromArray(this.depth.view[0].projectionMatrix);
+                const projectionMatrix = this.deviceCamera.simulatorCamera
+                    ? this.camera.projectionMatrix
+                    : new THREE.Matrix4().fromArray(this.depth.view[0].projectionMatrix);
                 const worldPosition = transformRgbUvToWorld(uvInput, cachedDepthArray, projectionMatrix, cachedMatrixWorld, this.deviceCamera, this.depth);
                 if (worldPosition) {
                     const margin = this.options.objects.objectImageMargin;
@@ -13208,7 +13897,7 @@ class ObjectDetector extends Script {
         if (!label) {
             return allObjects;
         }
-        return allObjects.filter(obj => obj.label === label);
+        return allObjects.filter((obj) => obj.label === label);
     }
     /**
      * Removes all currently detected objects from the scene and internal
@@ -13254,10 +13943,10 @@ class ObjectDetector extends Script {
                     return;
                 }
                 // Bounding box from AI is 0-1000, scale it to image dimensions.
-                const rectX = xmin / 1000 * canvas.width;
-                const rectY = ymin / 1000 * canvas.height;
-                const rectWidth = (xmax - xmin) / 1000 * canvas.width;
-                const rectHeight = (ymax - ymin) / 1000 * canvas.height;
+                const rectX = (xmin / 1000) * canvas.width;
+                const rectY = (ymin / 1000) * canvas.height;
+                const rectWidth = ((xmax - xmin) / 1000) * canvas.width;
+                const rectHeight = ((ymax - ymin) / 1000) * canvas.height;
                 ctx.strokeStyle = '#FF0000';
                 ctx.lineWidth = Math.max(2, canvas.width / 400);
                 ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
@@ -13275,7 +13964,11 @@ class ObjectDetector extends Script {
                 ctx.fillText(text, rectX + 4, rectY + 2);
             });
             // Create a link and trigger the download.
-            const timestamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');
+            const timestamp = new Date()
+                .toISOString()
+                .slice(0, 19)
+                .replace('T', '_')
+                .replace(/:/g, '-');
             const link = document.createElement('a');
             link.download = `detection_debug_${timestamp}.png`;
             link.href = canvas.toDataURL('image/png');
@@ -13290,7 +13983,7 @@ class ObjectDetector extends Script {
      */
     async _createDebugVisual(object) {
         // Create sphere.
-        const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 16), new THREE.MeshBasicMaterial({ color: 0xff4285F4 }));
+        const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 16), new THREE.MeshBasicMaterial({ color: 0xff4285f4 }));
         sphere.position.copy(object.position);
         // Create and configure the text label using Troika.
         const { Text } = await import('troika-three-text');
@@ -13368,10 +14061,14 @@ class PlaneDetector extends Script {
     /**
      * Initializes the PlaneDetector.
      */
-    init({ options, renderer }) {
+    init({ options, renderer, }) {
         this.renderer = renderer;
         if (options.planes.showDebugVisualizations) {
-            this._debugMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true, side: THREE.DoubleSide });
+            this._debugMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffff00,
+                wireframe: true,
+                side: THREE.DoubleSide,
+            });
         }
     }
     /**
@@ -13426,7 +14123,7 @@ class PlaneDetector extends Script {
      */
     _updatePlaneMesh(frame, planeMesh, xrPlane) {
         // Recreate geometry from the new polygon.
-        const newVertices = xrPlane.polygon.map(p => new THREE.Vector2(p.x, p.z));
+        const newVertices = xrPlane.polygon.map((p) => new THREE.Vector2(p.x, p.z));
         const newShape = new THREE.Shape(newVertices);
         const newGeometry = new THREE.ShapeGeometry(newShape);
         planeMesh.geometry.dispose();
@@ -13475,7 +14172,7 @@ class PlaneDetector extends Script {
         if (!label) {
             return allPlanes;
         }
-        return allPlanes.filter(plane => plane.label === label);
+        return allPlanes.filter((plane) => plane.label === label);
     }
     /**
      * Toggles the visibility of the debug meshes for all planes.
@@ -13515,7 +14212,7 @@ class World extends Script {
      * Initializes the world-sensing modules based on the provided configuration.
      * This method is called automatically by the XRCore.
      */
-    async init({ options, camera }) {
+    async init({ options, camera, }) {
         this.options = options;
         this.camera = camera;
         if (!this.options || !this.options.enabled) {
@@ -13647,7 +14344,7 @@ class XRTransition extends MeshScript {
         this.ignoreReticleRaycast = true;
         this.renderOrder = -Infinity;
     }
-    init({ renderer, camera, timer, scene, options }) {
+    init({ renderer, camera, timer, scene, options, }) {
         this.renderer = renderer;
         this.sceneCamera = camera;
         this.timer = timer;
@@ -13684,8 +14381,7 @@ class XRTransition extends MeshScript {
         const currentOpacity = this.material.opacity;
         if (currentOpacity !== this.targetAlpha) {
             const lerpFactor = this.timer.getDelta() / this.transitionTime;
-            this.material.opacity =
-                THREE.MathUtils.lerp(currentOpacity, this.targetAlpha, lerpFactor);
+            this.material.opacity = THREE.MathUtils.lerp(currentOpacity, this.targetAlpha, lerpFactor);
             if (Math.abs(this.material.opacity - this.targetAlpha) < 0.01) {
                 this.material.opacity = this.targetAlpha;
             }
@@ -13801,6 +14497,7 @@ class Core {
         this.registry.register(options.world, WorldOptions);
         this.registry.register(options.ai, AIOptions);
         this.registry.register(options.sound, SoundOptions);
+        this.registry.register(options.gestures, GestureRecognitionOptions);
         if (options.transition.enabled) {
             this.transition = new XRTransition();
             this.user.add(this.transition);
@@ -13808,7 +14505,8 @@ class Core {
         }
         this.camera = new THREE.PerspectiveCamera(
         /*fov=*/ 90, window.innerWidth / window.innerHeight, 
-        /*near=*/ options.camera.near, /*far=*/ options.camera.far);
+        /*near=*/ options.camera.near, 
+        /*far=*/ options.camera.far);
         this.registry.register(this.camera, THREE.Camera);
         this.registry.register(this.camera, THREE.PerspectiveCamera);
         this.renderer = new THREE.WebGLRenderer({
@@ -13816,13 +14514,15 @@ class Core {
             antialias: options.antialias,
             stencil: options.stencil,
             alpha: true,
-            logarithmicDepthBuffer: options.logarithmicDepthBuffer
+            logarithmicDepthBuffer: options.logarithmicDepthBuffer,
         });
         this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.xr.enabled = true;
         // disable built-in occlusion
-        this.renderer.xr.getDepthSensingMesh = function () { return null; };
+        this.renderer.xr.getDepthSensingMesh = function () {
+            return null;
+        };
         this.registry.register(this.renderer);
         this.renderer.xr.setReferenceSpaceType(options.referenceSpaceType);
         if (!options.canvas) {
@@ -13833,7 +14533,11 @@ class Core {
         this.options = options;
         // Sets up controllers.
         if (options.controllers.enabled) {
-            this.input.init({ scene: this.scene, options: options, renderer: this.renderer });
+            this.input.init({
+                scene: this.scene,
+                options: options,
+                renderer: this.renderer,
+            });
             this.input.bindSelectStart(this.scriptsManager.callSelectStartBound);
             this.input.bindSelectEnd(this.scriptsManager.callSelectEndBound);
             this.input.bindSelect(this.scriptsManager.callSelectBound);
@@ -13856,13 +14560,20 @@ class Core {
             webXRRequiredFeatures.push('local-floor');
             this.webXRSettings.depthSensing = {
                 usagePreference: [],
-                dataFormatPreference: [this.options.depth.useFloat32 ? 'float32' : 'luminance-alpha'],
+                dataFormatPreference: [
+                    this.options.depth.useFloat32 ? 'float32' : 'luminance-alpha',
+                ],
             };
             this.depth.init(this.camera, options.depth, this.renderer, this.registry, this.scene);
         }
         if (options.hands.enabled) {
             webXRRequiredFeatures.push('hand-tracking');
             this.user.hands = new Hands(this.input.hands);
+            if (options.gestures.enabled) {
+                this.gestureRecognition = new GestureRecognition();
+                this.scene.add(this.gestureRecognition);
+                this.registry.register(this.gestureRecognition);
+            }
         }
         if (options.world.planes.enabled) {
             webXRRequiredFeatures.push('plane-detection');
@@ -13887,8 +14598,9 @@ class Core {
         this.webXRSessionManager.addEventListener(WebXRSessionEventType.SESSION_END, this.onXRSessionEnded.bind(this));
         // Sets up xrButton.
         const shouldAutostartSimulator = this.options.xrButton.autostartSimulator ||
-            this.options.xrButton.autostartSimulatorOnDesktop &&
-                this.options.xrButton.enableSimulator && onDesktopUserAgent();
+            (this.options.xrButton.autostartSimulatorOnDesktop &&
+                this.options.xrButton.enableSimulator &&
+                onDesktopUserAgent());
         if (!shouldAutostartSimulator && options.xrButton.enabled) {
             this.xrButton = new XRButton(this.webXRSessionManager, options.xrButton?.startText, options.xrButton?.endText, options.xrButton?.invalidText, options.xrButton?.startSimulatorText, options.xrButton?.enableSimulator, options.xrButton?.showSimulatorButtonOnMobile, this.startSimulator.bind(this));
             document.body.appendChild(this.xrButton.domElement);
@@ -14082,32 +14794,31 @@ class OcclusionUtils {
         shader.uniforms.tOcclusionMap = { value: null };
         shader.uniforms.uOcclusionClipFromWorld = { value: new THREE.Matrix4() };
         shader.defines = { USE_UV: true, DISTANCE: true };
-        shader.vertexShader =
-            shader.vertexShader
-                .replace('#include <common>', [
-                'uniform mat4 uOcclusionClipFromWorld;',
-                'varying vec4 vOcclusionScreenCoord;', '#include <common>'
-            ].join('\n'))
-                .replace('#include <fog_vertex>', [
-                '#include <fog_vertex>',
-                'vOcclusionScreenCoord = uOcclusionClipFromWorld * worldPosition;',
-            ].join('\n'));
-        shader.fragmentShader =
-            shader.fragmentShader
-                .replace('uniform vec3 diffuse;', [
-                'uniform vec3 diffuse;',
-                'uniform bool occlusionEnabled;',
-                'uniform sampler2D tOcclusionMap;',
-                'varying vec4 vOcclusionScreenCoord;',
-            ].join('\n'))
-                .replace('vec4 diffuseColor = vec4( diffuse, opacity );', [
-                'vec4 diffuseColor = vec4( diffuse, opacity );',
-                'vec2 occlusion_coordinates = 0.5 + 0.5 * vOcclusionScreenCoord.xy / vOcclusionScreenCoord.w;',
-                'vec2 occlusion_sample = texture2D(tOcclusionMap, occlusion_coordinates.xy).rg;',
-                'occlusion_sample = occlusion_sample / max(0.0001, occlusion_sample.g);',
-                'float occlusion_value = clamp(occlusion_sample.r, 0.0, 1.0);',
-                'diffuseColor.a *= occlusionEnabled ? occlusion_value : 1.0;',
-            ].join('\n'));
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', [
+            'uniform mat4 uOcclusionClipFromWorld;',
+            'varying vec4 vOcclusionScreenCoord;',
+            '#include <common>',
+        ].join('\n'))
+            .replace('#include <fog_vertex>', [
+            '#include <fog_vertex>',
+            'vOcclusionScreenCoord = uOcclusionClipFromWorld * worldPosition;',
+        ].join('\n'));
+        shader.fragmentShader = shader.fragmentShader
+            .replace('uniform vec3 diffuse;', [
+            'uniform vec3 diffuse;',
+            'uniform bool occlusionEnabled;',
+            'uniform sampler2D tOcclusionMap;',
+            'varying vec4 vOcclusionScreenCoord;',
+        ].join('\n'))
+            .replace('vec4 diffuseColor = vec4( diffuse, opacity );', [
+            'vec4 diffuseColor = vec4( diffuse, opacity );',
+            'vec2 occlusion_coordinates = 0.5 + 0.5 * vOcclusionScreenCoord.xy / vOcclusionScreenCoord.w;',
+            'vec2 occlusion_sample = texture2D(tOcclusionMap, occlusion_coordinates.xy).rg;',
+            'occlusion_sample = occlusion_sample / max(0.0001, occlusion_sample.g);',
+            'float occlusion_value = clamp(occlusion_sample.r, 0.0, 1.0);',
+            'diffuseColor.a *= occlusionEnabled ? occlusion_value : 1.0;',
+        ].join('\n'));
     }
 }
 
@@ -14158,11 +14869,12 @@ function lookAtRotation(forward, up = UP, target = new THREE.Quaternion()) {
  */
 function clampRotationToAngle(rotation, angle) {
     let currentAngle = 2 * Math.acos(rotation.w);
-    currentAngle = (currentAngle + Math.PI) % (2 * Math.PI) - Math.PI;
+    currentAngle = ((currentAngle + Math.PI) % (2 * Math.PI)) - Math.PI;
     if (Math.abs(currentAngle) <= angle) {
         return;
     }
-    const axis = v1.set(rotation.x, rotation.y, rotation.z)
+    const axis = v1
+        .set(rotation.x, rotation.y, rotation.z)
         .multiplyScalar(1 / Math.sqrt(1 - rotation.w * rotation.w));
     axis.normalize();
     rotation.setFromAxisAngle(axis, angle * Math.sign(currentAngle));
@@ -14174,7 +14886,7 @@ class SimulatorUserAction {
     async play(_options = {}) { }
 }
 
-const LOOK_AT_ANGLE_THRESHOLD$1 = 3 * Math.PI / 180;
+const LOOK_AT_ANGLE_THRESHOLD$1 = (3 * Math.PI) / 180;
 const ROTATION_SPEED_RADIANS_PER_SECOND$1 = 1;
 const controllerToTargetVector = new THREE.Vector3();
 const targetWorldPosition$1 = new THREE.Vector3();
@@ -14193,7 +14905,7 @@ class PinchOnButtonAction extends SimulatorUserAction {
         super();
         this.target = target;
     }
-    async init({ simulator, camera, timer, input }) {
+    async init({ simulator, camera, timer, input, }) {
         this.simulator = simulator;
         this.camera = camera;
         this.timer = timer;
@@ -14205,14 +14917,16 @@ class PinchOnButtonAction extends SimulatorUserAction {
         const localControllerPosition = controllerState.localControllerPositions[controllerIndex];
         const localControllerRotation = controllerState.localControllerOrientations[controllerIndex];
         this.target.getWorldPosition(targetWorldPosition$1);
-        targetPositionRelativeToCamera.copy(targetWorldPosition$1)
+        targetPositionRelativeToCamera
+            .copy(targetWorldPosition$1)
             .applyMatrix4(camera.matrixWorldInverse);
         inverseControllerRotation.copy(localControllerRotation).invert();
-        controllerToTargetVector.copy(targetPositionRelativeToCamera)
+        controllerToTargetVector
+            .copy(targetPositionRelativeToCamera)
             .sub(localControllerPosition);
         lookAtRotation(controllerToTargetVector, UP, finalRotation$1);
-        const angle = (finalRotation$1.angleTo(localControllerRotation) + Math.PI) %
-            (2 * Math.PI) -
+        const angle = ((finalRotation$1.angleTo(localControllerRotation) + Math.PI) %
+            (2 * Math.PI)) -
             Math.PI;
         return angle < LOOK_AT_ANGLE_THRESHOLD$1;
     }
@@ -14222,10 +14936,12 @@ class PinchOnButtonAction extends SimulatorUserAction {
         const localControllerPosition = controllerState.localControllerPositions[controllerIndex];
         const localControllerRotation = controllerState.localControllerOrientations[controllerIndex];
         this.target.getWorldPosition(targetWorldPosition$1);
-        targetPositionRelativeToCamera.copy(targetWorldPosition$1)
+        targetPositionRelativeToCamera
+            .copy(targetWorldPosition$1)
             .applyMatrix4(camera.matrixWorldInverse);
         inverseControllerRotation.copy(localControllerRotation).invert();
-        controllerToTargetVector.copy(targetPositionRelativeToCamera)
+        controllerToTargetVector
+            .copy(targetPositionRelativeToCamera)
             .sub(localControllerPosition);
         lookAtRotation(controllerToTargetVector, UP, finalRotation$1);
         deltaRotation$1.copy(finalRotation$1).multiply(inverseControllerRotation);
@@ -14238,7 +14954,7 @@ class PinchOnButtonAction extends SimulatorUserAction {
         const newSelectingState = true;
         this.input.dispatchEvent({
             type: 'selectstart' ,
-            target: this.input.controllers[controllerState.currentControllerIndex]
+            target: this.input.controllers[controllerState.currentControllerIndex],
         });
         if (controllerState.currentControllerIndex == 0) {
             simulator.hands.setLeftHandPinching(newSelectingState);
@@ -14247,9 +14963,9 @@ class PinchOnButtonAction extends SimulatorUserAction {
             simulator.hands.setRightHandPinching(newSelectingState);
         }
     }
-    async play({ simulatorUser, journeyId, waitFrame }) {
+    async play({ simulatorUser, journeyId, waitFrame, }) {
         let pinchedOnButton = false;
-        while (simulatorUser.isOnJourneyId(journeyId) && (!pinchedOnButton)) {
+        while (simulatorUser.isOnJourneyId(journeyId) && !pinchedOnButton) {
             const deltaTime = this.timer.getDelta();
             if (!this.controllerIsPointingAtButton(this.simulator.controls, this.camera)) {
                 this.rotateControllerTowardsButton(this.simulator.controls, this.camera, deltaTime);
@@ -14277,7 +14993,7 @@ class ShowHandsAction extends SimulatorUserAction {
 
 const NEAR_TARGET_DISTANCE = 0.5;
 const NEAR_TARGET_THRESHOLD = 0.1;
-const LOOK_AT_ANGLE_THRESHOLD = 3 * Math.PI / 180;
+const LOOK_AT_ANGLE_THRESHOLD = (3 * Math.PI) / 180;
 const MOVEMENT_SPEED_METERS_PER_SECOND = 1;
 const ROTATION_SPEED_RADIANS_PER_SECOND = 1;
 // Temporary variables.
@@ -14306,7 +15022,7 @@ class WalkTowardsPanelAction extends SimulatorUserAction {
         this.target.getWorldPosition(targetWorldPosition);
         cameraToTargetVector.copy(targetWorldPosition).sub(camera.position);
         lookAtRotation(cameraToTargetVector, UP, finalRotation);
-        const angle = (finalRotation.angleTo(camera.quaternion) + Math.PI) % (2 * Math.PI) -
+        const angle = ((finalRotation.angleTo(camera.quaternion) + Math.PI) % (2 * Math.PI)) -
             Math.PI;
         return angle < LOOK_AT_ANGLE_THRESHOLD;
     }
@@ -14314,8 +15030,8 @@ class WalkTowardsPanelAction extends SimulatorUserAction {
         const camera = this.camera;
         this.target.getWorldPosition(targetWorldPosition);
         cameraToTargetVector.copy(targetWorldPosition).sub(camera.position);
-        return Math.abs(cameraToTargetVector.length() - NEAR_TARGET_DISTANCE) <
-            NEAR_TARGET_THRESHOLD;
+        return (Math.abs(cameraToTargetVector.length() - NEAR_TARGET_DISTANCE) <
+            NEAR_TARGET_THRESHOLD);
     }
     lookAtTarget() {
         const camera = this.camera;
@@ -14341,13 +15057,14 @@ class WalkTowardsPanelAction extends SimulatorUserAction {
         const deltaTime = this.timer.getDelta();
         this.target.getWorldPosition(targetWorldPosition);
         cameraToTargetVector.copy(targetWorldPosition).sub(camera.position);
-        closeToTargetPosition.copy(targetWorldPosition)
-            .addScaledVector(cameraToTargetVector, -0.1);
+        closeToTargetPosition
+            .copy(targetWorldPosition)
+            .addScaledVector(cameraToTargetVector, -NEAR_TARGET_THRESHOLD);
         const cameraToCloseToTarget = closeToTargetPosition.sub(camera.position);
         const movementDistance = clamp(cameraToCloseToTarget.length(), 0, MOVEMENT_SPEED_METERS_PER_SECOND * deltaTime);
         camera.position.addScaledVector(cameraToCloseToTarget, movementDistance / cameraToCloseToTarget.length());
     }
-    async play({ simulatorUser, journeyId, waitFrame }) {
+    async play({ simulatorUser, journeyId, waitFrame, }) {
         let isLookingAtTarget = this.isLookingAtTarget();
         let isNearTarget = this.isNearTarget();
         let shouldContinueJourney = simulatorUser.isOnJourneyId(journeyId);
@@ -14576,7 +15293,7 @@ class MaterialSymbolsView extends View {
      * Construct a Material Symbol view.
      * @param options - Options for the icon.
      */
-    constructor({ icon = 'sunny', iconWeight = 400, iconStyle = 'outlined', iconScale = 1, iconColor = '#FFFFFF' }) {
+    constructor({ icon = 'sunny', iconWeight = 400, iconStyle = 'outlined', iconScale = 1, iconColor = '#FFFFFF', }) {
         super({});
         this.#icon = '';
         this.#iconWeight = 400;
@@ -14735,7 +15452,7 @@ class PagerState extends Script {
             return false;
         }
         const velocity = Math.sin(Math.PI * (this.currentPage % 1));
-        const direction = ((this.currentPage % 1) >= 0.5 ? 1 : -1) *
+        const direction = (this.currentPage % 1 >= 0.5 ? 1 : -1) *
             Number(Math.abs(velocity) > 0.01);
         const targetPage = clamp(this.currentPage + direction, 0, this.pages - 1);
         const remainingDelta = Math.abs(targetPage - this.currentPage);
@@ -14771,7 +15488,7 @@ class Pager extends View {
         this.raycastPlane = new THREE.Plane();
         this.selectingRay = new THREE.Ray();
         this.selectingRayTarget = new THREE.Vector3();
-        const { state = new PagerState({ pages: 1 }), enableRaycastOnChildren = true, continuousScrolling = true } = options;
+        const { state = new PagerState({ pages: 1 }), enableRaycastOnChildren = true, continuousScrolling = true, } = options;
         this.state = state;
         this.enableRaycastOnChildren = enableRaycastOnChildren;
         this.continuousScrolling = continuousScrolling;
@@ -14800,11 +15517,14 @@ class Pager extends View {
     updatePagePositions() {
         const halfNumberOfPages = Math.floor(this.state.pages / 2);
         for (let i = 0; i < this.state.pages; i++) {
-            const deltaFromCurrentPage = this.continuousScrolling && this.state.pages > 1 ?
-                ((i - this.state.currentPage + halfNumberOfPages + this.state.pages) %
-                    this.state.pages -
-                    halfNumberOfPages) :
-                i - this.state.currentPage;
+            const deltaFromCurrentPage = this.continuousScrolling && this.state.pages > 1
+                ? ((i -
+                    this.state.currentPage +
+                    halfNumberOfPages +
+                    this.state.pages) %
+                    this.state.pages) -
+                    halfNumberOfPages
+                : i - this.state.currentPage;
             this.children[i].position.x = deltaFromCurrentPage * this.rangeX;
         }
     }
@@ -14820,7 +15540,7 @@ class Pager extends View {
         for (const plane of this.clippingPlanes) {
             plane.applyMatrix4(this.matrixWorld);
         }
-        this.traverse(child => {
+        this.traverse((child) => {
             if (child instanceof THREE.Mesh) {
                 child.material.clippingPlanes = this.clippingPlanes;
             }
@@ -14838,14 +15558,15 @@ class Pager extends View {
     onObjectSelectStart(event) {
         const controller = event.target;
         const intersections = this.input.intersectionsForController.get(controller);
-        const intersectionIndex = intersections.findIndex(intersection => intersection.object == this);
+        const intersectionIndex = intersections.findIndex((intersection) => intersection.object == this);
         if (intersectionIndex == -1)
             return false;
         const intersection = intersections[intersectionIndex];
         this.selecting = true;
         this.selectingController = controller;
         this.updateMatrixWorld();
-        this.selectStartPositionLocal.copy(intersection.point)
+        this.selectStartPositionLocal
+            .copy(intersection.point)
             .applyMatrix4(matrix4.copy(this.matrixWorld).invert());
         this.raycastPlane.normal.set(0, 0, 1.0);
         this.raycastPlane.constant = 0;
@@ -14868,10 +15589,10 @@ class Pager extends View {
             this.selectingRayTarget.applyMatrix4(matrix4.copy(this.matrixWorld).invert());
             const deltaPage = this.computeSelectingDelta(this.selectingRayTarget, this.selectStartPositionLocal);
             this.state.currentPage =
-                this.continuousScrolling && this.state.pages > 1 ?
-                    ((this.selectStartPage - deltaPage + this.state.pages) %
-                        this.state.pages) :
-                    clamp(this.selectStartPage - deltaPage, 0, this.state.pages - 1);
+                this.continuousScrolling && this.state.pages > 1
+                    ? (this.selectStartPage - deltaPage + this.state.pages) %
+                        this.state.pages
+                    : clamp(this.selectStartPage - deltaPage, 0, this.state.pages - 1);
         }
     }
     onObjectSelectEnd(event) {
@@ -14886,7 +15607,7 @@ class Pager extends View {
     raycast(raycaster, intersects) {
         const thisIntersections = [];
         this.raycastMesh.raycast(raycaster, thisIntersections);
-        thisIntersections.forEach(intersection => {
+        thisIntersections.forEach((intersection) => {
             intersection.object = this;
             intersects.push(intersection);
         });
@@ -14900,7 +15621,9 @@ class Pager extends View {
             this.updateMatrixWorld();
             matrix4.copy(this.matrixWorld).invert();
             for (const intersection of childIntersections) {
-                const pointInLocalCoordinates = vector3$1.copy(intersection.point).applyMatrix4(matrix4);
+                const pointInLocalCoordinates = vector3$1
+                    .copy(intersection.point)
+                    .applyMatrix4(matrix4);
                 if (Math.abs(pointInLocalCoordinates.x) < 0.5) {
                     intersects.push(intersection);
                 }
@@ -14934,7 +15657,7 @@ class VerticalPager extends Pager {
 }
 
 class ScrollingTroikaTextView extends View {
-    constructor({ text = 'ScrollingTroikaTextView', textAlign = 'left', scrollerState = new TextScrollerState(), fontSize = 0.06 } = {}) {
+    constructor({ text = 'ScrollingTroikaTextView', textAlign = 'left', scrollerState = new TextScrollerState(), fontSize = 0.06, } = {}) {
         super();
         this.onTextSyncCompleteBound = this.onTextSyncComplete.bind(this);
         this.currentText = '';
@@ -14947,7 +15670,7 @@ class ScrollingTroikaTextView extends View {
             textAlign: textAlign,
             fontSize: fontSize,
             anchorX: 0,
-            anchorY: 0
+            anchorY: 0,
         });
         this.textView.x = -0.5;
         this.textView.addEventListener('synccomplete', this.onTextSyncCompleteBound);
@@ -14956,8 +15679,10 @@ class ScrollingTroikaTextView extends View {
         this.add(this.pager);
     }
     update() {
-        this.textViewWrapper.y = this.textView.lineHeight *
-            this.textView.aspectRatio * this.scrollerState.currentLine;
+        this.textViewWrapper.y =
+            this.textView.lineHeight *
+                this.textView.aspectRatio *
+                this.scrollerState.currentLine;
         this.textViewWrapper.updateLayout();
     }
     addText(text) {
@@ -15032,7 +15757,8 @@ class FreestandingSlider {
      * @returns The calculated slider value, clamped within the min/max range.
      */
     getValue(position) {
-        positionDiff.copy(position)
+        positionDiff
+            .copy(position)
             .sub(this.initialPosition)
             .applyQuaternion(this.initialRotationInverse);
         return clamp(this.startingValue + this.scale * positionDiff.x, this.minValue, this.maxValue);
@@ -15055,9 +15781,9 @@ class FreestandingSlider {
      * @returns The calculated slider value.
      */
     getValueFromController(controller) {
-        return controller instanceof MouseController ?
-            this.getValueFromRotation(controller.quaternion) :
-            this.getValue(controller.position);
+        return controller instanceof MouseController
+            ? this.getValueFromRotation(controller.quaternion)
+            : this.getValue(controller.position);
     }
     /**
      * Updates the starting value, typically after a gesture has ended.
@@ -15113,11 +15839,11 @@ class ModelLoader {
      * @returns A promise that resolves with the loaded model data (e.g., a glTF
      *     scene or a SplatMesh).
      */
-    async load({ path, url = '', renderer = undefined, onProgress = undefined }) {
+    async load({ path, url = '', renderer = undefined, onProgress = undefined, }) {
         if (onProgress) {
             console.warn('ModelLoader: An onProgress callback was provided to load(), ' +
                 'but a LoadingManager is in use. Progress will be reported via the ' +
-                'LoadingManager\'s onProgress callback. The provided callback will be ignored.');
+                "LoadingManager's onProgress callback. The provided callback will be ignored.");
         }
         const extension = url.split('.').pop()?.toLowerCase() || '';
         const splatExtensions = ['ply', 'spz', 'splat', 'ksplat'];
@@ -15202,8 +15928,8 @@ class ModelViewerPlatformCornerGeometry extends THREE.BufferGeometry {
         const normal = new THREE.Vector3();
         for (let j = 0; j <= radialSegments; j++) {
             for (let i = 0; i <= tubularSegments; i++) {
-                const u = i / tubularSegments * Math.PI / 2;
-                const v = j / radialSegments * Math.PI + 3 * Math.PI / 2;
+                const u = ((i / tubularSegments) * Math.PI) / 2;
+                const v = (j / radialSegments) * Math.PI + (3 * Math.PI) / 2;
                 vertex.x = (radius + tube * Math.cos(v)) * Math.cos(u);
                 vertex.y = (radius + tube * Math.cos(v)) * Math.sin(u);
                 vertex.z = tube * Math.sin(v);
@@ -15254,36 +15980,46 @@ function createPlatformGeometry(width = 1, depth = 1, thickness = 0.02, cornerRa
     }, 0);
     const allGeometries = [...sideGeometries, ...flatGeometries];
     const mergedGeometry = BufferGeometryUtils.mergeGeometries(allGeometries);
-    allGeometries.forEach(geometry => geometry.dispose());
+    allGeometries.forEach((geometry) => geometry.dispose());
     mergedGeometry.addGroup(0, sideGeometriesVertexCount, 0);
     mergedGeometry.addGroup(sideGeometriesVertexCount, flatGeometriesVertexCount, 1);
     mergedGeometry.computeBoundingBox();
     return mergedGeometry;
 }
 function createPlatformSideGeometries(width = 1, depth = 1, thickness = 0.01, cornerRadius = 0.03, cornerWidthSegments = 5, radialSegments = 5) {
-    const cornerGeometry = new ModelViewerPlatformCornerGeometry(cornerRadius, thickness / 2, radialSegments, cornerWidthSegments)
-        .rotateX(Math.PI / 2);
-    const cornerGeometry1 = cornerGeometry.clone()
-        .rotateY(2 * Math.PI / 2)
+    const cornerGeometry = new ModelViewerPlatformCornerGeometry(cornerRadius, thickness / 2, radialSegments, cornerWidthSegments).rotateX(Math.PI / 2);
+    const cornerGeometry1 = cornerGeometry
+        .clone()
+        .rotateY((2 * Math.PI) / 2)
         .translate(-(width / 2 - cornerRadius), 0, -(depth / 2 - cornerRadius));
-    const cornerGeometry2 = cornerGeometry.clone()
-        .rotateY(3 * Math.PI / 2)
-        .translate(-(width / 2 - cornerRadius), 0, (depth / 2 - cornerRadius));
-    const cornerGeometry3 = cornerGeometry.clone()
-        .rotateY(4 * Math.PI / 2)
-        .translate((width / 2 - cornerRadius), 0, (depth / 2 - cornerRadius));
-    const cornerGeometry4 = cornerGeometry.rotateY(5 * Math.PI / 2)
-        .translate((width / 2 - cornerRadius), 0, -(depth / 2 - cornerRadius));
-    const cornerTubes = [cornerGeometry1, cornerGeometry2, cornerGeometry3, cornerGeometry4];
-    const widthTube = new THREE
-        .CylinderGeometry(thickness / 2, thickness / 2, (width - 2 * cornerRadius), radialSegments, 1, true, 0, Math.PI)
-        .rotateZ(Math.PI / 2);
-    const widthTube1 = widthTube.clone().rotateX(-Math.PI / 2).translate(0, 0, -depth / 2);
+    const cornerGeometry2 = cornerGeometry
+        .clone()
+        .rotateY((3 * Math.PI) / 2)
+        .translate(-(width / 2 - cornerRadius), 0, depth / 2 - cornerRadius);
+    const cornerGeometry3 = cornerGeometry
+        .clone()
+        .rotateY((4 * Math.PI) / 2)
+        .translate(width / 2 - cornerRadius, 0, depth / 2 - cornerRadius);
+    const cornerGeometry4 = cornerGeometry
+        .rotateY((5 * Math.PI) / 2)
+        .translate(width / 2 - cornerRadius, 0, -(depth / 2 - cornerRadius));
+    const cornerTubes = [
+        cornerGeometry1,
+        cornerGeometry2,
+        cornerGeometry3,
+        cornerGeometry4,
+    ];
+    const widthTube = new THREE.CylinderGeometry(thickness / 2, thickness / 2, width - 2 * cornerRadius, radialSegments, 1, true, 0, Math.PI).rotateZ(Math.PI / 2);
+    const widthTube1 = widthTube
+        .clone()
+        .rotateX(-Math.PI / 2)
+        .translate(0, 0, -depth / 2);
     const widthTube2 = widthTube.rotateX(Math.PI / 2).translate(0, 0, depth / 2);
-    const depthTube = new THREE
-        .CylinderGeometry(thickness / 2, thickness / 2, (depth - 2 * cornerRadius), radialSegments, 1, true, 0, Math.PI)
-        .rotateX(-Math.PI / 2);
-    const depthTube1 = depthTube.clone().rotateY(Math.PI).translate(-width / 2, 0, 0);
+    const depthTube = new THREE.CylinderGeometry(thickness / 2, thickness / 2, depth - 2 * cornerRadius, radialSegments, 1, true, 0, Math.PI).rotateX(-Math.PI / 2);
+    const depthTube1 = depthTube
+        .clone()
+        .rotateY(Math.PI)
+        .translate(-width / 2, 0, 0);
     const depthTube2 = depthTube.translate(width / 2, 0, 0);
     const sideTubes = [widthTube1, widthTube2, depthTube1, depthTube2];
     return [...cornerTubes, ...sideTubes];
@@ -15292,35 +16028,44 @@ function createPlatformFlatGeometries(width = 1, depth = 1, thickness = 0.01, co
     const widthMinusRadius = width - 2 * cornerRadius;
     const depthMinusRadius = depth - 2 * cornerRadius;
     const longQuad = new THREE.PlaneGeometry(width, depthMinusRadius).rotateX(-Math.PI / 2);
-    const shortQuad = new THREE.PlaneGeometry(widthMinusRadius, cornerRadius)
-        .rotateX(-Math.PI / 2);
+    const shortQuad = new THREE.PlaneGeometry(widthMinusRadius, cornerRadius).rotateX(-Math.PI / 2);
     const shortQuadTranslationZ = depthMinusRadius / 2 + cornerRadius / 2;
     const shortQuad1 = shortQuad.clone().translate(0, 0, shortQuadTranslationZ);
     const shortQuad2 = shortQuad.translate(0, 0, -shortQuadTranslationZ);
     const quadGeometries = [longQuad, shortQuad1, shortQuad2];
-    const cornerCircle = new THREE
-        .CircleGeometry(cornerRadius, cornerWidthSegments, 0, Math.PI / 2)
-        .rotateX(-Math.PI / 2);
+    const cornerCircle = new THREE.CircleGeometry(cornerRadius, cornerWidthSegments, 0, Math.PI / 2).rotateX(-Math.PI / 2);
     const circleTranslationZ = depthMinusRadius / 2;
     const circleTranslationX = widthMinusRadius / 2;
-    const cornerCircle1 = cornerCircle.clone()
-        .rotateY(3 * Math.PI / 2)
+    const cornerCircle1 = cornerCircle
+        .clone()
+        .rotateY((3 * Math.PI) / 2)
         .translate(circleTranslationX, 0, circleTranslationZ);
-    const cornerCircle2 = cornerCircle.clone()
-        .rotateY(0 * Math.PI / 2)
+    const cornerCircle2 = cornerCircle
+        .clone()
+        .rotateY((0 * Math.PI) / 2)
         .translate(circleTranslationX, 0, -circleTranslationZ);
-    const cornerCircle3 = cornerCircle.clone()
-        .rotateY(1 * Math.PI / 2)
+    const cornerCircle3 = cornerCircle
+        .clone()
+        .rotateY((1 * Math.PI) / 2)
         .translate(-circleTranslationX, 0, -circleTranslationZ);
-    const cornerCircle4 = cornerCircle.clone()
-        .rotateY(2 * Math.PI / 2)
+    const cornerCircle4 = cornerCircle
+        .clone()
+        .rotateY((2 * Math.PI) / 2)
         .translate(-circleTranslationX, 0, circleTranslationZ);
-    const circleGeometries = [cornerCircle1, cornerCircle2, cornerCircle3, cornerCircle4];
+    const circleGeometries = [
+        cornerCircle1,
+        cornerCircle2,
+        cornerCircle3,
+        cornerCircle4,
+    ];
     const topGeometries = [...quadGeometries, ...circleGeometries];
-    const bottomGeometries = topGeometries.map(geometry => {
-        return geometry.clone().rotateX(Math.PI).translate(0, -thickness / 2, 0);
+    const bottomGeometries = topGeometries.map((geometry) => {
+        return geometry
+            .clone()
+            .rotateX(Math.PI)
+            .translate(0, -thickness / 2, 0);
     });
-    topGeometries.forEach(geometry => geometry.translate(0, thickness / 2, 0));
+    topGeometries.forEach((geometry) => geometry.translate(0, thickness / 2, 0));
     return [...topGeometries, ...bottomGeometries];
 }
 
@@ -15334,8 +16079,16 @@ class ModelViewerPlatform extends THREE.Mesh {
     constructor(width, depth, thickness) {
         const geometry = createPlatformGeometry(width, depth, thickness);
         super(geometry, [
-            new THREE.MeshLambertMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.0 }),
-            new THREE.MeshLambertMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.0 })
+            new THREE.MeshLambertMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.0,
+            }),
+            new THREE.MeshLambertMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.0,
+            }),
         ]);
         this.draggingMode = DragManager.TRANSLATING;
         this.opacity = new AnimatableNumber(0, 0, 0.5, 0);
@@ -15376,6 +16129,7 @@ class ModelViewer extends Script {
         depth: Depth,
         scene: THREE.Scene,
         renderer: THREE.WebGLRenderer,
+        registry: Registry,
     }; }
     constructor({ castShadow = true, receiveShadow = true, raycastToChildren = false, }) {
         super();
@@ -15396,11 +16150,12 @@ class ModelViewer extends Script {
         this.receiveShadow = receiveShadow;
         this.raycastToChildren = raycastToChildren;
     }
-    async init({ camera, depth, scene, renderer }) {
+    async init({ camera, depth, scene, renderer, registry, }) {
         this.camera = camera;
         this.depth = depth;
         this.scene = scene;
         this.renderer = renderer;
+        this.registry = registry;
         for (const shader of this.occludableShaders) {
             this.depth.occludableShaders.add(shader);
         }
@@ -15417,7 +16172,7 @@ class ModelViewer extends Script {
         const splatMesh = await new ModelLoader().loadSplat({ url: data.model });
         this.splatMesh = splatMesh;
         splatMesh.raycast = () => { };
-        this.splatAnchor = new SplatAnchor;
+        this.splatAnchor = new SplatAnchor();
         if (data.scale) {
             this.splatAnchor.scale.copy(data.scale);
         }
@@ -15447,12 +16202,16 @@ class ModelViewer extends Script {
         // Return the anchor, as it's the interactive object in the scene graph
         return onSceneLoaded ? onSceneLoaded(this.splatAnchor) : this.splatAnchor;
     }
-    async loadGLTFModel({ data, onSceneLoaded = () => { }, platformMargin = defaultPlatformMargin, setupRaycastCylinder = true, setupRaycastBox = false, setupPlatform = true, renderer = undefined, addOcclusionToShader = false }) {
+    async loadGLTFModel({ data, onSceneLoaded = () => { }, platformMargin = defaultPlatformMargin, setupRaycastCylinder = true, setupRaycastBox = false, setupPlatform = true, renderer = undefined, addOcclusionToShader = false, }) {
         this.data = data;
         if (data.scale) {
             this.initialScale.copy(data.scale);
         }
-        const gltf = await new ModelLoader().loadGLTF({ path: data.path, url: data.model, renderer: renderer });
+        const gltf = await new ModelLoader().loadGLTF({
+            path: data.path,
+            url: data.model,
+            renderer: renderer,
+        });
         const animationMixer = new THREE.AnimationMixer(gltf.scene);
         gltf.animations.forEach((clip) => {
             if (this.startAnimationOnLoad) {
@@ -15505,9 +16264,9 @@ class ModelViewer extends Script {
             gltf.scene.traverse((child) => {
                 if (child.isMesh) {
                     const mesh = child;
-                    (mesh.material instanceof Array ? mesh.material : [
-                        mesh.material
-                    ]).forEach((material) => {
+                    (mesh.material instanceof Array
+                        ? mesh.material
+                        : [mesh.material]).forEach((material) => {
                         material.transparent = true;
                         material.onBeforeCompile = (shader) => {
                             OcclusionUtils.addOcclusionToShader(shader);
@@ -15530,9 +16289,12 @@ class ModelViewer extends Script {
                 return;
             }
             this.splatAnchor.updateMatrix();
-            const localBboxOfTransformedMesh = localBbox.clone().applyMatrix4(this.splatAnchor.matrix);
+            const localBboxOfTransformedMesh = localBbox
+                .clone()
+                .applyMatrix4(this.splatAnchor.matrix);
             const translationAmount = new THREE.Vector3();
-            localBboxOfTransformedMesh.getCenter(translationAmount)
+            localBboxOfTransformedMesh
+                .getCenter(translationAmount)
                 .multiplyScalar(-1);
             if (verticallyAlignObject) {
                 translationAmount.y = -localBboxOfTransformedMesh.min.y;
@@ -15548,7 +16310,8 @@ class ModelViewer extends Script {
             this.bbox = localBboxOfTransformedMesh.translate(translationAmount);
         }
         else {
-            const contentChildren = this.children.filter((c) => c !== this.platform && c !== this.rotationRaycastMesh &&
+            const contentChildren = this.children.filter((c) => c !== this.platform &&
+                c !== this.rotationRaycastMesh &&
                 c !== this.controlBar);
             this.bbox = getGroupBoundingBox(contentChildren);
             if (this.bbox.isEmpty()) {
@@ -15601,8 +16364,7 @@ class ModelViewer extends Script {
         this.bbox.getSize(bboxSize);
         const width = bboxSize.x + platformMargin.x;
         const depth = bboxSize.z + platformMargin.y;
-        this.platform =
-            new ModelViewerPlatform(width, depth, this.platformThickness);
+        this.platform = new ModelViewerPlatform(width, depth, this.platformThickness);
         const center = new THREE.Vector3();
         this.bbox.getCenter(center);
         this.platform.position.set(center.x, -this.platformThickness / 2, center.z);
@@ -15622,19 +16384,24 @@ class ModelViewer extends Script {
             this.platform.update(delta);
         }
         const camera = this.camera;
-        if (this.controlBar != null && this.controlBar.parent == this &&
+        if (this.controlBar != null &&
+            this.controlBar.parent == this &&
             camera != null) {
-            const directionToCamera = vector3.copy(camera.position).sub(this.position);
+            const directionToCamera = vector3
+                .copy(camera.position)
+                .sub(this.position);
             const distanceToCamera = directionToCamera.length();
             const pitchAngleRadians = Math.asin(directionToCamera.normalize().y);
             directionToCamera.y = 0;
             directionToCamera.normalize();
             // Make the button face the camera.
             quaternion.copy(this.quaternion).invert();
-            this.controlBar.quaternion.setFromAxisAngle(LEFT, pitchAngleRadians)
+            this.controlBar.quaternion
+                .setFromAxisAngle(LEFT, pitchAngleRadians)
                 .premultiply(quaternion2.setFromUnitVectors(BACK, directionToCamera))
                 .premultiply(quaternion);
-            this.controlBar.position.setScalar(0)
+            this.controlBar.position
+                .setScalar(0)
                 .addScaledVector(directionToCamera, 0.5)
                 .applyQuaternion(quaternion);
             this.controlBar.position.y = 0.0;
@@ -15667,7 +16434,8 @@ class ModelViewer extends Script {
         if (this.raycastToChildren && content) {
             const childRaycasts = [];
             for (const child of this.children) {
-                if (child != this.rotationRaycastMesh && child != this.platform &&
+                if (child != this.rotationRaycastMesh &&
+                    child != this.platform &&
                     child != this.controlBar) {
                     raycaster.intersectObject(child, true, childRaycasts);
                 }
@@ -15750,10 +16518,15 @@ class ModelViewer extends Script {
         const { SparkRenderer } = await import('@sparkjsdev/spark');
         let sparkRendererExists = false;
         this.scene.traverse((child) => {
-            sparkRendererExists ||= (child instanceof SparkRenderer);
+            sparkRendererExists ||= child instanceof SparkRenderer;
         });
         if (!sparkRendererExists) {
-            this.scene.add(new SparkRenderer({ renderer: this.renderer, maxStdDev: Math.sqrt(5) }));
+            const sparkRenderer = new SparkRenderer({
+                renderer: this.renderer,
+                maxStdDev: Math.sqrt(5),
+            });
+            this.registry.register(new SparkRendererHolder(sparkRenderer));
+            this.scene.add(sparkRenderer);
         }
     }
 }
@@ -15775,7 +16548,11 @@ class SketchPanel extends View {
         const ctx = canvas.getContext('2d');
         const texture = new THREE.CanvasTexture(canvas);
         const geometry = new THREE.PlaneGeometry(canvas.width * 0.001, canvas.height * 0.001);
-        const material = new THREE.MeshBasicMaterial({ map: texture, toneMapped: false, alphaTest: 0.01 });
+        const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            toneMapped: false,
+            alphaTest: 0.01,
+        });
         super({}, geometry, material);
         this.activeHand = -1;
         this.activeLine = [];
@@ -16013,9 +16790,10 @@ class VideoFileStream extends VideoStream {
         }
         this.stop_();
         this.video_.srcObject = null;
-        this.video_.src = typeof this.videoFile_ === 'string' ?
-            this.videoFile_ :
-            URL.createObjectURL(this.videoFile_);
+        this.video_.src =
+            typeof this.videoFile_ === 'string'
+                ? this.videoFile_
+                : URL.createObjectURL(this.videoFile_);
         this.video_.loop = true;
         this.video_.muted = true;
         await new Promise((resolve, reject) => {
@@ -16034,7 +16812,7 @@ class VideoFileStream extends VideoStream {
             width: this.width,
             height: this.height,
             aspectRatio: this.aspectRatio,
-            videoFile: this.videoFile_
+            videoFile: this.videoFile_,
         });
     }
     /**
@@ -16054,5 +16832,5 @@ class VideoFileStream extends VideoStream {
     }
 }
 
-export { AI, AIOptions, AVERAGE_IPD_METERS, ActiveControllers, Agent, AnimatableNumber, AudioListener, AudioPlayer, BACK, BackgroundMusic, CategoryVolumes, Col, Core, CoreSound, DEFAULT_DEVICE_CAMERA_HEIGHT, DEFAULT_DEVICE_CAMERA_WIDTH, DOWN, Depth, DepthMesh, DepthMeshOptions, DepthOptions, DepthTextures, DetectedObject, DetectedPlane, DeviceCameraOptions, DragManager, DragMode, ExitButton, FORWARD, FreestandingSlider, GazeController, Gemini, GeminiOptions, GenerateSkyboxTool, GetWeatherTool, Grid, HAND_BONE_IDX_CONNECTION_MAP, HAND_JOINT_COUNT, HAND_JOINT_IDX_CONNECTION_MAP, HAND_JOINT_NAMES, Handedness, Hands, HandsOptions, HorizontalPager, IconButton, IconView, ImageView, Input, InputOptions, Keycodes, LEFT, LEFT_VIEW_ONLY_LAYER, LabelView, Lighting, LightingOptions, LoadingSpinnerManager, MaterialSymbolsView, MeshScript, ModelLoader, ModelViewer, MouseController, NEXT_SIMULATOR_MODE, NUM_HANDS, OCCLUDABLE_ITEMS_LAYER, ObjectDetector, ObjectsOptions, OcclusionPass, OcclusionUtils, OpenAI, OpenAIOptions, Options, PageIndicator, Pager, PagerState, Panel, PanelMesh, Physics, PhysicsOptions, PinchOnButtonAction, PlaneDetector, PlanesOptions, RIGHT, RIGHT_VIEW_ONLY_LAYER, Registry, Reticle, ReticleOptions, RotationRaycastMesh, Row, SIMULATOR_HAND_POSE_NAMES, SIMULATOR_HAND_POSE_TO_JOINTS_LEFT, SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT, SOUND_PRESETS, ScreenshotSynthesizer, Script, ScriptMixin, ScriptsManager, ScrollingTroikaTextView, SetSimulatorModeEvent, ShowHandsAction, Simulator, SimulatorCamera, SimulatorControlMode, SimulatorControllerState, SimulatorControls, SimulatorDepth, SimulatorDepthMaterial, SimulatorHandPose, SimulatorHandPoseChangeRequestEvent, SimulatorHands, SimulatorInterface, SimulatorMediaDeviceInfo, SimulatorMode, SimulatorOptions, SimulatorRenderMode, SimulatorScene, SimulatorUser, SimulatorUserAction, SketchPanel, SkyboxAgent, SoundOptions, SoundSynthesizer, SpatialAudio, SpatialPanel, SpeechRecognizer, SpeechRecognizerOptions, SpeechSynthesizer, SpeechSynthesizerOptions, SplatAnchor, StreamState, TextButton, TextScrollerState, TextView, Tool, UI, UI_OVERLAY_LAYER, UP, UX, User, VIEW_DEPTH_GAP, VerticalPager, VideoFileStream, VideoStream, VideoView, View, VolumeCategory, WaitFrame, WalkTowardsPanelAction, World, WorldOptions, XRButton, XRDeviceCamera, XREffects, XRPass, XRTransitionOptions, XR_BLOCKS_ASSETS_PATH, ZERO_VECTOR3, add, ai, aspectRatios, callInitWithDependencyInjection, clamp, clampRotationToAngle, core, cropImage, extractYaw, getColorHex, getDeltaTime, getUrlParamBool, getUrlParamFloat, getUrlParamInt, getUrlParameter, getVec4ByColorString, getXrCameraLeft, getXrCameraRight, init, initScript, lerp, loadStereoImageAsTextures, loadingSpinnerManager, lookAtRotation, objectIsDescendantOf, onDesktopUserAgent, parseBase64DataURL, placeObjectAtIntersectionFacingTarget, print, rgbToDepthParams, scene, showOnlyInLeftEye, showOnlyInRightEye, showReticleOnDepthMesh, transformRgbToDepthUv, transformRgbUvToWorld, traverseUtil, uninitScript, urlParams, user, world, xrDepthMeshOptions, xrDepthMeshPhysicsOptions, xrDepthMeshVisualizationOptions, xrDeviceCameraEnvironmentContinuousOptions, xrDeviceCameraEnvironmentOptions, xrDeviceCameraUserContinuousOptions, xrDeviceCameraUserOptions };
+export { AI, AIOptions, AVERAGE_IPD_METERS, ActiveControllers, Agent, AnimatableNumber, AudioListener, AudioPlayer, BACK, BackgroundMusic, CategoryVolumes, Col, Core, CoreSound, DEFAULT_DEVICE_CAMERA_HEIGHT, DEFAULT_DEVICE_CAMERA_WIDTH, DOWN, Depth, DepthMesh, DepthMeshOptions, DepthOptions, DepthTextures, DetectedObject, DetectedPlane, DeviceCameraOptions, DragManager, DragMode, ExitButton, FORWARD, FreestandingSlider, GazeController, Gemini, GeminiOptions, GenerateSkyboxTool, GestureRecognition, GestureRecognitionOptions, GetWeatherTool, Grid, HAND_BONE_IDX_CONNECTION_MAP, HAND_JOINT_COUNT, HAND_JOINT_IDX_CONNECTION_MAP, HAND_JOINT_NAMES, Handedness, Hands, HandsOptions, HorizontalPager, IconButton, IconView, ImageView, Input, InputOptions, Keycodes, LEFT, LEFT_VIEW_ONLY_LAYER, LabelView, Lighting, LightingOptions, LoadingSpinnerManager, MaterialSymbolsView, MeshScript, ModelLoader, ModelViewer, MouseController, NEXT_SIMULATOR_MODE, NUM_HANDS, OCCLUDABLE_ITEMS_LAYER, ObjectDetector, ObjectsOptions, OcclusionPass, OcclusionUtils, OpenAI, OpenAIOptions, Options, PageIndicator, Pager, PagerState, Panel, PanelMesh, Physics, PhysicsOptions, PinchOnButtonAction, PlaneDetector, PlanesOptions, RIGHT, RIGHT_VIEW_ONLY_LAYER, Registry, Reticle, ReticleOptions, RotationRaycastMesh, Row, SIMULATOR_HAND_POSE_NAMES, SIMULATOR_HAND_POSE_TO_JOINTS_LEFT, SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT, SOUND_PRESETS, ScreenshotSynthesizer, Script, ScriptMixin, ScriptsManager, ScrollingTroikaTextView, SetSimulatorModeEvent, ShowHandsAction, Simulator, SimulatorCamera, SimulatorControlMode, SimulatorControllerState, SimulatorControls, SimulatorDepth, SimulatorDepthMaterial, SimulatorHandPose, SimulatorHandPoseChangeRequestEvent, SimulatorHands, SimulatorInterface, SimulatorMediaDeviceInfo, SimulatorMode, SimulatorOptions, SimulatorRenderMode, SimulatorScene, SimulatorUser, SimulatorUserAction, SketchPanel, SkyboxAgent, SoundOptions, SoundSynthesizer, SpatialAudio, SpatialPanel, SpeechRecognizer, SpeechRecognizerOptions, SpeechSynthesizer, SpeechSynthesizerOptions, SplatAnchor, StreamState, TextButton, TextScrollerState, TextView, Tool, UI, UI_OVERLAY_LAYER, UP, UX, User, VIEW_DEPTH_GAP, VerticalPager, VideoFileStream, VideoStream, VideoView, View, VolumeCategory, WaitFrame, WalkTowardsPanelAction, World, WorldOptions, XRButton, XRDeviceCamera, XREffects, XRPass, XRTransitionOptions, XR_BLOCKS_ASSETS_PATH, ZERO_VECTOR3, add, ai, aspectRatios, callInitWithDependencyInjection, clamp, clampRotationToAngle, core, cropImage, extractYaw, getColorHex, getDeltaTime, getUrlParamBool, getUrlParamFloat, getUrlParamInt, getUrlParameter, getVec4ByColorString, getXrCameraLeft, getXrCameraRight, init, initScript, lerp, loadStereoImageAsTextures, loadingSpinnerManager, lookAtRotation, objectIsDescendantOf, onDesktopUserAgent, parseBase64DataURL, placeObjectAtIntersectionFacingTarget, print, rgbToDepthParams, scene, showOnlyInLeftEye, showOnlyInRightEye, showReticleOnDepthMesh, transformRgbToDepthUv, transformRgbUvToWorld, traverseUtil, uninitScript, urlParams, user, world, xrDepthMeshOptions, xrDepthMeshPhysicsOptions, xrDepthMeshVisualizationOptions, xrDeviceCameraEnvironmentContinuousOptions, xrDeviceCameraEnvironmentOptions, xrDeviceCameraUserContinuousOptions, xrDeviceCameraUserOptions };
 //# sourceMappingURL=xrblocks.js.map

@@ -9,6 +9,7 @@ export interface GeminiManagerEventMap extends THREE.Object3DEventMap {
         message: string;
     };
     turnComplete: object;
+    interrupted: object;
 }
 export declare class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     xrDeviceCamera?: xb.XRDeviceCamera;
@@ -17,6 +18,7 @@ export declare class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     audioContext: AudioContext | null;
     sourceNode: MediaStreamAudioSourceNode | null;
     processorNode: AudioWorkletNode | null;
+    queuedSourceNodes: Set<AudioScheduledSourceNode>;
     isAIRunning: boolean;
     audioQueue: AudioBuffer[];
     nextAudioStartTime: number;
@@ -26,12 +28,13 @@ export declare class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     tools: xb.Tool[];
     constructor();
     init(): void;
-    startGeminiLive({ liveParams }?: {
-        liveParams?: xb.GeminiStartLiveSessionParams;
+    startGeminiLive({ liveParams, model, }?: {
+        liveParams?: GoogleGenAITypes.LiveConnectConfig;
+        model?: string;
     }): Promise<void>;
     stopGeminiLive(): Promise<void>;
     setupAudioCapture(): Promise<void>;
-    startLiveAI(params: xb.GeminiStartLiveSessionParams): Promise<void>;
+    startLiveAI(params: GoogleGenAITypes.LiveConnectConfig, model?: string): Promise<void>;
     startScreenshotCapture(intervalMs?: number): void;
     captureAndSendScreenshot(): void;
     sendAudioData(audioBuffer: ArrayBuffer): void;
@@ -39,6 +42,7 @@ export declare class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     initializeAudioContext(): Promise<void>;
     playAudioChunk(audioData: string): Promise<void>;
     scheduleAudioBuffers(): void;
+    stopPlayingAudio(): void;
     cleanup(): void;
     handleAIMessage(message: GoogleGenAITypes.LiveServerMessage): void;
     arrayBufferToBase64(buffer: ArrayBuffer): string;

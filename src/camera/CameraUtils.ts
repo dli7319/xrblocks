@@ -2,31 +2,13 @@ import * as THREE from 'three';
 
 import {Depth} from '../depth/Depth';
 import {clamp} from '../utils/utils';
+import {DEFAULT_RGB_TO_DEPTH_PARAMS} from './CameraOptions';
 
 import {XRDeviceCamera} from './XRDeviceCamera';
 
 export const aspectRatios = {
   depth: 1.0,
   RGB: 4 / 3,
-};
-
-/**
- * Parameters for RGB to depth UV mapping (manually calibrated for aspect
- * ratios. For RGB and depth, 4:3 and 1:1, respectively.
- */
-export const rgbToDepthParams = {
-  scale: 1,
-  scaleX: 0.75,
-  scaleY: 0.63,
-  translateU: 0.2,
-  translateV: -0.02,
-  k1: -0.046,
-  k2: 0,
-  k3: 0,
-  p1: 0,
-  p2: 0,
-  xc: 0,
-  yc: 0,
 };
 
 /**
@@ -68,52 +50,49 @@ export function transformRgbToDepthUv(
     console.error('Invalid aspect ratios provided.');
     return null;
   }
+  const params =
+    xrDeviceCamera?.rgbToDepthParams ?? DEFAULT_RGB_TO_DEPTH_PARAMS;
 
-  // Determine the relative scaling required to fit the overlay within the base
+  // Determine the relative scaling required to fit the overlay within the base.
   let relativeScaleX, relativeScaleY;
   if (aspectRatios.depth > aspectRatios.RGB) {
-    // Base is wider than overlay ("letterboxing")
+    // Base is wider than overlay ("letterboxing").
     relativeScaleY = 1.0;
     relativeScaleX = aspectRatios.RGB / aspectRatios.depth;
   } else {
-    // Base is narrower than overlay ("pillarboxing")
+    // Base is narrower than overlay ("pillarboxing").
     relativeScaleX = 1.0;
     relativeScaleY = aspectRatios.depth / aspectRatios.RGB;
   }
 
-  // Convert input source UV [0, 1] to a normalized coordinate space [-0.5, 0.5]
+  // Convert input source UV [0, 1] to normalized coordinates in [-0.5, 0.5].
   const u_norm = rgbUv.u - 0.5;
   const v_norm = rgbUv.v - 0.5;
 
-  // Apply the FORWARD Brown-Conrady distortion model
-  const u_centered = u_norm - rgbToDepthParams.xc;
-  const v_centered = v_norm - rgbToDepthParams.yc;
+  // Apply the FORWARD Brown-Conrady distortion model.
+  const u_centered = u_norm - params.xc;
+  const v_centered = v_norm - params.yc;
   const r2 = u_centered * u_centered + v_centered * v_centered;
   const radial =
-    1 +
-    rgbToDepthParams.k1 * r2 +
-    rgbToDepthParams.k2 * r2 * r2 +
-    rgbToDepthParams.k3 * r2 * r2 * r2;
+    1 + params.k1 * r2 + params.k2 * r2 * r2 + params.k3 * r2 * r2 * r2;
   const tanX =
-    2 * rgbToDepthParams.p1 * u_centered * v_centered +
-    rgbToDepthParams.p2 * (r2 + 2 * u_centered * u_centered);
+    2 * params.p1 * u_centered * v_centered +
+    params.p2 * (r2 + 2 * u_centered * u_centered);
   const tanY =
-    rgbToDepthParams.p1 * (r2 + 2 * v_centered * v_centered) +
-    2 * rgbToDepthParams.p2 * u_centered * v_centered;
-  const u_distorted = u_centered * radial + tanX + rgbToDepthParams.xc;
-  const v_distorted = v_centered * radial + tanY + rgbToDepthParams.yc;
+    params.p1 * (r2 + 2 * v_centered * v_centered) +
+    2 * params.p2 * u_centered * v_centered;
+  const u_distorted = u_centered * radial + tanX + params.xc;
+  const v_distorted = v_centered * radial + tanY + params.yc;
 
-  // Apply initial aspect ratio scaling and translation
-  const u_fitted = u_distorted * relativeScaleX + rgbToDepthParams.translateU;
-  const v_fitted = v_distorted * relativeScaleY + rgbToDepthParams.translateV;
+  // Apply initial aspect ratio scaling and translation.
+  const u_fitted = u_distorted * relativeScaleX + params.translateU;
+  const v_fitted = v_distorted * relativeScaleY + params.translateV;
 
-  // Apply the final user-controlled scaling (zoom and stretch)
-  const finalNormX =
-    u_fitted * rgbToDepthParams.scale * rgbToDepthParams.scaleX;
-  const finalNormY =
-    v_fitted * rgbToDepthParams.scale * rgbToDepthParams.scaleY;
+  // Apply the final user-controlled scaling (zoom and stretch).
+  const finalNormX = u_fitted * params.scale * params.scaleX;
+  const finalNormY = v_fitted * params.scale * params.scaleY;
 
-  // Convert the final normalized coordinate back to a UV coordinate [0, 1]
+  // Convert the final normalized coordinate back to a UV coordinate [0, 1].
   const finalU = finalNormX + 0.5;
   const finalV = finalNormY + 0.5;
 

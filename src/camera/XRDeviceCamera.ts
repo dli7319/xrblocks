@@ -6,7 +6,11 @@ import {
   VideoStreamDetails,
 } from '../video/VideoStream';
 
-import {DeviceCameraOptions} from './CameraOptions';
+import {
+  DEFAULT_RGB_TO_DEPTH_PARAMS,
+  DeviceCameraOptions,
+  RgbToDepthParams,
+} from './CameraOptions';
 
 export type MediaOrSimulatorMediaDeviceInfo =
   | MediaDeviceInfo
@@ -25,6 +29,7 @@ type XRDeviceCameraDetails = VideoStreamDetails & {
  */
 export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
   simulatorCamera?: SimulatorCamera;
+  rgbToDepthParams: RgbToDepthParams;
   protected videoConstraints_: MediaTrackConstraints;
   private isInitializing_ = false;
   private availableDevices_: MediaOrSimulatorMediaDeviceInfo[] = [];
@@ -37,9 +42,11 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
   constructor({
     videoConstraints = {facingMode: 'environment'},
     willCaptureFrequently = false,
+    rgbToDepthParams = DEFAULT_RGB_TO_DEPTH_PARAMS,
   }: Partial<DeviceCameraOptions> = {}) {
     super({willCaptureFrequently});
     this.videoConstraints_ = {...videoConstraints};
+    this.rgbToDepthParams = rgbToDepthParams;
   }
 
   /**
@@ -95,7 +102,7 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
     this.isInitializing_ = true;
     this.setState_(StreamState.INITIALIZING);
 
-    // Reset state for the new stream
+    // Reset state for the new stream.
     this.currentTrackSettings_ = undefined;
     this.currentDeviceIndex_ = -1;
     try {
@@ -139,7 +146,7 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
         throw new Error('MediaStream has no video tracks.');
       }
 
-      // After the stream is active, we can get the ID of the track
+      // After the stream is active, we can get the track ID.
       const activeTrack = videoTracks[0];
       this.currentTrackSettings_ = activeTrack.getSettings();
       console.debug('Active track settings:', this.currentTrackSettings_);
@@ -152,10 +159,10 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
         console.warn('Stream started without deviceId as it was unavailable');
       }
 
-      this.stop_(); // Stop any previous stream before starting new one
+      this.stop_(); // Stop any previous stream before starting new one.
       this.stream_ = stream;
       this.video_.srcObject = stream;
-      this.video_.src = ''; // Required for some browsers to reset the src
+      this.video_.src = ''; // Required for some browsers to reset the src.
 
       await new Promise<void>((resolve, reject) => {
         this.video_.onloadedmetadata = () => {
@@ -169,7 +176,7 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
         this.video_.play();
       });
 
-      // Once the stream is loaded and dimensions are known, set the final state
+      // Once stream is loaded and dimensions are known, set the final state.
       const details = {
         width: this.width,
         height: this.height,
@@ -190,7 +197,7 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
   /**
    * Sets the active camera by its device ID. Removes potentially conflicting
    * constraints such as facingMode.
-   * @param deviceId - Device id.
+   * @param deviceId - Device ID
    */
   async setDeviceId(deviceId: string) {
     const newIndex = this.availableDevices_.findIndex(

@@ -69,7 +69,6 @@ const externalPackages = [
   'openai',
   '@sparkjsdev/spark',
   /^lit(\/.*)?$/,
-  'openai',
 ];
 
 const xrblocksPackages = ['xrblocks', /xrblocks\/addons\//];

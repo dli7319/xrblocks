@@ -97,13 +97,19 @@ export class SimulatorDepth {
     this.renderer.setRenderTarget(originalRenderTarget);
   }
 
-  private updateDepth() {
+  private async updateDepth() {
     // We preventively unbind the PIXEL_PACK_BUFFER before reading from the
     // render target in case external libraries (Spark.js) left it bound.
     const context = this.renderer.getContext() as WebGL2RenderingContext;
     context.bindBuffer(context.PIXEL_PACK_BUFFER, null);
 
-    this.renderer.readRenderTargetPixels(
+    // Cache the projection matrix and transform of the rendered depth.
+    const projectionMatrix = this.depthCamera.projectionMatrix.clone();
+    const transform = new XRRigidTransform(
+      this.depthCamera.position,
+      this.depthCamera.quaternion
+    );
+    await this.renderer.readRenderTargetPixelsAsync(
       this.depthRenderTarget,
       0,
       0,
@@ -135,17 +141,14 @@ export class SimulatorDepth {
       this.depthBuffer.set(this.depthBufferSlice, j_offset);
     }
 
-    this.depthCamera.projectionMatrix.toArray(this.projectionMatrixArray);
+    projectionMatrix.toArray(this.projectionMatrixArray);
     const depthData = {
       width: this.depthWidth,
       height: this.depthHeight,
       data: this.depthBuffer.buffer,
       rawValueToMeters: 1.0,
       projectionMatrix: this.projectionMatrixArray,
-      transform: new XRRigidTransform(
-        this.depthCamera.position,
-        this.depthCamera.quaternion
-      ),
+      transform: transform,
     };
 
     this.depth.updateCPUDepthData(depthData as XRCPUDepthInformation, 0);

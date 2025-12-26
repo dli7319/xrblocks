@@ -75,6 +75,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'samples/Ballpit',
+        'samples/BalloonPop',
         'samples/Paint',
         'samples/Splash',
         'samples/Rain',

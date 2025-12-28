@@ -314,22 +314,22 @@ export class Depth {
     if (xrRefSpace) {
       const pose = frame.getViewerPose(xrRefSpace);
       if (pose) {
-        for (let view_id = 0; view_id < pose.views.length; ++view_id) {
-          const view = pose.views[view_id];
-          this.view[view_id] = view;
+        for (let viewId = 0; viewId < pose.views.length; ++viewId) {
+          const view = pose.views[viewId];
+          this.view[viewId] = view;
 
           if (session.depthUsage === 'gpu-optimized') {
             const depthData = binding.getDepthInformation(view);
             if (!depthData) {
               return;
             }
-            this.updateGPUDepthData(depthData, view_id);
+            this.updateGPUDepthData(depthData, viewId);
           } else {
             const depthData = frame.getDepthInformation(view);
             if (!depthData) {
               return;
             }
-            this.updateCPUDepthData(depthData, view_id);
+            this.updateCPUDepthData(depthData, viewId);
           }
         }
       } else {

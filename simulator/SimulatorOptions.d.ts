@@ -23,6 +23,7 @@ export declare class SimulatorOptions {
         z: number;
     };
     scenePath: string;
+    videoPath?: string;
     initialScenePosition: {
         x: number;
         y: number;
@@ -43,7 +44,10 @@ export declare class SimulatorOptions {
         enabled: boolean;
         element: string;
     };
-    geminilive: boolean;
+    geminiLivePanel: {
+        enabled: boolean;
+        element: string;
+    };
     stereo: {
         enabled: boolean;
     };

@@ -14,9 +14,9 @@
  * limitations under the License.
  *
  * @file xrblocks.js
- * @version v0.2.0
- * @commitid 7d2d598
- * @builddate 2025-11-01T23:51:53.915Z
+ * @version v0.6.0
+ * @commitid bbfa402
+ * @builddate 2025-12-28T06:53:42.610Z
  * @description XR Blocks SDK, built from source with the above commit ID.
  * @agent When using with Gemini to create XR apps, use **Gemini Canvas** mode,
  * and follow rules below:
@@ -286,7 +286,7 @@ class GenerateSkyboxTool extends Tool {
     async execute(args) {
         try {
             const image = await this.ai.generate('Generate a 360 equirectangular skybox image for the prompt of:' +
-                args.prompt, 'image', 'Generate a 360 equirectangular skybox image for the prompt', 'gemini-2.5-flash-image-preview');
+                args.prompt, 'image', 'Generate a 360 equirectangular skybox image for the prompt');
             if (image) {
                 console.log('Applying texture...');
                 this.scene.background = new THREE.TextureLoader().load(image);
@@ -1365,7 +1365,7 @@ class Gemini extends BaseAIModel {
         }
         return { text: response.text || null };
     }
-    async generate(prompt, type = 'image', systemInstruction = 'Generate an image', model = 'gemini-2.5-flash-image-preview') {
+    async generate(prompt, type = 'image', systemInstruction = 'Generate an image', model = 'gemini-2.5-flash-image') {
         if (!this.isAvailable())
             return;
         let contents;
@@ -1674,7 +1674,7 @@ class AI extends Script {
      * In XR mode, show a 3D UI to instruct users to get an API key.
      */
     triggerKeyPopup() { }
-    async generate(prompt, type = 'image', systemInstruction = 'Generate an image', model = 'gemini-2.5-flash-image-preview') {
+    async generate(prompt, type = 'image', systemInstruction = 'Generate an image', model = undefined) {
         return this.model.generate(prompt, type, systemInstruction, model);
     }
     /**
@@ -1849,6 +1849,27 @@ function deepMerge(obj1, obj2) {
     }
 }
 
+/**
+ * Default parameters for rgb to depth projection.
+ * For RGB and depth, 4:3 and 1:1, respectively.
+ */
+const DEFAULT_RGB_TO_DEPTH_PARAMS = {
+    scale: 1,
+    scaleX: 0.75,
+    scaleY: 0.63,
+    translateU: 0.2,
+    translateV: -0.02,
+    k1: -0.046,
+    k2: 0,
+    k3: 0,
+    p1: 0,
+    p2: 0,
+    xc: 0,
+    yc: 0,
+};
+/**
+ * Configuration options for the device camera.
+ */
 class DeviceCameraOptions {
     constructor(options) {
         this.enabled = false;
@@ -1856,10 +1877,14 @@ class DeviceCameraOptions {
          * Hint for performance optimization on frequent captures.
          */
         this.willCaptureFrequently = false;
+        /**
+         * Parameters for RGB to depth UV mapping given different aspect ratios.
+         */
+        this.rgbToDepthParams = { ...DEFAULT_RGB_TO_DEPTH_PARAMS };
         deepMerge(this, options);
     }
 }
-// Base configuration for all common capture settings
+// Base configuration for all common capture settings.
 const baseCaptureOptions = {
     enabled: true,
     videoConstraints: {
@@ -1889,10 +1914,6 @@ const xrDeviceCameraUserContinuousOptions = deepFreeze(new DeviceCameraOptions({
     ...xrDeviceCameraUserOptions,
     willCaptureFrequently: true,
 }));
-
-function onDesktopUserAgent() {
-    return !/Mobi|Linux|Android|iPhone/i.test(navigator.userAgent);
-}
 
 const DepthMeshTexturedShader = {
     vertexShader: /* glsl */ `
@@ -2412,6 +2433,8 @@ class DepthOptions {
         // Occlusion pass.
         this.occlusion = { enabled: false };
         this.useFloat32 = true;
+        this.depthTypeRequest = ['raw'];
+        this.matchDepthView = true;
         deepMerge(this, options);
     }
 }
@@ -2479,7 +2502,7 @@ const xrDepthMeshPhysicsOptions = deepFreeze(new DepthOptions({
 class DepthTextures {
     constructor(options) {
         this.options = options;
-        this.uint16Arrays = [];
+        this.float32Arrays = [];
         this.uint8Arrays = [];
         this.dataTextures = [];
         this.nativeTextures = [];
@@ -2490,10 +2513,10 @@ class DepthTextures {
             this.dataTextures[view_id].dispose();
         }
         if (this.options.useFloat32) {
-            const typedArray = new Uint16Array(depthData.width * depthData.height);
+            const typedArray = new Float32Array(depthData.width * depthData.height);
             const format = THREE.RedFormat;
-            const type = THREE.HalfFloatType;
-            this.uint16Arrays[view_id] = typedArray;
+            const type = THREE.FloatType;
+            this.float32Arrays[view_id] = typedArray;
             this.dataTextures[view_id] = new THREE.DataTexture(typedArray, depthData.width, depthData.height, format, type);
         }
         else {
@@ -2511,12 +2534,7 @@ class DepthTextures {
             this.createDataDepthTextures(depthData, view_id);
         }
         if (this.options.useFloat32) {
-            const float32Data = new Float32Array(depthData.data);
-            const float16Data = new Uint16Array(float32Data.length);
-            for (let i = 0; i < float16Data.length; i++) {
-                float16Data[i] = THREE.DataUtils.toHalfFloat(float32Data[i]);
-            }
-            this.uint16Arrays[view_id].set(float16Data);
+            this.float32Arrays[view_id].set(new Float32Array(depthData.data));
         }
         else {
             this.uint8Arrays[view_id].set(new Uint8Array(depthData.data));
@@ -3052,6 +3070,9 @@ class Depth {
         // Whether we're counting the number of depth clients.
         this.depthClientsInitialized = false;
         this.depthClients = new Set();
+        this.depthProjectionMatrices = [];
+        this.depthViewMatrices = [];
+        this.depthViewProjectionMatrices = [];
         if (Depth.instance) {
             return Depth.instance;
         }
@@ -3134,16 +3155,34 @@ class Depth {
         vertexPosition.multiplyScalar(-depth / vertexPosition.z);
         return vertexPosition;
     }
-    updateCPUDepthData(depthData, view_id = 0) {
-        this.cpuDepthData[view_id] = depthData;
+    updateDepthMatrices(depthData, viewId) {
+        // Populate depth view and projection matrices.
+        while (viewId >= this.depthViewMatrices.length) {
+            this.depthViewMatrices.push(new THREE.Matrix4());
+            this.depthViewProjectionMatrices.push(new THREE.Matrix4());
+            this.depthProjectionMatrices.push(new THREE.Matrix4());
+        }
+        if (depthData.projectionMatrix && depthData.transform) {
+            this.depthProjectionMatrices[viewId].fromArray(depthData.projectionMatrix);
+            this.depthViewMatrices[viewId].fromArray(depthData.transform.inverse.matrix);
+        }
+        else {
+            const camera = this.renderer.xr?.getCamera()?.cameras?.[viewId] ?? this.camera;
+            this.depthProjectionMatrices[viewId].copy(camera.projectionMatrix);
+            this.depthViewMatrices[viewId].copy(camera.matrixWorldInverse);
+        }
+        this.depthViewProjectionMatrices[viewId].multiplyMatrices(this.depthProjectionMatrices[viewId], this.depthViewMatrices[viewId]);
+    }
+    updateCPUDepthData(depthData, viewId = 0) {
+        this.cpuDepthData[viewId] = depthData;
         // Workaround for b/382679381.
         this.rawValueToMeters = depthData.rawValueToMeters;
         if (this.options.useFloat32) {
             this.rawValueToMeters = 1.0;
         }
         // Updates Depth Array.
-        if (this.depthArray[view_id] == null) {
-            this.depthArray[view_id] = this.options.useFloat32
+        if (this.depthArray[viewId] == null) {
+            this.depthArray[viewId] = this.options.useFloat32
                 ? new Float32Array(depthData.data)
                 : new Uint16Array(depthData.data);
             this.width = depthData.width;
@@ -3151,20 +3190,21 @@ class Depth {
         }
         else {
             // Copies the data from an ArrayBuffer to the existing TypedArray.
-            this.depthArray[view_id].set(this.options.useFloat32
+            this.depthArray[viewId].set(this.options.useFloat32
                 ? new Float32Array(depthData.data)
                 : new Uint16Array(depthData.data));
         }
         // Updates Depth Texture.
         if (this.options.depthTexture.enabled && this.depthTextures) {
-            this.depthTextures.updateData(depthData, view_id);
+            this.depthTextures.updateData(depthData, viewId);
         }
-        if (this.options.depthMesh.enabled && this.depthMesh && view_id == 0) {
+        if (this.options.depthMesh.enabled && this.depthMesh && viewId == 0) {
             this.depthMesh.updateDepth(depthData);
         }
+        this.updateDepthMatrices(depthData, viewId);
     }
-    updateGPUDepthData(depthData, view_id = 0) {
-        this.gpuDepthData[view_id] = depthData;
+    updateGPUDepthData(depthData, viewId = 0) {
+        this.gpuDepthData[viewId] = depthData;
         // Workaround for b/382679381.
         this.rawValueToMeters = depthData.rawValueToMeters;
         if (this.options.useFloat32) {
@@ -3177,8 +3217,8 @@ class Depth {
             ? this.depthMesh.convertGPUToGPU(depthData)
             : null;
         if (cpuDepth) {
-            if (this.depthArray[view_id] == null) {
-                this.depthArray[view_id] = this.options.useFloat32
+            if (this.depthArray[viewId] == null) {
+                this.depthArray[viewId] = this.options.useFloat32
                     ? new Float32Array(cpuDepth.data)
                     : new Uint16Array(cpuDepth.data);
                 this.width = cpuDepth.width;
@@ -3186,16 +3226,16 @@ class Depth {
             }
             else {
                 // Copies the data from an ArrayBuffer to the existing TypedArray.
-                this.depthArray[view_id].set(this.options.useFloat32
+                this.depthArray[viewId].set(this.options.useFloat32
                     ? new Float32Array(cpuDepth.data)
                     : new Uint16Array(cpuDepth.data));
             }
         }
         // Updates Depth Texture.
         if (this.options.depthTexture.enabled && this.depthTextures) {
-            this.depthTextures.updateNativeTexture(depthData, this.renderer, view_id);
+            this.depthTextures.updateNativeTexture(depthData, this.renderer, viewId);
         }
-        if (this.options.depthMesh.enabled && this.depthMesh && view_id == 0) {
+        if (this.options.depthMesh.enabled && this.depthMesh && viewId == 0) {
             if (cpuDepth) {
                 this.depthMesh.updateDepth(cpuDepth);
             }
@@ -3203,31 +3243,29 @@ class Depth {
                 this.depthMesh.updateGPUDepth(depthData);
             }
         }
+        this.updateDepthMatrices(depthData, viewId);
     }
-    getTexture(view_id) {
+    getTexture(viewId) {
         if (!this.options.depthTexture.enabled)
             return undefined;
-        return this.depthTextures?.get(view_id);
+        return this.depthTextures?.get(viewId);
     }
     update(frame) {
         if (!this.options.enabled)
             return;
-        this.updateLocalDepth(frame);
+        if (frame) {
+            this.updateLocalDepth(frame);
+        }
         if (this.options.occlusion.enabled) {
             this.renderOcclusionPass();
         }
     }
     updateLocalDepth(frame) {
-        if (onDesktopUserAgent()) {
-            return;
-        }
         const leftCamera = this.renderer.xr?.getCamera?.()?.cameras?.[0];
         if (leftCamera && this.depthMesh && this.depthMesh.parent != leftCamera) {
             leftCamera.add(this.depthMesh);
             this.scene.add(leftCamera);
         }
-        if (!frame)
-            return;
         const session = frame.session;
         const binding = this.renderer.xr.getBinding();
         // Enable or disable depth based on the number of clients.
@@ -3244,16 +3282,9 @@ class Depth {
                 return;
             }
         }
-        if (this.xrRefSpace == null) {
-            session.requestReferenceSpace('local').then((refSpace) => {
-                this.xrRefSpace = refSpace;
-            });
-            session.addEventListener('end', () => {
-                this.xrRefSpace = undefined;
-            });
-        }
-        else {
-            const pose = frame.getViewerPose(this.xrRefSpace);
+        const xrRefSpace = this.renderer.xr.getReferenceSpace();
+        if (xrRefSpace) {
+            const pose = frame.getViewerPose(xrRefSpace);
             if (pose) {
                 for (let view_id = 0; view_id < pose.views.length; ++view_id) {
                     const view = pose.views[view_id];
@@ -3322,34 +3353,16 @@ const aspectRatios = {
     RGB: 4 / 3,
 };
 /**
- * Parameters for RGB to depth UV mapping (manually calibrated for aspect
- * ratios. For RGB and depth, 4:3 and 1:1, respectively.
- */
-const rgbToDepthParams = {
-    scale: 1,
-    scaleX: 0.75,
-    scaleY: 0.63,
-    translateU: 0.2,
-    translateV: -0.02,
-    k1: -0.046,
-    k2: 0,
-    k3: 0,
-    p1: 0,
-    p2: 0,
-    xc: 0,
-    yc: 0,
-};
-/**
  * Maps a UV coordinate from a RGB space to a destination depth space,
  * applying Brown-Conrady distortion and affine transformations based on
  * aspect ratios. If the simulator camera is used, no transformation is applied.
  *
  * @param rgbUv - The RGB UV coordinate, e.g., \{ u: 0.5, v: 0.5 \}.
  * @param xrDeviceCamera - The device camera instance.
- * @returns The transformed UV coordinate in the depth image space, or null if
+ * @returns The transformed UV coordinate in the render camera clip space, or null if
  *     inputs are invalid.
  */
-function transformRgbToDepthUv(rgbUv, xrDeviceCamera) {
+function transformRgbToRenderCameraClip(rgbUv, xrDeviceCamera) {
     if (xrDeviceCamera?.simulatorCamera) {
         // The simulator camera crops the viewport image to match its aspect ratio,
         // while the depth map covers the entire viewport, so we adjust for this.
@@ -3367,51 +3380,73 @@ function transformRgbToDepthUv(rgbUv, xrDeviceCamera) {
             const relativeHeight = viewportAspect / cameraAspect;
             v = v * relativeHeight + (1.0 - relativeHeight) / 2.0;
         }
-        return { u, v: 1.0 - v };
+        return new THREE.Vector2(2 * u - 1, 2 * v - 1);
     }
     if (!aspectRatios || !aspectRatios.depth || !aspectRatios.RGB) {
         console.error('Invalid aspect ratios provided.');
         return null;
     }
-    // Determine the relative scaling required to fit the overlay within the base
+    const params = xrDeviceCamera?.rgbToDepthParams ?? DEFAULT_RGB_TO_DEPTH_PARAMS;
+    // Determine the relative scaling required to fit the overlay within the base.
     let relativeScaleX, relativeScaleY;
     if (aspectRatios.depth > aspectRatios.RGB) {
-        // Base is wider than overlay ("letterboxing")
+        // Base is wider than overlay ("letterboxing").
         relativeScaleY = 1.0;
         relativeScaleX = aspectRatios.RGB / aspectRatios.depth;
     }
     else {
-        // Base is narrower than overlay ("pillarboxing")
+        // Base is narrower than overlay ("pillarboxing").
         relativeScaleX = 1.0;
         relativeScaleY = aspectRatios.depth / aspectRatios.RGB;
     }
-    // Convert input source UV [0, 1] to a normalized coordinate space [-0.5, 0.5]
+    // Convert input source UV [0, 1] to normalized coordinates in [-0.5, 0.5].
     const u_norm = rgbUv.u - 0.5;
     const v_norm = rgbUv.v - 0.5;
-    // Apply the FORWARD Brown-Conrady distortion model
-    const u_centered = u_norm - rgbToDepthParams.xc;
-    const v_centered = v_norm - rgbToDepthParams.yc;
+    // Apply the FORWARD Brown-Conrady distortion model.
+    const u_centered = u_norm - params.xc;
+    const v_centered = v_norm - params.yc;
     const r2 = u_centered * u_centered + v_centered * v_centered;
-    const radial = 1 +
-        rgbToDepthParams.k1 * r2 +
-        rgbToDepthParams.k2 * r2 * r2 +
-        rgbToDepthParams.k3 * r2 * r2 * r2;
-    const tanX = 2 * rgbToDepthParams.p1 * u_centered * v_centered +
-        rgbToDepthParams.p2 * (r2 + 2 * u_centered * u_centered);
-    const tanY = rgbToDepthParams.p1 * (r2 + 2 * v_centered * v_centered) +
-        2 * rgbToDepthParams.p2 * u_centered * v_centered;
-    const u_distorted = u_centered * radial + tanX + rgbToDepthParams.xc;
-    const v_distorted = v_centered * radial + tanY + rgbToDepthParams.yc;
-    // Apply initial aspect ratio scaling and translation
-    const u_fitted = u_distorted * relativeScaleX + rgbToDepthParams.translateU;
-    const v_fitted = v_distorted * relativeScaleY + rgbToDepthParams.translateV;
-    // Apply the final user-controlled scaling (zoom and stretch)
-    const finalNormX = u_fitted * rgbToDepthParams.scale * rgbToDepthParams.scaleX;
-    const finalNormY = v_fitted * rgbToDepthParams.scale * rgbToDepthParams.scaleY;
-    // Convert the final normalized coordinate back to a UV coordinate [0, 1]
-    const finalU = finalNormX + 0.5;
-    const finalV = finalNormY + 0.5;
-    return { u: finalU, v: 1.0 - finalV };
+    const radial = 1 + params.k1 * r2 + params.k2 * r2 * r2 + params.k3 * r2 * r2 * r2;
+    const tanX = 2 * params.p1 * u_centered * v_centered +
+        params.p2 * (r2 + 2 * u_centered * u_centered);
+    const tanY = params.p1 * (r2 + 2 * v_centered * v_centered) +
+        2 * params.p2 * u_centered * v_centered;
+    const u_distorted = u_centered * radial + tanX + params.xc;
+    const v_distorted = v_centered * radial + tanY + params.yc;
+    // Apply initial aspect ratio scaling and translation.
+    const u_fitted = u_distorted * relativeScaleX + params.translateU;
+    const v_fitted = v_distorted * relativeScaleY + params.translateV;
+    // Apply the final user-controlled scaling (zoom and stretch).
+    const finalNormX = u_fitted * params.scale * params.scaleX;
+    const finalNormY = v_fitted * params.scale * params.scaleY;
+    return new THREE.Vector2(2 * finalNormX, 2 * finalNormY);
+}
+/**
+ * Maps a UV coordinate from a RGB space to a destination depth space,
+ * applying Brown-Conrady distortion and affine transformations based on
+ * aspect ratios. If the simulator camera is used, no transformation is applied.
+ *
+ * @param rgbUv - The RGB UV coordinate, e.g., \{ u: 0.5, v: 0.5 \}.
+ * @param renderCameraWorldFromClip - Render camera world from clip, i.e. inverse of the View Projection matrix.
+ * @param depthCameraClipFromWorld - Depth camera clip from world, i.e.
+ * @param xrDeviceCamera - The device camera instance.
+ * @returns The transformed UV coordinate in the depth image space, or null if
+ *     inputs are invalid.
+ */
+function transformRgbToDepthUv(rgbUv, renderCameraWorldFromClip, depthCameraClipFromWorld, xrDeviceCamera) {
+    // Render camera clip space coordinates.
+    const clipCoords = transformRgbToRenderCameraClip(rgbUv, xrDeviceCamera);
+    if (!clipCoords) {
+        return null;
+    }
+    // Backwards project from the render camera to depth camera.
+    const depthClipCoord = new THREE.Vector4(clipCoords.x, clipCoords.y, 1, 1);
+    depthClipCoord.applyMatrix4(renderCameraWorldFromClip);
+    depthClipCoord.applyMatrix4(depthCameraClipFromWorld);
+    depthClipCoord.multiplyScalar(1 / depthClipCoord.w);
+    const finalU = 0.5 * depthClipCoord.x + 0.5;
+    const finalV = 1.0 - (0.5 * depthClipCoord.y + 0.5);
+    return { u: finalU, v: finalV };
 }
 /**
  * Retrieves the world space position of a given RGB UV coordinate.
@@ -3421,19 +3456,30 @@ function transformRgbToDepthUv(rgbUv, xrDeviceCamera) {
  *
  * @param rgbUv - The RGB UV coordinate, e.g., \{ u: 0.5, v: 0.5 \}.
  * @param depthArray - Array containing depth data.
- * @param viewProjectionMatrix - XRView object with corresponding
+ * @param projectionMatrix - XRView object with corresponding
  * projection matrix.
- * @param matrixWorld - Matrix for view-to-world translation.
+ * @param matrixWorld - Rendering camera's model matrix.
  * @param xrDeviceCamera - The device camera instance.
  * @param xrDepth - The SDK's Depth module.
  * @returns Vertex at (u, v) in world space.
  */
-function transformRgbUvToWorld(rgbUv, depthArray, viewProjectionMatrix, matrixWorld, xrDeviceCamera, xrDepth = Depth.instance) {
-    if (!depthArray || !viewProjectionMatrix || !matrixWorld || !xrDepth)
-        return null;
-    const depthUV = transformRgbToDepthUv(rgbUv, xrDeviceCamera);
+function transformRgbUvToWorld(rgbUv, depthArray, projectionMatrix, matrixWorld, xrDeviceCamera, xrDepth = Depth.instance) {
+    if (!depthArray || !projectionMatrix || !matrixWorld || !xrDepth) {
+        throw new Error('Missing parameter in transformRgbUvToWorld');
+    }
+    const worldFromClip = matrixWorld
+        .clone()
+        .invert()
+        .premultiply(projectionMatrix)
+        .invert();
+    const depthProjectionMatrixInverse = xrDepth.depthProjectionMatrices[0]
+        .clone()
+        .invert();
+    const depthClipFromWorld = xrDepth.depthViewProjectionMatrices[0];
+    const depthModelMatrix = xrDepth.depthViewMatrices[0].clone().invert();
+    const depthUV = transformRgbToDepthUv(rgbUv, worldFromClip, depthClipFromWorld, xrDeviceCamera);
     if (!depthUV) {
-        return null;
+        throw new Error('Failed to get depth UV');
     }
     const { u: depthU, v: depthV } = depthUV;
     const depthX = Math.round(clamp(depthU * xrDepth.width, 0, xrDepth.width - 1));
@@ -3444,12 +3490,13 @@ function transformRgbUvToWorld(rgbUv, depthArray, viewProjectionMatrix, matrixWo
     // Convert UV to normalized device coordinates and create a point on the near
     // plane.
     const viewSpacePosition = new THREE.Vector3(2.0 * (depthU - 0.5), 2.0 * (depthV - 0.5), -1);
-    const viewProjectionMatrixInverse = viewProjectionMatrix.clone().invert();
     // Unproject the point from clip space to view space and scale it along the
     // ray from the camera to the correct depth. Camera looks down -Z axis.
-    viewSpacePosition.applyMatrix4(viewProjectionMatrixInverse);
+    viewSpacePosition.applyMatrix4(depthProjectionMatrixInverse);
     viewSpacePosition.multiplyScalar(-depthInMeters / viewSpacePosition.z);
-    const worldPosition = viewSpacePosition.clone().applyMatrix4(matrixWorld);
+    const worldPosition = viewSpacePosition
+        .clone()
+        .applyMatrix4(depthModelMatrix);
     return worldPosition;
 }
 /**
@@ -3672,12 +3719,13 @@ class XRDeviceCamera extends VideoStream {
     /**
      * @param options - The configuration options.
      */
-    constructor({ videoConstraints = { facingMode: 'environment' }, willCaptureFrequently = false, } = {}) {
+    constructor({ videoConstraints = { facingMode: 'environment' }, willCaptureFrequently = false, rgbToDepthParams = DEFAULT_RGB_TO_DEPTH_PARAMS, } = {}) {
         super({ willCaptureFrequently });
         this.isInitializing_ = false;
         this.availableDevices_ = [];
         this.currentDeviceIndex_ = -1;
         this.videoConstraints_ = { ...videoConstraints };
+        this.rgbToDepthParams = rgbToDepthParams;
     }
     /**
      * Retrieves the list of available video input devices.
@@ -3729,7 +3777,7 @@ class XRDeviceCamera extends VideoStream {
             return;
         this.isInitializing_ = true;
         this.setState_(StreamState.INITIALIZING);
-        // Reset state for the new stream
+        // Reset state for the new stream.
         this.currentTrackSettings_ = undefined;
         this.currentDeviceIndex_ = -1;
         try {
@@ -3763,7 +3811,7 @@ class XRDeviceCamera extends VideoStream {
             if (!videoTracks.length) {
                 throw new Error('MediaStream has no video tracks.');
             }
-            // After the stream is active, we can get the ID of the track
+            // After the stream is active, we can get the track ID.
             const activeTrack = videoTracks[0];
             this.currentTrackSettings_ = activeTrack.getSettings();
             console.debug('Active track settings:', this.currentTrackSettings_);
@@ -3773,10 +3821,10 @@ class XRDeviceCamera extends VideoStream {
             else {
                 console.warn('Stream started without deviceId as it was unavailable');
             }
-            this.stop_(); // Stop any previous stream before starting new one
+            this.stop_(); // Stop any previous stream before starting new one.
             this.stream_ = stream;
             this.video_.srcObject = stream;
-            this.video_.src = ''; // Required for some browsers to reset the src
+            this.video_.src = ''; // Required for some browsers to reset the src.
             await new Promise((resolve, reject) => {
                 this.video_.onloadedmetadata = () => {
                     this.handleVideoStreamLoadedMetadata(resolve, reject, true);
@@ -3788,7 +3836,7 @@ class XRDeviceCamera extends VideoStream {
                 };
                 this.video_.play();
             });
-            // Once the stream is loaded and dimensions are known, set the final state
+            // Once stream is loaded and dimensions are known, set the final state.
             const details = {
                 width: this.width,
                 height: this.height,
@@ -3810,7 +3858,7 @@ class XRDeviceCamera extends VideoStream {
     /**
      * Sets the active camera by its device ID. Removes potentially conflicting
      * constraints such as facingMode.
-     * @param deviceId - Device id.
+     * @param deviceId - Device ID
      */
     async setDeviceId(deviceId) {
         const newIndex = this.availableDevices_.findIndex((device) => device.deviceId === deviceId);
@@ -4291,6 +4339,7 @@ class WebXRSessionManager extends THREE.EventDispatcher {
         this.sessionInit = sessionInit;
         this.mode = mode;
         this.onSessionEndedBound = this.onSessionEndedInternal.bind(this);
+        this.waitingForXRSession = false;
     }
     /**
      * Checks for WebXR support and availability of the requested session mode.
@@ -4357,8 +4406,15 @@ class WebXRSessionManager extends THREE.EventDispatcher {
         else if (this.currentSession) {
             throw new Error('Session already started');
         }
+        else if (this.waitingForXRSession) {
+            throw new Error('Waiting for session to start');
+        }
+        this.waitingForXRSession = true;
         navigator
             .xr.requestSession(this.mode, this.sessionOptions)
+            .finally(() => {
+            this.waitingForXRSession = false;
+        })
             .then(this.onSessionStartedInternal.bind(this));
     }
     /**
@@ -4401,20 +4457,25 @@ class WebXRSessionManager extends THREE.EventDispatcher {
 const XRBUTTON_WRAPPER_ID = 'XRButtonWrapper';
 const XRBUTTON_CLASS = 'XRButton';
 class XRButton {
-    constructor(sessionManager, startText = 'ENTER XR', endText = 'END XR', invalidText = 'XR NOT SUPPORTED', startSimulatorText = 'START SIMULATOR', enableSimulator = false, showSimulatorButtonOnMobile = false, startSimulator = () => { }) {
+    constructor(sessionManager, permissionsManager, startText = 'ENTER XR', endText = 'END XR', invalidText = 'XR NOT SUPPORTED', startSimulatorText = 'START SIMULATOR', showEnterSimulatorButton = false, startSimulator = () => { }, permissions = {
+        geolocation: false,
+        camera: false,
+        microphone: false,
+    }) {
         this.sessionManager = sessionManager;
+        this.permissionsManager = permissionsManager;
         this.startText = startText;
         this.endText = endText;
         this.invalidText = invalidText;
         this.startSimulatorText = startSimulatorText;
         this.startSimulator = startSimulator;
+        this.permissions = permissions;
         this.domElement = document.createElement('div');
         this.simulatorButtonElement = document.createElement('button');
         this.xrButtonElement = document.createElement('button');
         this.domElement.id = XRBUTTON_WRAPPER_ID;
         this.createXRButtonElement();
-        if (enableSimulator &&
-            (onDesktopUserAgent() || showSimulatorButtonOnMobile)) {
+        if (showEnterSimulatorButton) {
             this.createSimulatorButton();
         }
         this.sessionManager.addEventListener(WebXRSessionEventType.UNSUPPORTED, this.showXRNotSupported.bind(this));
@@ -4443,7 +4504,17 @@ class XRButton {
         button.innerHTML = this.startText;
         button.disabled = false;
         button.onclick = () => {
-            this.sessionManager.startSession();
+            this.permissionsManager
+                .checkAndRequestPermissions(this.permissions)
+                .then((result) => {
+                if (result.granted) {
+                    this.sessionManager.startSession();
+                }
+                else {
+                    this.xrButtonElement.textContent =
+                        'Error:' + result.error + '\nPlease try again.';
+                }
+            });
         };
     }
     showXRNotSupported() {
@@ -5754,6 +5825,7 @@ function traverseUtil(node, callback) {
     return false;
 }
 
+const tempBox = new THREE.Box3();
 /**
  * User is an embodied instance to manage hands, controllers, speech, and
  * avatars. It extends Script to update human-world interaction.
@@ -6116,8 +6188,8 @@ class User extends Script {
             const currentlyTouchedMeshes = [];
             this.scene.traverse((object) => {
                 if (object.isMesh && object.visible) {
-                    const boundingBox = new THREE.Box3().setFromObject(object);
-                    if (boundingBox.containsPoint(indexTipPosition)) {
+                    tempBox.setFromObject(object);
+                    if (tempBox.containsPoint(indexTipPosition)) {
                         currentlyTouchedMeshes.push(object);
                     }
                 }
@@ -6405,6 +6477,13 @@ function computePinch(context, config) {
     const index = getJoint(context, 'index-finger-tip');
     if (!thumb || !index)
         return undefined;
+    const supportMetrics = ['middle', 'ring', 'pinky']
+        .map((finger) => computeFingerMetric(context, finger))
+        .filter(Boolean);
+    const supportCurl = supportMetrics.length > 0
+        ? average(supportMetrics.map((metrics) => metrics.curlRatio))
+        : 1;
+    const supportPenalty = clamp01((supportCurl - 1.05) / 0.35);
     const handScale = estimateHandScale(context);
     const threshold = config.threshold ?? Math.max(0.018, handScale * 0.35);
     const distance = thumb.distanceTo(index);
@@ -6413,10 +6492,12 @@ function computePinch(context, config) {
     }
     const tightness = clamp01(1 - distance / (threshold * 0.85));
     const loosePenalty = clamp01(1 - distance / (threshold * 1.4));
-    const confidence = clamp01(distance <= threshold ? tightness : loosePenalty * 0.4);
+    let confidence = clamp01(distance <= threshold ? tightness : loosePenalty * 0.4);
+    confidence *= 1 - supportPenalty * 0.45;
+    confidence = clamp01(confidence);
     return {
         confidence,
-        data: { distance, threshold },
+        data: { distance, threshold, supportPenalty },
     };
 }
 function computeOpenPalm(context, config) {
@@ -6425,21 +6506,29 @@ function computeOpenPalm(context, config) {
         return undefined;
     const handScale = estimateHandScale(context);
     const palmWidth = getPalmWidth(context) ?? handScale * 0.85;
+    const palmUp = getPalmUp(context);
     const extensionScores = fingerMetrics.map(({ tipDistance }) => clamp01((tipDistance - handScale * 0.5) / (handScale * 0.45)));
     const straightnessScores = fingerMetrics.map(({ curlRatio }) => clamp01((curlRatio - 1.1) / 0.5));
+    const orientationScore = palmUp && fingerMetrics.length
+        ? average(fingerMetrics.map((metrics) => fingerAlignmentScore(context, metrics, palmUp)))
+        : 0.5;
     const neighbors = getAdjacentFingerDistances(context);
     const spreadScore = neighbors.average !== Infinity && palmWidth > EPSILON
         ? clamp01((neighbors.average - palmWidth * 0.55) / (palmWidth * 0.35))
         : 0;
     const extensionScore = average(extensionScores);
     const straightScore = average(straightnessScores);
-    const confidence = clamp01(extensionScore * 0.5 + straightScore * 0.3 + spreadScore * 0.2);
+    const confidence = clamp01(extensionScore * 0.4 +
+        straightScore * 0.25 +
+        spreadScore * 0.2 +
+        orientationScore * 0.15);
     return {
         confidence,
         data: {
             extensionScore,
             straightScore,
             spreadScore,
+            orientationScore,
             threshold: config.threshold,
         },
     };
@@ -6456,15 +6545,26 @@ function computeFist(context, config) {
     const clusterScore = neighbors.average !== Infinity && palmWidth > EPSILON
         ? clamp01((palmWidth * 0.5 - neighbors.average) / (palmWidth * 0.35))
         : 0;
+    const thumbTip = getJoint(context, 'thumb-tip');
+    const indexBase = getFingerJoint(context, 'index', 'phalanx-proximal') ??
+        getFingerJoint(context, 'index', 'metacarpal');
+    const thumbWrapScore = thumbTip && indexBase && palmWidth > EPSILON
+        ? clamp01((palmWidth * 0.55 - thumbTip.distanceTo(indexBase)) /
+            (palmWidth * 0.35))
+        : 0;
     const tipScore = clamp01((handScale * 0.55 - tipAverage) / (handScale * 0.25));
     const curlScore = clamp01((1.08 - curlAverage) / 0.25);
-    const confidence = clamp01(tipScore * 0.5 + curlScore * 0.35 + clusterScore * 0.15);
+    const confidence = clamp01(tipScore * 0.45 +
+        curlScore * 0.3 +
+        clusterScore * 0.1 +
+        thumbWrapScore * 0.15);
     return {
         confidence,
         data: {
             tipAverage,
             curlAverage,
             clusterScore,
+            thumbWrapScore,
             threshold: config.threshold,
         },
     };
@@ -6501,8 +6601,8 @@ function computeThumbsUp(context, config) {
             orientationScore = clamp01((alignment - 0.35) / 0.35);
         }
     }
-    const confidence = clamp01(thumbExtendedScore * 0.35 +
-        curledScore * 0.3 +
+    const confidence = clamp01(thumbExtendedScore * 0.3 +
+        curledScore * 0.35 +
         orientationScore * 0.2 +
         separationScore * 0.15);
     return {
@@ -6526,17 +6626,33 @@ function computePoint(context, config) {
     if (!otherMetrics.length)
         return undefined;
     const handScale = estimateHandScale(context);
+    const palmWidth = getPalmWidth(context) ?? handScale * 0.85;
+    const palmUp = getPalmUp(context);
     const indexCurlScore = clamp01((indexMetrics.curlRatio - 1.2) / 0.35);
     const indexReachScore = clamp01((indexMetrics.tipDistance - handScale * 0.6) / (handScale * 0.25));
+    const indexDirectionScore = palmUp && indexMetrics
+        ? fingerAlignmentScore(context, indexMetrics, palmUp)
+        : 0.4;
     const othersCurl = average(otherMetrics.map((metrics) => metrics.curlRatio));
     const othersCurledScore = clamp01((1.05 - othersCurl) / 0.25);
-    const confidence = clamp01(indexCurlScore * 0.45 + indexReachScore * 0.25 + othersCurledScore * 0.3);
+    const thumbTip = getJoint(context, 'thumb-tip');
+    const thumbTuckedScore = thumbTip && indexMetrics.metacarpal && palmWidth > EPSILON
+        ? clamp01((palmWidth * 0.75 - thumbTip.distanceTo(indexMetrics.metacarpal)) /
+            (palmWidth * 0.4))
+        : 0.5;
+    const confidence = clamp01(indexCurlScore * 0.35 +
+        indexReachScore * 0.25 +
+        othersCurledScore * 0.2 +
+        indexDirectionScore * 0.1 +
+        thumbTuckedScore * 0.1);
     return {
         confidence,
         data: {
             indexCurlScore,
             indexReachScore,
             othersCurledScore,
+            indexDirectionScore,
+            thumbTuckedScore,
             threshold: config.threshold,
         },
     };
@@ -6548,16 +6664,21 @@ function computeSpread(context, config) {
     const handScale = estimateHandScale(context);
     const palmWidth = getPalmWidth(context) ?? handScale * 0.85;
     const neighbors = getAdjacentFingerDistances(context);
+    const palmUp = getPalmUp(context);
     const spreadScore = neighbors.average !== Infinity && palmWidth > EPSILON
         ? clamp01((neighbors.average - palmWidth * 0.6) / (palmWidth * 0.35))
         : 0;
     const extensionScore = clamp01((average(fingerMetrics.map((metrics) => metrics.curlRatio)) - 1.15) / 0.45);
-    const confidence = clamp01(spreadScore * 0.6 + extensionScore * 0.4);
+    const orientationScore = palmUp && fingerMetrics.length
+        ? average(fingerMetrics.map((metrics) => fingerAlignmentScore(context, metrics, palmUp)))
+        : 0.5;
+    const confidence = clamp01(spreadScore * 0.55 + extensionScore * 0.3 + orientationScore * 0.15);
     return {
         confidence,
         data: {
             spreadScore,
             extensionScore,
+            orientationScore,
             threshold: config.threshold,
         },
     };
@@ -6684,6 +6805,16 @@ function getJoint(context, jointName) {
 function getFingerJoint(context, finger, suffix) {
     const prefix = FINGER_PREFIX[finger];
     return getJoint(context, `${prefix}-${suffix}`);
+}
+function fingerAlignmentScore(context, metrics, palmUp) {
+    const base = metrics.metacarpal ?? getJoint(context, 'wrist');
+    if (!base)
+        return 0;
+    const direction = new THREE.Vector3().subVectors(metrics.tip, base);
+    if (direction.lengthSq() === 0)
+        return 0;
+    direction.normalize();
+    return clamp01((direction.dot(palmUp) - 0.35) / 0.5);
 }
 function clamp01(value) {
     return THREE.MathUtils.clamp(value, 0, 1);
@@ -7172,6 +7303,7 @@ class SimulatorOptions {
     constructor(options) {
         this.initialCameraPosition = { x: 0, y: 1.5, z: 0 };
         this.scenePath = XR_BLOCKS_ASSETS_PATH + 'simulator/scenes/XREmulatorsceneV5_livingRoom.glb';
+        this.videoPath = undefined;
         this.initialScenePosition = { x: -1.6, y: 0.3, z: 0 };
         this.defaultMode = SimulatorMode.USER;
         this.defaultHand = Handedness.LEFT;
@@ -7188,7 +7320,10 @@ class SimulatorOptions {
             enabled: true,
             element: 'xrblocks-simulator-hand-pose-panel',
         };
-        this.geminilive = false;
+        this.geminiLivePanel = {
+            enabled: false,
+            element: 'xrblocks-simulator-geminilive',
+        };
         this.stereo = {
             enabled: false,
         };
@@ -7422,6 +7557,7 @@ class Options {
          * Whether to use post-processing effects.
          */
         this.usePostprocessing = false;
+        this.enableSimulator = true;
         /**
          * Configuration for the XR session button.
          */
@@ -7431,11 +7567,17 @@ class Options {
             endText: 'Exit XR',
             invalidText: 'XR Not Supported',
             startSimulatorText: 'Enter Simulator',
-            enableSimulator: true,
-            showSimulatorButtonOnMobile: false,
-            autostartSimulatorOnDesktop: true,
-            // Whether to always autostart the simulator.
-            autostartSimulator: false,
+            showEnterSimulatorButton: false,
+            // Whether to autostart the simulator even if WebXR is available.
+            alwaysAutostartSimulator: false,
+        };
+        /**
+         * Which permissions to request before entering the XR session.
+         */
+        this.permissions = {
+            geolocation: false,
+            camera: false,
+            microphone: false,
         };
         deepMerge(this, options);
     }
@@ -7477,6 +7619,7 @@ class Options {
      * @returns The instance for chaining.
      */
     enableObjectDetection() {
+        this.permissions.camera = true;
         this.world.enableObjectDetection();
         return this;
     }
@@ -7487,6 +7630,7 @@ class Options {
      * @returns The instance for chaining.
      */
     enableCamera(facingMode = 'environment') {
+        this.permissions.camera = true;
         this.deviceCamera = new DeviceCameraOptions(facingMode === 'environment'
             ? xrDeviceCameraEnvironmentOptions
             : xrDeviceCameraUserOptions);
@@ -7515,14 +7659,6 @@ class Options {
      */
     enableHandRays() {
         this.controllers.visualizeRays = true;
-        return this;
-    }
-    /**
-     * Enables the Gemini Live feature.
-     * @returns The instance for chaining.
-     */
-    enableGeminiLive() {
-        this.simulator.geminilive = true;
         return this;
     }
     /**
@@ -8108,6 +8244,15 @@ class SimulatorDepth {
         this.depthWidth = 160;
         this.depthHeight = 160;
         this.depthBufferSlice = new Float32Array();
+        /**
+         * If true, copies the rendering camera's projection matrix each frame.
+         */
+        this.autoUpdateDepthCameraProjection = true;
+        /**
+         * If true, copies the rendering camera's transform each frame.
+         */
+        this.autoUpdateDepthCameraTransform = true;
+        this.projectionMatrixArray = new Float32Array(16);
     }
     /**
      * Initialize Simulator Depth.
@@ -8116,6 +8261,16 @@ class SimulatorDepth {
         this.renderer = renderer;
         this.camera = camera;
         this.depth = depth;
+        if (this.camera instanceof THREE.PerspectiveCamera) {
+            this.depthCamera = new THREE.PerspectiveCamera();
+        }
+        else if (this.camera instanceof THREE.OrthographicCamera) {
+            this.depthCamera = new THREE.OrthographicCamera();
+        }
+        else {
+            throw new Error('Unknown camera type');
+        }
+        this.depthCamera.copy(this.camera, /*recursive=*/ false);
         this.createRenderTarget();
         this.depthMaterial = new SimulatorDepthMaterial();
     }
@@ -8127,23 +8282,44 @@ class SimulatorDepth {
         this.depthBuffer = new Float32Array(this.depthWidth * this.depthHeight);
     }
     update() {
+        this.updateDepthCamera();
         this.renderDepthScene();
         this.updateDepth();
+    }
+    updateDepthCamera() {
+        const renderingCamera = this.camera;
+        const depthCamera = this.depthCamera;
+        if (this.autoUpdateDepthCameraProjection) {
+            depthCamera.projectionMatrix.copy(renderingCamera.projectionMatrix);
+            depthCamera.projectionMatrixInverse.copy(renderingCamera.projectionMatrixInverse);
+        }
+        if (this.autoUpdateDepthCameraTransform) {
+            depthCamera.position.copy(renderingCamera.position);
+            depthCamera.rotation.order = renderingCamera.rotation.order;
+            depthCamera.quaternion.copy(renderingCamera.quaternion);
+            depthCamera.scale.copy(renderingCamera.scale);
+            depthCamera.matrix.copy(renderingCamera.matrix);
+            depthCamera.matrixWorld.copy(renderingCamera.matrixWorld);
+            depthCamera.matrixWorldInverse.copy(renderingCamera.matrixWorldInverse);
+        }
     }
     renderDepthScene() {
         const originalRenderTarget = this.renderer.getRenderTarget();
         this.renderer.setRenderTarget(this.depthRenderTarget);
         this.simulatorScene.overrideMaterial = this.depthMaterial;
-        this.renderer.render(this.simulatorScene, this.camera);
+        this.renderer.render(this.simulatorScene, this.depthCamera);
         this.simulatorScene.overrideMaterial = null;
         this.renderer.setRenderTarget(originalRenderTarget);
     }
-    updateDepth() {
+    async updateDepth() {
         // We preventively unbind the PIXEL_PACK_BUFFER before reading from the
         // render target in case external libraries (Spark.js) left it bound.
         const context = this.renderer.getContext();
         context.bindBuffer(context.PIXEL_PACK_BUFFER, null);
-        this.renderer.readRenderTargetPixels(this.depthRenderTarget, 0, 0, this.depthWidth, this.depthHeight, this.depthBuffer);
+        // Cache the projection matrix and transform of the rendered depth.
+        const projectionMatrix = this.depthCamera.projectionMatrix.clone();
+        const transform = new XRRigidTransform(this.depthCamera.position, this.depthCamera.quaternion);
+        await this.renderer.readRenderTargetPixelsAsync(this.depthRenderTarget, 0, 0, this.depthWidth, this.depthHeight, this.depthBuffer);
         // Flip the depth buffer.
         if (this.depthBufferSlice.length != this.depthWidth) {
             this.depthBufferSlice = new Float32Array(this.depthWidth);
@@ -8159,11 +8335,14 @@ class SimulatorDepth {
             // Copy the temp slice (original row i) to row j
             this.depthBuffer.set(this.depthBufferSlice, j_offset);
         }
+        projectionMatrix.toArray(this.projectionMatrixArray);
         const depthData = {
             width: this.depthWidth,
             height: this.depthHeight,
             data: this.depthBuffer.buffer,
             rawValueToMeters: 1.0,
+            projectionMatrix: this.projectionMatrixArray,
+            transform: transform,
         };
         this.depth.updateCPUDepthData(depthData, 0);
     }
@@ -9786,8 +9965,8 @@ class SimulatorInterface {
         }
     }
     showGeminiLivePanel(simulatorOptions) {
-        if (simulatorOptions.geminilive) {
-            const element = document.createElement('xrblocks-simulator-geminilive');
+        if (simulatorOptions.geminiLivePanel.enabled) {
+            const element = document.createElement(simulatorOptions.geminiLivePanel.element);
             document.body.appendChild(element);
             this.elements.push(element);
         }
@@ -9831,6 +10010,9 @@ class SimulatorScene extends THREE.Scene {
     }
     async init(simulatorOptions) {
         this.addLights();
+        if (simulatorOptions.videoPath) {
+            return;
+        }
         if (simulatorOptions.scenePath) {
             await this.loadGLTF(simulatorOptions.scenePath, new THREE.Vector3(simulatorOptions.initialScenePosition.x, simulatorOptions.initialScenePosition.y, simulatorOptions.initialScenePosition.z));
         }
@@ -9968,6 +10150,21 @@ class Simulator extends Script {
         if (this.options.stereo.enabled) {
             this.setupStereoCameras(camera);
         }
+        if (this.options.videoPath) {
+            this.videoElement = document.createElement('video');
+            this.videoElement.src = this.options.videoPath;
+            this.videoElement.loop = true;
+            this.videoElement.muted = true;
+            this.videoElement.play().catch((e) => {
+                console.error(`Simulator: Failed to play video at ${this.options.videoPath}`, e);
+            });
+            this.videoElement.addEventListener('error', () => {
+                console.error(`Simulator: Error loading video at ${this.options.videoPath}`, this.videoElement?.error);
+            });
+            const videoTexture = new THREE.VideoTexture(this.videoElement);
+            videoTexture.colorSpace = THREE.SRGBColorSpace;
+            this.backgroundVideoQuad = new FullScreenQuad(new THREE.MeshBasicMaterial({ map: videoTexture }));
+        }
         this.virtualSceneRenderTarget = new THREE.WebGLRenderTarget(renderer.domElement.width, renderer.domElement.height, { stencilBuffer: options.stencil });
         const virtualSceneMaterial = new THREE.MeshBasicMaterial({
             map: this.virtualSceneRenderTarget.texture,
@@ -10077,6 +10274,9 @@ class Simulator extends Script {
             this.sparkRenderer.defaultView.encodeLinear = false;
         }
         this.renderer.setRenderTarget(null);
+        if (this.backgroundVideoQuad) {
+            this.backgroundVideoQuad.render(this.renderer);
+        }
         this.renderer.render(this.simulatorScene, camera);
         this.renderer.clearDepth();
     }
@@ -10269,6 +10469,7 @@ class AudioListener extends Script {
     }
 }
 
+const DEFAULT_SCHEDULE_AHEAD_TIME = 1.0;
 class AudioPlayer extends Script {
     constructor(options = {}) {
         super();
@@ -10277,6 +10478,7 @@ class AudioPlayer extends Script {
         this.nextStartTime = 0;
         this.volume = 1.0;
         this.category = 'speech';
+        this.scheduleAheadTime = DEFAULT_SCHEDULE_AHEAD_TIME;
         this.options = { sampleRate: 24000, channelCount: 1, ...options };
         if (options.category) {
             this.category = options.category;
@@ -10341,9 +10543,9 @@ class AudioPlayer extends Script {
         this.scheduleAudioBuffers();
     }
     scheduleAudioBuffers() {
-        const SCHEDULE_AHEAD_TIME = 0.2;
         while (this.audioQueue.length > 0 &&
-            this.nextStartTime <= this.audioContext.currentTime + SCHEDULE_AHEAD_TIME) {
+            this.nextStartTime <=
+                this.audioContext.currentTime + this.scheduleAheadTime) {
             const audioBuffer = this.audioQueue.shift();
             const currentTime = this.audioContext.currentTime;
             const startTime = Math.max(this.nextStartTime, currentTime);
@@ -11750,7 +11952,7 @@ class TextView extends View {
     }
     setTextColor(color) {
         if (Text && this.textObj instanceof Text) {
-            this.textObj.color = color;
+            this.textObj.color = getColorHex(color);
         }
     }
     /**
@@ -12140,7 +12342,7 @@ class TextButton extends TextView {
      */
     constructor(options = {}) {
         const geometry = new THREE.PlaneGeometry(1, 1);
-        const colorVec4 = getVec4ByColorString(options.backgroundColor ?? '#00000000');
+        const colorVec4 = getVec4ByColorString(options.backgroundColor ?? '#000000');
         const { opacity = 0.0, radius = SquircleShader.uniforms.uRadius.value, boxSize = SquircleShader.uniforms.uBoxSize.value, } = options;
         const uniforms = {
             ...SquircleShader.uniforms,
@@ -12190,6 +12392,9 @@ class TextButton extends TextView {
         // Applies our own overrides to the default values.
         this.fontSize = options.fontSize ?? this.fontSize;
         this.fontColor = options.fontColor ?? this.fontColor;
+        this.hoverColor = options.hoverColor ?? this.hoverColor;
+        this.selectedFontColor =
+            options.selectedFontColor ?? this.selectedFontColor;
         this.width = options.width ?? this.width;
         this.height = options.height ?? this.height;
     }
@@ -12212,20 +12417,19 @@ class TextButton extends TextView {
         if (!this.textObj) {
             return;
         }
-        if (this.textObj) {
-            this.textObj.renderOrder = this.renderOrder + 1;
-        }
+        // Update render order to ensure text appears on top of the button mesh
+        this.textObj.renderOrder = this.renderOrder + 1;
         const ux = this.ux;
         if (ux.isHovered()) {
             if (ux.isSelected()) {
-                this.setTextColor(0x666666);
+                this.setTextColor(this.selectedFontColor);
             }
             else {
-                this.setTextColor(0xaaaaaa);
+                this.setTextColor(this.hoverColor);
             }
         }
         else {
-            this.setTextColor(0xffffff);
+            this.setTextColor(this.fontColor);
             this.uniforms.uOpacity.value = this.defaultOpacity * this.opacity;
         }
     }
@@ -13841,6 +14045,7 @@ class ObjectDetector extends Script {
             }
             if (this.options.objects.showDebugVisualizations) {
                 this._visualizeBoundingBoxesOnImage(base64Image, parsedResponse);
+                this._visualizeDepthMap(cachedDepthArray);
             }
             const detectionPromises = parsedResponse.map(async (item) => {
                 const { ymin, xmin, ymax, xmax, objectName, ...additionalData } = item || {};
@@ -13889,7 +14094,7 @@ class ObjectDetector extends Script {
      * Retrieves a list of currently detected objects.
      *
      * @param label - The semantic label to filter by (e.g., 'chair'). If null,
-     *     all objects are returned.
+     * all objects are returned.
      * @returns An array of `Object` instances.
      */
     get(label = null) {
@@ -13926,8 +14131,7 @@ class ObjectDetector extends Script {
      * Draws the detected bounding boxes on the input image and triggers a
      * download for debugging.
      * @param base64Image - The base64 encoded input image.
-     * @param detections - The array of detected objects from the
-     * AI response.
+     * @param detections - The array of detected objects from the AI response.
      */
     _visualizeBoundingBoxesOnImage(base64Image, detections) {
         const img = new Image();
@@ -13975,6 +14179,71 @@ class ObjectDetector extends Script {
             link.click();
         };
         img.src = base64Image;
+    }
+    /**
+     * Generates a visual representation of the depth map, normalized to 0-1 range,
+     * and triggers a download for debugging.
+     * @param depthArray - The raw depth data array.
+     */
+    _visualizeDepthMap(depthArray) {
+        const width = this.depth.width;
+        const height = this.depth.height;
+        if (!width || !height || depthArray.length === 0) {
+            console.warn('Cannot visualize depth map: missing dimensions or data.');
+            return;
+        }
+        // 1. Find Min/Max for normalization (ignoring 0/invalid depth).
+        let min = Infinity;
+        let max = -Infinity;
+        for (let i = 0; i < depthArray.length; ++i) {
+            const val = depthArray[i];
+            if (val > 0) {
+                if (val < min)
+                    min = val;
+                if (val > max)
+                    max = val;
+            }
+        }
+        // Handle edge case where no valid depth exists.
+        if (min === Infinity) {
+            min = 0;
+            max = 1;
+        }
+        if (min === max) {
+            max = min + 1; // Avoid divide by zero
+        }
+        // 2. Create Canvas.
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        const imageData = ctx.createImageData(width, height);
+        const data = imageData.data;
+        // 3. Fill Pixels.
+        for (let i = 0; i < depthArray.length; ++i) {
+            const raw = depthArray[i];
+            // Normalize to 0-1.
+            // Typically 0 means invalid/sky in some depth APIs, so we keep it black.
+            // Otherwise, map [min, max] to [0, 1].
+            const normalized = raw === 0 ? 0 : (raw - min) / (max - min);
+            const byteVal = Math.floor(normalized * 255);
+            const stride = i * 4;
+            data[stride] = byteVal; // R
+            data[stride + 1] = byteVal; // G
+            data[stride + 2] = byteVal; // B
+            data[stride + 3] = 255; // Alpha
+        }
+        ctx.putImageData(imageData, 0, 0);
+        // 4. Download.
+        const timestamp = new Date()
+            .toISOString()
+            .slice(0, 19)
+            .replace('T', '_')
+            .replace(/:/g, '-');
+        const link = document.createElement('a');
+        link.download = `depth_debug_${timestamp}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
     }
     /**
      * Creates a simple debug visualization for an object based on its position
@@ -14397,6 +14666,216 @@ class XRTransition extends MeshScript {
 }
 
 /**
+ * A utility class to manage and request browser permissions for
+ * Location, Camera, and Microphone.
+ */
+class PermissionsManager {
+    /**
+     * Requests permission to access the user's geolocation.
+     * Note: This actually attempts to fetch the position to trigger the prompt.
+     */
+    async requestLocationPermission() {
+        if (!('geolocation' in navigator)) {
+            return {
+                granted: false,
+                status: 'error',
+                error: 'Geolocation is not supported by this browser.',
+            };
+        }
+        return new Promise((resolve) => {
+            navigator.geolocation.getCurrentPosition(() => {
+                resolve({ granted: true, status: 'granted' });
+            }, (error) => {
+                let errorMsg = 'Unknown error';
+                switch (error.code) {
+                    case error.PERMISSION_DENIED:
+                        errorMsg = 'User denied the request.';
+                        break;
+                    case error.POSITION_UNAVAILABLE:
+                        errorMsg = 'Location information is unavailable.';
+                        break;
+                    case error.TIMEOUT:
+                        errorMsg = 'The request to get user location timed out.';
+                        break;
+                }
+                resolve({ granted: false, status: 'denied', error: errorMsg });
+            }, { timeout: 10000 } // 10 second timeout
+            );
+        });
+    }
+    /**
+     * Requests permission to access the microphone.
+     * Opens a stream to trigger the prompt, then immediately closes it.
+     */
+    async requestMicrophonePermission() {
+        return this.requestMediaPermission({ audio: true });
+    }
+    /**
+     * Requests permission to access the camera.
+     * Opens a stream to trigger the prompt, then immediately closes it.
+     */
+    async requestCameraPermission() {
+        return this.requestMediaPermission({ video: true });
+    }
+    /**
+     * Requests permission for both camera and microphone simultaneously.
+     */
+    async requestAVPermission() {
+        return this.requestMediaPermission({ video: true, audio: true });
+    }
+    /**
+     * Internal helper to handle getUserMedia requests.
+     * Crucially, this stops the tracks immediately after permission is granted
+     * so the hardware doesn't remain active.
+     */
+    async requestMediaPermission(constraints) {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            return {
+                granted: false,
+                status: 'error',
+                error: 'Media Devices API is not supported by this browser.',
+            };
+        }
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            // Permission granted. Now stop the stream to release hardware.
+            stream.getTracks().forEach((track) => track.stop());
+            return { granted: true, status: 'granted' };
+        }
+        catch (err) {
+            // Handle common getUserMedia errors
+            const status = 'denied';
+            let errorMessage = 'Permission denied';
+            if (err instanceof Error) {
+                if (err.name === 'NotFoundError' ||
+                    err.name === 'DevicesNotFoundError') {
+                    return {
+                        granted: false,
+                        status: 'error',
+                        error: 'Hardware not found.',
+                    };
+                }
+                errorMessage = err.message || errorMessage;
+            }
+            return { granted: false, status: status, error: errorMessage };
+        }
+    }
+    /**
+     * Requests multiple permissions sequentially.
+     * Returns a single result: granted is true only if ALL requested permissions are granted.
+     */
+    async checkAndRequestPermissions({ geolocation = false, camera = false, microphone = false, }) {
+        const results = [];
+        // 1. Handle Location
+        if (geolocation) {
+            const status = await this.checkPermissionStatus('geolocation');
+            if (status === 'granted') {
+                results.push({ granted: true, status: 'granted' });
+            }
+            else {
+                results.push(await this.requestLocationPermission());
+            }
+        }
+        // 2. Handle Media (Camera & Mic)
+        // We group these because requestAVPermission can ask for both in one prompt
+        if (camera && microphone) {
+            const camStatus = await this.checkPermissionStatus('camera');
+            const micStatus = await this.checkPermissionStatus('microphone');
+            if (camStatus === 'granted' && micStatus === 'granted') {
+                results.push({ granted: true, status: 'granted' });
+            }
+            else if (camStatus === 'granted') {
+                // Only need mic
+                results.push(await this.requestMicrophonePermission());
+            }
+            else if (micStatus === 'granted') {
+                // Only need camera
+                results.push(await this.requestCameraPermission());
+            }
+            else {
+                // Need both
+                results.push(await this.requestAVPermission());
+            }
+        }
+        else if (camera) {
+            const status = await this.checkPermissionStatus('camera');
+            if (status === 'granted') {
+                results.push({ granted: true, status: 'granted' });
+            }
+            else {
+                results.push(await this.requestCameraPermission());
+            }
+        }
+        else if (microphone) {
+            const status = await this.checkPermissionStatus('microphone');
+            if (status === 'granted') {
+                results.push({ granted: true, status: 'granted' });
+            }
+            else {
+                results.push(await this.requestMicrophonePermission());
+            }
+        }
+        // 3. Aggregate results
+        if (results.length === 0) {
+            return { granted: true, status: 'granted' };
+        }
+        const allGranted = results.every((r) => r.granted);
+        const anyDenied = results.find((r) => r.status === 'denied');
+        const anyError = results.find((r) => r.status === 'error');
+        // Aggregate errors
+        const errors = results
+            .filter((r) => r.error)
+            .map((r) => r.error)
+            .join(' | ');
+        let finalStatus = 'granted';
+        if (anyError)
+            finalStatus = 'error';
+        else if (anyDenied)
+            finalStatus = 'denied';
+        return {
+            granted: allGranted,
+            status: finalStatus,
+            error: errors || undefined,
+        };
+    }
+    /**
+     * Checks the current status of a permission without triggering a prompt.
+     * Useful for UI state (e.g., disabling buttons if already denied).
+     * * @param permissionName - 'geolocation', 'camera', or 'microphone'
+     */
+    async checkPermissionStatus(permissionName) {
+        if (!navigator.permissions || !navigator.permissions.query) {
+            return 'unknown';
+        }
+        try {
+            let queryName;
+            // Map friendly names to API PermissionName types
+            // Note: 'camera' and 'microphone' are part of the newer spec,
+            // but strictly Typed TypeScript might expect specific descriptor objects.
+            if (permissionName === 'geolocation') {
+                queryName = 'geolocation';
+            }
+            else if (permissionName === 'camera' ||
+                permissionName === 'microphone') {
+                const descriptor = { name: permissionName };
+                const result = await navigator.permissions.query(descriptor);
+                return result.state;
+            }
+            else {
+                return 'unknown';
+            }
+            const result = await navigator.permissions.query({ name: queryName });
+            return result.state;
+        }
+        catch (error) {
+            // Firefox and Safari have incomplete Permissions API support
+            console.warn(`Error checking permission status for ${permissionName}`, error);
+            return 'unknown';
+        }
+    }
+}
+
+/**
  * Core is the central engine of the XR Blocks framework, acting as a
  * singleton manager for all XR subsystems. Its primary goal is to abstract
  * low-level WebXR and THREE.js details, providing a simplified and powerful API
@@ -14455,6 +14934,7 @@ class Core {
                 await script.initPhysics(this.physics);
             }
         });
+        this.permissionsManager = new PermissionsManager();
         if (Core.instance) {
             return Core.instance;
         }
@@ -14563,6 +15043,8 @@ class Core {
                 dataFormatPreference: [
                     this.options.depth.useFloat32 ? 'float32' : 'luminance-alpha',
                 ],
+                depthTypeRequest: options.depth.depthTypeRequest,
+                matchDepthView: options.depth.matchDepthView,
             };
             this.depth.init(this.camera, options.depth, this.renderer, this.registry, this.scene);
         }
@@ -14597,14 +15079,17 @@ class Core {
         this.webXRSessionManager.addEventListener(WebXRSessionEventType.SESSION_START, (event) => this.onXRSessionStarted(event.session));
         this.webXRSessionManager.addEventListener(WebXRSessionEventType.SESSION_END, this.onXRSessionEnded.bind(this));
         // Sets up xrButton.
-        const shouldAutostartSimulator = this.options.xrButton.autostartSimulator ||
-            (this.options.xrButton.autostartSimulatorOnDesktop &&
-                this.options.xrButton.enableSimulator &&
-                onDesktopUserAgent());
+        let shouldAutostartSimulator = this.options.xrButton.alwaysAutostartSimulator;
         if (!shouldAutostartSimulator && options.xrButton.enabled) {
-            this.xrButton = new XRButton(this.webXRSessionManager, options.xrButton?.startText, options.xrButton?.endText, options.xrButton?.invalidText, options.xrButton?.startSimulatorText, options.xrButton?.enableSimulator, options.xrButton?.showSimulatorButtonOnMobile, this.startSimulator.bind(this));
+            this.xrButton = new XRButton(this.webXRSessionManager, this.permissionsManager, options.xrButton?.startText, options.xrButton?.endText, options.xrButton?.invalidText, options.xrButton?.startSimulatorText, options.xrButton?.showEnterSimulatorButton, this.startSimulator.bind(this), options.permissions);
             document.body.appendChild(this.xrButton.domElement);
         }
+        this.webXRSessionManager.addEventListener(WebXRSessionEventType.UNSUPPORTED, () => {
+            if (this.options.enableSimulator) {
+                this.xrButton?.domElement.remove();
+                shouldAutostartSimulator = true;
+            }
+        });
         await this.webXRSessionManager.initialize();
         // Sets up postprocessing effects.
         if (options.usePostprocessing) {
@@ -14723,7 +15208,6 @@ class Core {
      * scripts.
      */
     onXRSessionEnded() {
-        this.startSimulator();
         this.scriptsManager.onXRSessionEnded();
     }
     /**
@@ -16825,5 +17309,5 @@ class VideoFileStream extends VideoStream {
     }
 }
 
-export { AI, AIOptions, AVERAGE_IPD_METERS, ActiveControllers, Agent, AnimatableNumber, AudioListener, AudioPlayer, BACK, BackgroundMusic, CategoryVolumes, Col, Core, CoreSound, DEFAULT_DEVICE_CAMERA_HEIGHT, DEFAULT_DEVICE_CAMERA_WIDTH, DOWN, Depth, DepthMesh, DepthMeshOptions, DepthOptions, DepthTextures, DetectedObject, DetectedPlane, DeviceCameraOptions, DragManager, DragMode, ExitButton, FORWARD, FreestandingSlider, GazeController, Gemini, GeminiOptions, GenerateSkyboxTool, GestureRecognition, GestureRecognitionOptions, GetWeatherTool, Grid, HAND_BONE_IDX_CONNECTION_MAP, HAND_JOINT_COUNT, HAND_JOINT_IDX_CONNECTION_MAP, HAND_JOINT_NAMES, Handedness, Hands, HandsOptions, HorizontalPager, IconButton, IconView, ImageView, Input, InputOptions, Keycodes, LEFT, LEFT_VIEW_ONLY_LAYER, LabelView, Lighting, LightingOptions, LoadingSpinnerManager, MaterialSymbolsView, MeshScript, ModelLoader, ModelViewer, MouseController, NEXT_SIMULATOR_MODE, NUM_HANDS, OCCLUDABLE_ITEMS_LAYER, ObjectDetector, ObjectsOptions, OcclusionPass, OcclusionUtils, OpenAI, OpenAIOptions, Options, PageIndicator, Pager, PagerState, Panel, PanelMesh, Physics, PhysicsOptions, PinchOnButtonAction, PlaneDetector, PlanesOptions, RIGHT, RIGHT_VIEW_ONLY_LAYER, Registry, Reticle, ReticleOptions, RotationRaycastMesh, Row, SIMULATOR_HAND_POSE_NAMES, SIMULATOR_HAND_POSE_TO_JOINTS_LEFT, SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT, SOUND_PRESETS, ScreenshotSynthesizer, Script, ScriptMixin, ScriptsManager, ScrollingTroikaTextView, SetSimulatorModeEvent, ShowHandsAction, Simulator, SimulatorCamera, SimulatorControlMode, SimulatorControllerState, SimulatorControls, SimulatorDepth, SimulatorDepthMaterial, SimulatorHandPose, SimulatorHandPoseChangeRequestEvent, SimulatorHands, SimulatorInterface, SimulatorMediaDeviceInfo, SimulatorMode, SimulatorOptions, SimulatorRenderMode, SimulatorScene, SimulatorUser, SimulatorUserAction, SketchPanel, SkyboxAgent, SoundOptions, SoundSynthesizer, SpatialAudio, SpatialPanel, SpeechRecognizer, SpeechRecognizerOptions, SpeechSynthesizer, SpeechSynthesizerOptions, SplatAnchor, StreamState, TextButton, TextScrollerState, TextView, Tool, UI, UI_OVERLAY_LAYER, UP, UX, User, VIEW_DEPTH_GAP, VerticalPager, VideoFileStream, VideoStream, VideoView, View, VolumeCategory, WaitFrame, WalkTowardsPanelAction, World, WorldOptions, XRButton, XRDeviceCamera, XREffects, XRPass, XRTransitionOptions, XR_BLOCKS_ASSETS_PATH, ZERO_VECTOR3, add, ai, aspectRatios, callInitWithDependencyInjection, clamp, clampRotationToAngle, core, cropImage, extractYaw, getColorHex, getDeltaTime, getUrlParamBool, getUrlParamFloat, getUrlParamInt, getUrlParameter, getVec4ByColorString, getXrCameraLeft, getXrCameraRight, init, initScript, lerp, loadStereoImageAsTextures, loadingSpinnerManager, lookAtRotation, objectIsDescendantOf, onDesktopUserAgent, parseBase64DataURL, placeObjectAtIntersectionFacingTarget, print, rgbToDepthParams, scene, showOnlyInLeftEye, showOnlyInRightEye, showReticleOnDepthMesh, transformRgbToDepthUv, transformRgbUvToWorld, traverseUtil, uninitScript, urlParams, user, world, xrDepthMeshOptions, xrDepthMeshPhysicsOptions, xrDepthMeshVisualizationOptions, xrDeviceCameraEnvironmentContinuousOptions, xrDeviceCameraEnvironmentOptions, xrDeviceCameraUserContinuousOptions, xrDeviceCameraUserOptions };
+export { AI, AIOptions, AVERAGE_IPD_METERS, ActiveControllers, Agent, AnimatableNumber, AudioListener, AudioPlayer, BACK, BackgroundMusic, CategoryVolumes, Col, Core, CoreSound, DEFAULT_DEVICE_CAMERA_HEIGHT, DEFAULT_DEVICE_CAMERA_WIDTH, DEFAULT_RGB_TO_DEPTH_PARAMS, DOWN, Depth, DepthMesh, DepthMeshOptions, DepthOptions, DepthTextures, DetectedObject, DetectedPlane, DeviceCameraOptions, DragManager, DragMode, ExitButton, FORWARD, FreestandingSlider, GazeController, Gemini, GeminiOptions, GenerateSkyboxTool, GestureRecognition, GestureRecognitionOptions, GetWeatherTool, Grid, HAND_BONE_IDX_CONNECTION_MAP, HAND_JOINT_COUNT, HAND_JOINT_IDX_CONNECTION_MAP, HAND_JOINT_NAMES, Handedness, Hands, HandsOptions, HorizontalPager, IconButton, IconView, ImageView, Input, InputOptions, Keycodes, LEFT, LEFT_VIEW_ONLY_LAYER, LabelView, Lighting, LightingOptions, LoadingSpinnerManager, MaterialSymbolsView, MeshScript, ModelLoader, ModelViewer, MouseController, NEXT_SIMULATOR_MODE, NUM_HANDS, OCCLUDABLE_ITEMS_LAYER, ObjectDetector, ObjectsOptions, OcclusionPass, OcclusionUtils, OpenAI, OpenAIOptions, Options, PageIndicator, Pager, PagerState, Panel, PanelMesh, Physics, PhysicsOptions, PinchOnButtonAction, PlaneDetector, PlanesOptions, RIGHT, RIGHT_VIEW_ONLY_LAYER, Registry, Reticle, ReticleOptions, RotationRaycastMesh, Row, SIMULATOR_HAND_POSE_NAMES, SIMULATOR_HAND_POSE_TO_JOINTS_LEFT, SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT, SOUND_PRESETS, ScreenshotSynthesizer, Script, ScriptMixin, ScriptsManager, ScrollingTroikaTextView, SetSimulatorModeEvent, ShowHandsAction, Simulator, SimulatorCamera, SimulatorControlMode, SimulatorControllerState, SimulatorControls, SimulatorDepth, SimulatorDepthMaterial, SimulatorHandPose, SimulatorHandPoseChangeRequestEvent, SimulatorHands, SimulatorInterface, SimulatorMediaDeviceInfo, SimulatorMode, SimulatorOptions, SimulatorRenderMode, SimulatorScene, SimulatorUser, SimulatorUserAction, SketchPanel, SkyboxAgent, SoundOptions, SoundSynthesizer, SpatialAudio, SpatialPanel, SpeechRecognizer, SpeechRecognizerOptions, SpeechSynthesizer, SpeechSynthesizerOptions, SplatAnchor, StreamState, TextButton, TextScrollerState, TextView, Tool, UI, UI_OVERLAY_LAYER, UP, UX, User, VIEW_DEPTH_GAP, VerticalPager, VideoFileStream, VideoStream, VideoView, View, VolumeCategory, WaitFrame, WalkTowardsPanelAction, World, WorldOptions, XRButton, XRDeviceCamera, XREffects, XRPass, XRTransitionOptions, XR_BLOCKS_ASSETS_PATH, ZERO_VECTOR3, add, ai, aspectRatios, callInitWithDependencyInjection, clamp, clampRotationToAngle, core, cropImage, extractYaw, getColorHex, getDeltaTime, getUrlParamBool, getUrlParamFloat, getUrlParamInt, getUrlParameter, getVec4ByColorString, getXrCameraLeft, getXrCameraRight, init, initScript, lerp, loadStereoImageAsTextures, loadingSpinnerManager, lookAtRotation, objectIsDescendantOf, parseBase64DataURL, placeObjectAtIntersectionFacingTarget, print, scene, showOnlyInLeftEye, showOnlyInRightEye, showReticleOnDepthMesh, transformRgbToDepthUv, transformRgbToRenderCameraClip, transformRgbUvToWorld, traverseUtil, uninitScript, urlParams, user, world, xrDepthMeshOptions, xrDepthMeshPhysicsOptions, xrDepthMeshVisualizationOptions, xrDeviceCameraEnvironmentContinuousOptions, xrDeviceCameraEnvironmentOptions, xrDeviceCameraUserContinuousOptions, xrDeviceCameraUserOptions };
 //# sourceMappingURL=xrblocks.js.map

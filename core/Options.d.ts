@@ -95,6 +95,7 @@ export declare class Options {
      * Whether to use post-processing effects.
      */
     usePostprocessing: boolean;
+    enableSimulator: boolean;
     /**
      * Configuration for the XR session button.
      */
@@ -104,10 +105,16 @@ export declare class Options {
         endText: string;
         invalidText: string;
         startSimulatorText: string;
-        enableSimulator: boolean;
-        showSimulatorButtonOnMobile: boolean;
-        autostartSimulatorOnDesktop: boolean;
-        autostartSimulator: boolean;
+        showEnterSimulatorButton: boolean;
+        alwaysAutostartSimulator: boolean;
+    };
+    /**
+     * Which permissions to request before entering the XR session.
+     */
+    permissions: {
+        geolocation: boolean;
+        camera: boolean;
+        microphone: boolean;
     };
     /**
      * Constructs the Options object by merging default values with provided
@@ -162,11 +169,6 @@ export declare class Options {
      * @returns The instance for chaining.
      */
     enableHandRays(): this;
-    /**
-     * Enables the Gemini Live feature.
-     * @returns The instance for chaining.
-     */
-    enableGeminiLive(): this;
     /**
      * Enables a standard set of AI features, including Gemini Live.
      * @returns The instance for chaining.

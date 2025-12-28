@@ -12,13 +12,12 @@ export class DepthVisualizationPass extends xb.XRPass {
     super();
     this.depthTextures = [null, null];
     this.uniforms = {
-      uDepthTexture: {value: null},
       uDepthTextureArray: {value: null},
       uRawValueToMeters: {value: 8.0 / 65536.0},
       uAlpha: {value: 1.0},
       tDiffuse: {value: null},
       uView: {value: 0},
-      uIsTextureArray: {value: 0},
+      uIsGpuDepth: {value: 0},
       // Used to interpret Quest 3 depth.
       uDepthNear: {value: 0},
     };
@@ -40,24 +39,17 @@ export class DepthVisualizationPass extends xb.XRPass {
     this.depthTextures[0] = xrDepth.getTexture(0);
     this.depthTextures[1] = xrDepth.getTexture(1);
     this.uniforms.uRawValueToMeters.value = xrDepth.rawValueToMeters;
-    if (this.depthTextures[0]) {
-      this.uniforms.uIsTextureArray.value = this.depthTextures[0]
-        .isExternalTexture
-        ? 1.0
-        : 0;
-    }
   }
 
-  render(renderer, writeBuffer, readBuffer, deltaTime, maskActive, viewId) {
+  render(renderer, writeBuffer, readBuffer, _deltaTime, _maskActive, viewId) {
     const texture = this.depthTextures[viewId];
     if (!texture) return;
-    if (texture.isExternalTexture) {
-      this.uniforms.uDepthTextureArray.value = texture;
-      const depthNear = xb.core.depth.gpuDepthData[0].depthNear;
-      this.uniforms.uDepthNear.value = depthNear;
-    } else {
-      this.uniforms.uDepthTexture.value = texture;
-    }
+    this.uniforms.uDepthTextureArray.value = texture;
+    const depthNear = xb.core.depth.gpuDepthData[0]
+      ? xb.core.depth.gpuDepthData[0].depthNear
+      : 0.1;
+    this.uniforms.uDepthNear.value = depthNear;
+    this.uniforms.uIsGpuDepth.value = texture.isExternalTexture ? 1.0 : 0.0;
     this.uniforms.tDiffuse.value = readBuffer.texture;
     this.uniforms.uView.value = viewId;
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);

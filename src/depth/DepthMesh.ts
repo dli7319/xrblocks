@@ -150,7 +150,9 @@ export class DepthMesh extends MeshScript {
 
     const depthTextureLeft = this.depthTextures?.get(0);
     if (depthTextureLeft && this.depthTextureMaterialUniforms) {
-      const isTextureArray = depthTextureLeft instanceof THREE.ExternalTexture;
+      const isTextureArray =
+        depthTextureLeft instanceof THREE.ExternalTexture ||
+        depthTextureLeft instanceof THREE.DataArrayTexture;
       this.depthTextureMaterialUniforms.uIsTextureArray.value = isTextureArray
         ? 1.0
         : 0;

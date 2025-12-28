@@ -17,12 +17,14 @@ void main() {
 
 precision mediump float;
 
-uniform sampler2D uDepthTexture;
+uniform sampler2DArray uDepthTextureArray;
 uniform mat4 uUvTransform;
 uniform float uRawValueToMeters;
 uniform float uAlpha;
 uniform float uViewId;
 uniform bool uFloatDepth;
+uniform bool uIsGpuDepth;
+uniform float uDepthNear;
 
 uniform sampler2D tDiffuse;
 uniform sampler2D tDepth;
@@ -31,16 +33,15 @@ uniform float cameraFar;
 
 varying vec2 vTexCoord;
 
-float DepthGetMeters(in sampler2D depth_texture, in vec2 depth_uv) {
-  // Depth is packed into the luminance and alpha components of its texture.
-  // The texture is in a normalized format, storing raw values that need to be
-  // converted to meters.
-  vec2 packedDepthAndVisibility = texture2D(depth_texture, depth_uv).rg;
-  if (uFloatDepth) {
-    return packedDepthAndVisibility.r * uRawValueToMeters;
+float DepthArrayGetMeters(in sampler2DArray depth_texture, in vec2 depth_uv) {
+  if (uIsGpuDepth) {
+    float textureValue = texture(depth_texture, vec3(depth_uv.x, depth_uv.y, uViewId)).r;
+    return uRawValueToMeters * uDepthNear / (1.0 - textureValue);
   }
-  return dot(packedDepthAndVisibility, vec2(255.0, 256.0 * 255.0)) * uRawValueToMeters;
+  float textureValue = texture(depth_texture, vec3(depth_uv.x, 1.0 - depth_uv.y, uViewId)).r;
+  return uRawValueToMeters * textureValue; 
 }
+
 
 float readOrthographicDepth( sampler2D depthSampler, vec2 coord ) {
   float fragCoordZ = texture2D( depthSampler, coord ).x;
@@ -59,7 +60,7 @@ void main(void) {
   uv.y = 1.0 - uv.y;
 
   vec4 diffuse = texture2D( tDiffuse, texCoord.xy );
-  highp float real_depth = DepthGetMeters(uDepthTexture, uv);
+  highp float real_depth = DepthArrayGetMeters(uDepthTextureArray, uv);
   highp float virtual_depth =
     (readOrthographicDepth(tDepth, texCoord.xy ) *
     (cameraFar - cameraNear) + cameraNear);

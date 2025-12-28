@@ -16,12 +16,11 @@ export const DepthMapShader = {
 
   precision mediump float;
 
-  uniform sampler2D uDepthTexture;
   uniform sampler2DArray uDepthTextureArray;
   uniform float uRawValueToMeters;
   uniform float uAlpha;
-  uniform float uIsTextureArray;
   uniform int uView;
+  uniform float uIsGpuDepth;
   uniform float uDepthNear;
 
   uniform sampler2D tDiffuse;
@@ -30,14 +29,13 @@ export const DepthMapShader = {
 
   varying vec2 vTexCoord;
 
-  float DepthGetMeters(in sampler2D depth_texture, in vec2 depth_uv) {
-    // Assume we're using floating point depth.
-    return uRawValueToMeters * texture2D(depth_texture, depth_uv).r;
-  }
-
   float DepthArrayGetMeters(in sampler2DArray depth_texture, in vec2 depth_uv) {
-    float textureValue = texture(depth_texture, vec3(depth_uv.x, depth_uv.y, uView)).r;
-    return uRawValueToMeters * uDepthNear / (1.0 - textureValue);
+    if (uIsGpuDepth > 0.5) {
+      float textureValue = texture(depth_texture, vec3(depth_uv.x, depth_uv.y, uView)).r;
+      return uRawValueToMeters * uDepthNear / (1.0 - textureValue);
+    }
+    float textureValue = texture(depth_texture, vec3(depth_uv.x, 1.0 - depth_uv.y, uView)).r;
+    return uRawValueToMeters * textureValue;
   }
 
   vec3 TurboColormap(in float x) {
@@ -65,11 +63,7 @@ export const DepthMapShader = {
 
     vec4 diffuse = texture2D( tDiffuse, texCoord.xy );
     highp float real_depth;
-    if (uIsTextureArray < 0.5) {
-      uv.y = 1.0 - uv.y;
-      real_depth = DepthGetMeters(uDepthTexture, uv);
-    } else
-      real_depth = DepthArrayGetMeters(uDepthTextureArray, uv);
+    real_depth = DepthArrayGetMeters(uDepthTextureArray, uv);
     vec4 depth_visualization = vec4(
       TurboColormap(clamp(real_depth / 8.0, 0.0, 1.0)), 1.0);
     gl_FragColor = mix(diffuse, depth_visualization, uAlpha);

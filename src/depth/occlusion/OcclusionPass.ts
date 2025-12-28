@@ -57,6 +57,7 @@ export class OcclusionPass extends Pass {
       uDepthTextureArray: {value: null},
       uViewId: {value: 0.0},
       uIsTextureArray: {value: 0.0},
+      uIsGpuDepth: {value: 0.0}, // 1.0 if texture is non-linear GPU depth
       uUvTransform: {value: new THREE.Matrix4()},
       uRawValueToMeters: {value: 8.0 / 65536.0},
       uAlpha: {value: 0.75},
@@ -195,10 +196,16 @@ export class OcclusionPass extends Pass {
   ) {
     // Compute our own read buffer.
     const texture = this.depthTextures[viewId];
-    const isTextureArray = texture instanceof THREE.ExternalTexture;
+    const isTextureArray =
+      texture instanceof THREE.ExternalTexture ||
+      texture instanceof THREE.DataArrayTexture;
+    const isGpuDepth = texture instanceof THREE.ExternalTexture;
     this.occlusionMeshMaterial.uniforms.uIsTextureArray.value = isTextureArray
       ? 1.0
       : 0;
+    this.occlusionMeshMaterial.uniforms.uIsGpuDepth.value = isGpuDepth
+      ? 1.0
+      : 0.0;
     this.occlusionMeshMaterial.uniforms.uViewId.value = viewId;
     if (isTextureArray) {
       this.occlusionMeshMaterial.uniforms.uDepthTextureArray.value = texture;
@@ -236,10 +243,16 @@ export class OcclusionPass extends Pass {
     this.occlusionMapUniforms.tDiffuse.value = readBuffer.texture;
     this.occlusionMapUniforms.tDepth.value = readBuffer.depthTexture;
     const texture = this.depthTextures[viewId];
-    const isTextureArray = texture instanceof THREE.ExternalTexture;
+    const isTextureArray =
+      texture instanceof THREE.ExternalTexture ||
+      texture instanceof THREE.DataArrayTexture;
+    const isGpuDepth = texture instanceof THREE.ExternalTexture;
     this.occlusionMeshMaterial.uniforms.uIsTextureArray.value = isTextureArray
       ? 1.0
       : 0;
+    this.occlusionMeshMaterial.uniforms.uIsGpuDepth.value = isGpuDepth
+      ? 1.0
+      : 0.0;
     this.occlusionMeshMaterial.uniforms.uViewId.value = viewId;
     if (isTextureArray) {
       this.occlusionMeshMaterial.uniforms.uDepthTextureArray.value = texture;

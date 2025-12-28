@@ -5,78 +5,97 @@ import {DepthOptions} from './DepthOptions';
 export class DepthTextures {
   private float32Arrays: Float32Array[] = [];
   private uint8Arrays: Uint8Array[] = [];
-  private dataTextures: THREE.DataTexture[] = [];
+  // Use a single array texture for all views.
+  private dataTexture: THREE.DataArrayTexture | null = null;
   private nativeTextures: THREE.ExternalTexture[] = [];
   public depthData: XRCPUDepthInformation[] = [];
 
   constructor(private options: DepthOptions) {}
 
   private createDataDepthTextures(
-    depthData: XRCPUDepthInformation,
-    view_id: number
+    depthData: XRCPUDepthInformation
   ) {
-    if (this.dataTextures[view_id]) {
-      this.dataTextures[view_id].dispose();
+    if (this.dataTexture) {
+      this.dataTexture.dispose();
     }
+    // We assume mostly 2 views for VR/AR.
+    // If more views are needed, we should probably resize this dynamically.
+    const depth = 2; // Default to 2 layers (left/right)
+
     if (this.options.useFloat32) {
-      const typedArray = new Float32Array(depthData.width * depthData.height);
+      const size = depthData.width * depthData.height * depth;
+      const typedArray = new Float32Array(size);
       const format = THREE.RedFormat;
       const type = THREE.FloatType;
-      this.float32Arrays[view_id] = typedArray;
-      this.dataTextures[view_id] = new THREE.DataTexture(
+
+      this.dataTexture = new THREE.DataArrayTexture(
         typedArray,
         depthData.width,
         depthData.height,
-        format,
-        type
+        depth
       );
+      this.dataTexture.format = format;
+      this.dataTexture.type = type;
     } else {
-      const typedArray = new Uint8Array(depthData.width * depthData.height * 2);
+      const size = depthData.width * depthData.height * 2 * depth; // 2 bytes per pixel
+      const typedArray = new Uint8Array(size);
       const format = THREE.RGFormat;
       const type = THREE.UnsignedByteType;
-      this.uint8Arrays[view_id] = typedArray;
-      this.dataTextures[view_id] = new THREE.DataTexture(
+
+      this.dataTexture = new THREE.DataArrayTexture(
         typedArray,
         depthData.width,
         depthData.height,
-        format,
-        type
+        depth
       );
+      this.dataTexture.format = format;
+      this.dataTexture.type = type;
     }
+    this.dataTexture.needsUpdate = true;
   }
 
-  updateData(depthData: XRCPUDepthInformation, view_id: number) {
+  updateData(depthData: XRCPUDepthInformation, viewId: number) {
     if (
-      this.dataTextures.length < view_id + 1 ||
-      this.dataTextures[view_id].image.width !== depthData.width ||
-      this.dataTextures[view_id].image.height !== depthData.height
+      !this.dataTexture ||
+      this.dataTexture.image.width !== depthData.width ||
+      this.dataTexture.image.height !== depthData.height
     ) {
-      this.createDataDepthTextures(depthData, view_id);
+      this.createDataDepthTextures(depthData);
     }
+
+    const width = depthData.width;
+    const height = depthData.height;
+    const layerSize = width * height;
+
     if (this.options.useFloat32) {
-      this.float32Arrays[view_id].set(new Float32Array(depthData.data));
+      const textureData = this.dataTexture!.image.data as Float32Array;
+      // Copy data to the correct layer offset
+      textureData.set(new Float32Array(depthData.data), viewId * layerSize);
     } else {
-      this.uint8Arrays[view_id].set(new Uint8Array(depthData.data));
+      const textureData = this.dataTexture!.image.data as Uint8Array;
+      // Copy data to the correct layer offset (2 bytes per pixel for Uint16 via Uint8 view)
+      textureData.set(new Uint8Array(depthData.data), viewId * layerSize * 2);
     }
-    this.dataTextures[view_id].needsUpdate = true;
-    this.depthData[view_id] = depthData;
+
+    this.dataTexture!.needsUpdate = true;
+    this.depthData[viewId] = depthData;
   }
 
   updateNativeTexture(
     depthData: XRWebGLDepthInformation,
     renderer: THREE.WebGLRenderer,
-    view_id: number
+    viewId: number
   ) {
-    if (this.dataTextures.length < view_id + 1) {
-      this.nativeTextures[view_id] = new THREE.ExternalTexture(
+    if (this.nativeTextures.length < viewId + 1) {
+      this.nativeTextures[viewId] = new THREE.ExternalTexture(
         depthData.texture
       );
     } else {
-      this.nativeTextures[view_id].sourceTexture = depthData.texture;
+      this.nativeTextures[viewId].sourceTexture = depthData.texture;
     }
     // fixed in newer revision of three
     const textureProperties = renderer.properties.get(
-      this.nativeTextures[view_id]
+      this.nativeTextures[viewId]
     ) as {
       __webglTexture: WebGLTexture;
       __version: number;
@@ -85,11 +104,11 @@ export class DepthTextures {
     textureProperties.__version = 1;
   }
 
-  get(view_id: number) {
-    if (this.dataTextures.length > 0) {
-      return this.dataTextures[view_id];
+  get(viewId: number) {
+    if (this.dataTexture) {
+      return this.dataTexture;
     }
 
-    return this.nativeTextures[view_id];
+    return this.nativeTextures[viewId];
   }
 }

@@ -301,10 +301,6 @@ export class DepthMesh extends MeshScript {
       const depthY = Math.round(clamp((1.0 - v) * height, 0, height - 1));
       const rawDepth = depthArray[depthY * width + depthX];
       let depth = depthData.rawValueToMeters * rawDepth;
-      // Workaround for b/382679381.
-      if (this.depthOptions.useFloat32) {
-        depth = rawDepth;
-      }
 
       // Finds global min/max.
       if (depth > 0) {

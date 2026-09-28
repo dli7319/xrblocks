@@ -34,6 +34,9 @@ interface CirclePromptInfo {
 interface CameraCaptureResult {
   imageData: ImageData;
   clipFromWorld: THREE.Matrix4;
+  clipFromView: THREE.Matrix4;
+  worldFromView: THREE.Matrix4;
+  worldFromClip: THREE.Matrix4;
 }
 
 interface WorkerInitResult {
@@ -45,6 +48,7 @@ interface WorkerInitResult {
 interface WorkerXrSegmentResult {
   quadOverlayBuffer: ArrayBuffer;
   cutoutRgbaBuffer: ArrayBuffer | null;
+  cameraBinaryMaskBuffer: ArrayBuffer;
   cropW: number;
   cropH: number;
   quadMinY: number;
@@ -55,10 +59,27 @@ interface WorkerXrSegmentResult {
   bestIou: number;
 }
 
+interface WorkerMoGeInitResult {
+  mogeAccelerator: Accelerator;
+  mogeWarmupMs: number;
+}
+
+interface WorkerMoGeTwinResult {
+  positionsBuffer: ArrayBuffer;
+  uvsBuffer: ArrayBuffer;
+  indicesBuffer: ArrayBuffer;
+  worldOrigin: [number, number, number];
+  bboxTopWorld: [number, number, number];
+  vertexCount: number;
+  triangleCount: number;
+  mogeMs: number;
+}
+
 /**
- * XR Circle to Search Script powered by XR Blocks (v0.20.0+) and LiteRT 2.5.3 EfficientSAM-Ti.
- * All CPU/GPU-intensive LiteRT compilation, image preprocessing, inference, and mask
- * reprojection run inside `efficientsam_worker.js` so the WebXR render loop never stalls.
+ * XR Circle to Search Script powered by XR Blocks (v0.20.0+), LiteRT 2.5.3 EfficientSAM-Ti,
+ * and MoGe-2 on-device 3D Digital Twin mesh reconstruction.
+ * All CPU/GPU-intensive LiteRT compilation, image preprocessing, inference, and 3D mesh
+ * triangulation run inside `efficientsam_worker.js` so the WebXR render loop never stalls.
  */
 export class XRCircleToSearchScript extends xb.Script {
   private worker: Worker | null = null;
@@ -102,6 +123,10 @@ export class XRCircleToSearchScript extends xb.Script {
   private hudCutoutImage: xb.UIImage | null = null;
   private telemetryBadgeCard: xb.UICard | null = null;
   private telemetryBadgeText: xb.UIText | null = null;
+
+  private digitalTwinViewer: xb.ModelViewer | null = null;
+  private digitalTwinGroup: THREE.Group | null = null;
+  private digitalTwinTexture: THREE.CanvasTexture | null = null;
 
   private readonly targetDevice: string;
 
@@ -155,15 +180,15 @@ export class XRCircleToSearchScript extends xb.Script {
     }
   }
 
-  override async init(): Promise<void> {
+  override init(): void {
     // 1. Build the 30cm invisible raycast quad
     this.createInvisibleCircleQuad();
 
     // 2. Build XR Blocks Spatial HUD Card & Floating Telemetry Badge (v0.20.0 UICard API)
     this.createSpatialHudCard();
 
-    // 3. Initialize LiteRT and compile EfficientSAM-Ti models
-    await this.initLiteRtModels();
+    // 3. Initialize LiteRT and compile EfficientSAM-Ti + MoGe-2 models in the background
+    void this.initLiteRtModels();
   }
 
   /**
@@ -345,6 +370,16 @@ export class XRCircleToSearchScript extends xb.Script {
       ],
     });
     this.add(this.telemetryBadgeCard);
+
+    this.digitalTwinViewer = new xb.ModelViewer({
+      origin: 'bottom-center',
+      manipulation: true,
+      occlusion: false,
+    });
+    this.digitalTwinViewer.position.set(0.52, userHeight - 0.35, -1.15);
+    this.digitalTwinViewer.rotation.y = -0.32;
+    this.digitalTwinViewer.visible = false;
+    this.add(this.digitalTwinViewer);
   }
 
   private ensureWorker(): Worker {
@@ -353,12 +388,22 @@ export class XRCircleToSearchScript extends xb.Script {
         new URL('./efficientsam_worker.js', import.meta.url)
       );
       this.worker.addEventListener('message', (event: MessageEvent) => {
-        const {id, ok, result, error} = event.data as {
-          id: number;
-          ok: boolean;
+        const data = event.data as {
+          type?: string;
+          status?: string;
+          id?: number;
+          ok?: boolean;
           result?: unknown;
           error?: string;
         };
+        if (data?.type === 'moge_status' && typeof data.status === 'string') {
+          if (this.hudMetricsText) {
+            this.hudMetricsText.text = data.status;
+          }
+          return;
+        }
+        const {id, ok, result, error} = data;
+        if (typeof id !== 'number') return;
         const pending = this.pendingWorkerRequests.get(id);
         if (!pending) return;
         this.pendingWorkerRequests.delete(id);
@@ -390,7 +435,13 @@ export class XRCircleToSearchScript extends xb.Script {
   }
 
   private callWorker<T>(
-    type: 'init' | 'xr_segment' | 'encode_image' | 'decode_prompts',
+    type:
+      | 'init'
+      | 'init_moge'
+      | 'xr_segment'
+      | 'xr_moge_twin'
+      | 'encode_image'
+      | 'decode_prompts',
     payload: Record<string, unknown> = {},
     transfer: Transferable[] = []
   ): Promise<T> {
@@ -429,10 +480,24 @@ export class XRCircleToSearchScript extends xb.Script {
       if (this.hudMetricsText) {
         this.hudMetricsText.text = `LiteRT 2.5.3 (${accelLabel} Worker) | Compile: ${this.compileTimeMs.toFixed(0)} ms`;
       }
+
+      // Warm up MoGe-2 in the background so 3D Digital Twin reconstruction is instant
+      void this.initMoGeModel(accelLabel);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error('Failed to initialize LiteRT worker models:', err);
       this.updateStatusText(`Model load error: ${message}`);
+    }
+  }
+
+  private async initMoGeModel(accelLabel: string): Promise<void> {
+    try {
+      const mogeRes = await this.callWorker<WorkerMoGeInitResult>('init_moge');
+      if (this.hudMetricsText && !this.isSegmenting) {
+        this.hudMetricsText.text = `EfficientSAM (${accelLabel}) + MoGe-2 (${mogeRes.mogeAccelerator.toUpperCase()} ${mogeRes.mogeWarmupMs.toFixed(0)}ms) Ready`;
+      }
+    } catch (err) {
+      console.warn('Background MoGe-2 warm-up warning:', err);
     }
   }
 
@@ -515,13 +580,23 @@ export class XRCircleToSearchScript extends xb.Script {
       return;
     }
 
-    // Do not spawn the circle quad if the user is interacting with the HUD card
+    // Do not spawn the circle quad if the user is interacting with the HUD card or 3D Digital Twin pedestal
     if (
       this.hudCard &&
       (xb.user?.isPointingAt?.(this.hudCard) ||
         xb.user?.isSelectingAt?.(this.hudCard) ||
         this.isDescendantOf(event?.target, this.hudCard) ||
         this.isDescendantOf(event?.surface, this.hudCard))
+    ) {
+      return;
+    }
+    if (
+      this.digitalTwinViewer &&
+      this.digitalTwinViewer.visible &&
+      (xb.user?.isPointingAt?.(this.digitalTwinViewer) ||
+        xb.user?.isSelectingAt?.(this.digitalTwinViewer) ||
+        this.isDescendantOf(event?.target, this.digitalTwinViewer) ||
+        this.isDescendantOf(event?.surface, this.digitalTwinViewer))
     ) {
       return;
     }
@@ -775,6 +850,10 @@ export class XRCircleToSearchScript extends xb.Script {
       : null;
 
     let clipFromWorld: THREE.Matrix4 | null = null;
+    let clipFromView: THREE.Matrix4 | null = null;
+    let worldFromView: THREE.Matrix4 | null = null;
+    let worldFromClip: THREE.Matrix4 | null = null;
+
     if (deviceCamera) {
       const cameraParams = xb.getCameraParametersSnapshot(
         renderCamera,
@@ -784,14 +863,20 @@ export class XRCircleToSearchScript extends xb.Script {
       );
       if (cameraParams) {
         clipFromWorld = cameraParams.worldFromClip.clone().invert();
+        clipFromView = cameraParams.clipFromView.clone();
+        worldFromView = cameraParams.worldFromView.clone();
+        worldFromClip = cameraParams.worldFromClip.clone();
       }
     }
 
-    if (!clipFromWorld) {
+    if (!clipFromWorld || !clipFromView || !worldFromView || !worldFromClip) {
+      clipFromView = renderCamera.projectionMatrix.clone();
+      worldFromView = renderCamera.matrixWorld.clone();
       clipFromWorld = new THREE.Matrix4().multiplyMatrices(
         renderCamera.projectionMatrix,
         renderCamera.matrixWorldInverse
       );
+      worldFromClip = clipFromWorld.clone().invert();
     }
 
     // 1. Capture 512x512 ImageData directly from XRDeviceCamera
@@ -802,7 +887,13 @@ export class XRCircleToSearchScript extends xb.Script {
         outputFormat: 'imageData',
       });
       if (snapshot instanceof ImageData) {
-        return {imageData: snapshot, clipFromWorld};
+        return {
+          imageData: snapshot,
+          clipFromWorld,
+          clipFromView,
+          worldFromView,
+          worldFromClip,
+        };
       }
     }
 
@@ -830,6 +921,9 @@ export class XRCircleToSearchScript extends xb.Script {
           MODEL_IMG_SIZE
         ),
         clipFromWorld,
+        clipFromView,
+        worldFromView,
+        worldFromClip,
       };
     }
 
@@ -937,8 +1031,13 @@ export class XRCircleToSearchScript extends xb.Script {
 
     try {
       // 1. Capture the 512x512 RGB image directly from the device camera
-      const {imageData: cameraImageData, clipFromWorld} =
-        await this.captureCameraImage();
+      const {
+        imageData: cameraImageData,
+        clipFromWorld,
+        clipFromView,
+        worldFromView,
+        worldFromClip,
+      } = await this.captureCameraImage();
 
       // 2. Build Camera-Space Circle Prompt & quadToClip matrix
       const promptInfo = this.buildPromptFromCircle(clipFromWorld);
@@ -949,6 +1048,7 @@ export class XRCircleToSearchScript extends xb.Script {
       }
       const quadToClipElements = new Float32Array(quadToClip.elements);
       const rgbaBuffer = cameraImageData.data.buffer.slice(0);
+      const mogeRgbaBuffer = cameraImageData.data.buffer.slice(0);
       const ptsBuffer = promptInfo.pts.buffer.slice(0);
       const lblsBuffer = promptInfo.lbls.buffer.slice(0);
       const quadToClipBuffer = quadToClipElements.buffer;
@@ -968,12 +1068,276 @@ export class XRCircleToSearchScript extends xb.Script {
 
       // 4. Present the precomputed RGBA quad overlay & cutout on the main thread
       this.presentWorkerSegmentationResult(workerResult);
+
+      // 5. Reconstruct on-device 3D Digital Twin mesh at the true object's world position and scale
+      if (workerResult.fgCount > 0 && workerResult.cameraBinaryMaskBuffer) {
+        await this.generateMoGeDigitalTwin(
+          cameraImageData,
+          mogeRgbaBuffer,
+          workerResult.cameraBinaryMaskBuffer,
+          clipFromView,
+          worldFromView,
+          worldFromClip,
+          workerResult
+        );
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error('XR Circle to Search segmentation failed:', err);
       this.updateStatusText(`Segmentation error: ${message}`);
     } finally {
       this.isSegmenting = false;
+    }
+  }
+
+  /**
+   * Samples the true metric forward depth (in meters) of the segmented object by raycasting
+   * foreground mask pixels against the XR depth mesh (`xb.core.depth.depthMesh`) or the
+   * Simulator's physical room scene (`xb.core.simulator.simulatorScene`).
+   */
+  private sampleObjectAnchorDepth(
+    cameraBinaryMaskBuffer: ArrayBuffer,
+    worldFromView: THREE.Matrix4,
+    worldFromClip: THREE.Matrix4
+  ): number {
+    const depthMesh = (xb.core?.depth as {depthMesh?: THREE.Object3D} | null)
+      ?.depthMesh;
+    const simScene = (
+      xb.core?.simulator as {simulatorScene?: THREE.Object3D} | null
+    )?.simulatorScene;
+    const target = depthMesh ?? simScene ?? null;
+    if (!target) return 0;
+
+    const mask = new Uint8Array(cameraBinaryMaskBuffer);
+    const fgIndices: number[] = [];
+    for (let i = 0; i < mask.length; i += 4) {
+      if (mask[i]) fgIndices.push(i);
+    }
+    if (fgIndices.length === 0) return 0;
+
+    const origin = new THREE.Vector3().applyMatrix4(worldFromView);
+    const viewFromWorld = worldFromView.clone().invert();
+    const direction = new THREE.Vector3();
+    const viewPt = new THREE.Vector3();
+    const step = Math.max(1, Math.floor(fgIndices.length / 48));
+    const depths: number[] = [];
+
+    for (let k = 0; k < fgIndices.length; k += step) {
+      const idx = fgIndices[k];
+      const px = idx % MODEL_IMG_SIZE;
+      const py = (idx / MODEL_IMG_SIZE) | 0;
+      const u = (px + 0.5) / MODEL_IMG_SIZE;
+      const v = (py + 0.5) / MODEL_IMG_SIZE;
+
+      direction
+        .set(2 * u - 1, 2 * (1.0 - v) - 1, -1)
+        .applyMatrix4(worldFromClip)
+        .sub(origin)
+        .normalize();
+
+      this.raycaster.set(origin, direction);
+      const hits = this.raycaster.intersectObject(target, true);
+      for (const hit of hits) {
+        if (hit.distance > 0.12 && hit.distance < 15.0) {
+          viewPt.copy(hit.point).applyMatrix4(viewFromWorld);
+          const forwardZ = -viewPt.z;
+          if (forwardZ > 0.12 && forwardZ < 15.0) {
+            depths.push(forwardZ);
+            break;
+          }
+        }
+      }
+    }
+
+    if (depths.length === 0) return 0;
+    depths.sort((a, b) => a - b);
+    return depths[depths.length >> 1];
+  }
+
+  /**
+   * Runs MoGe-2 in the Web Worker on the 512x512 camera image and EfficientSAM binary mask,
+   * then spawns the reconstructed 3D triangle mesh Digital Twin in-place at the true object's
+   * world position and 1:1 physical scale.
+   */
+  private async generateMoGeDigitalTwin(
+    cameraImageData: ImageData,
+    rgbaBuffer: ArrayBuffer,
+    cameraBinaryMaskBuffer: ArrayBuffer,
+    clipFromView: THREE.Matrix4,
+    worldFromView: THREE.Matrix4,
+    worldFromClip: THREE.Matrix4,
+    segResult: WorkerXrSegmentResult
+  ): Promise<void> {
+    try {
+      this.updateStatusText(
+        `Segmented in ${segResult.totalMs.toFixed(1)} ms — Reconstructing 3D Digital Twin Mesh (MoGe-2)...`
+      );
+
+      const anchorDepthMeters = this.sampleObjectAnchorDepth(
+        cameraBinaryMaskBuffer,
+        worldFromView,
+        worldFromClip
+      );
+      const clipFromViewElements = new Float32Array(clipFromView.elements);
+      const worldFromViewElements = new Float32Array(worldFromView.elements);
+      const clipFromViewBuffer = clipFromViewElements.buffer;
+      const worldFromViewBuffer = worldFromViewElements.buffer;
+
+      const twinResult = await this.callWorker<WorkerMoGeTwinResult>(
+        'xr_moge_twin',
+        {
+          rgbaBuffer,
+          maskBuffer: cameraBinaryMaskBuffer,
+          cameraBinaryMaskBuffer,
+          clipFromViewBuffer,
+          worldFromViewBuffer,
+          anchorDepthMeters,
+        },
+        [
+          rgbaBuffer,
+          cameraBinaryMaskBuffer,
+          clipFromViewBuffer,
+          worldFromViewBuffer,
+        ]
+      );
+
+      if (
+        !twinResult.triangleCount ||
+        twinResult.triangleCount <= 0 ||
+        !this.digitalTwinViewer
+      ) {
+        this.updateStatusText(
+          `<strong>Segmented!</strong> Pinch & circle again anywhere in XR.`
+        );
+        return;
+      }
+
+      this.disposeDigitalTwinMesh();
+
+      const positions = new Float32Array(twinResult.positionsBuffer);
+      const uvs = new Float32Array(twinResult.uvsBuffer);
+      const indices = new Uint32Array(twinResult.indicesBuffer);
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute(
+        'position',
+        new THREE.Float32BufferAttribute(positions, 3)
+      );
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geometry.setIndex(new THREE.Uint32BufferAttribute(indices, 1));
+      geometry.computeVertexNormals();
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+
+      // Build full-resolution 512x512 RGB texture from the captured camera frame
+      const texCanvas = document.createElement('canvas');
+      texCanvas.width = MODEL_IMG_SIZE;
+      texCanvas.height = MODEL_IMG_SIZE;
+      texCanvas.getContext('2d')!.putImageData(cameraImageData, 0, 0);
+      const twinTexture = new THREE.CanvasTexture(texCanvas);
+      twinTexture.colorSpace = THREE.SRGBColorSpace;
+      twinTexture.minFilter = THREE.LinearFilter;
+      twinTexture.magFilter = THREE.LinearFilter;
+      twinTexture.needsUpdate = true;
+      this.digitalTwinTexture = twinTexture;
+
+      const solidMaterial = new THREE.MeshBasicMaterial({
+        map: twinTexture,
+        side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+        toneMapped: false,
+      });
+      const solidMesh = new THREE.Mesh(geometry, solidMaterial);
+      solidMesh.name = 'MoGeDigitalTwinSolidMesh';
+
+      const wireMaterial = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.22,
+        depthWrite: false,
+      });
+      const wireMesh = new THREE.Mesh(geometry, wireMaterial);
+      wireMesh.name = 'MoGeDigitalTwinWireOverlay';
+
+      const twinGroup = new THREE.Group();
+      twinGroup.name = 'MoGeDigitalTwinGroup';
+      twinGroup.add(solidMesh);
+      twinGroup.add(wireMesh);
+
+      // Spawn the 3D Digital Twin in-place at the true object's exact world position and 1:1 scale
+      this.digitalTwinViewer.position.fromArray(twinResult.worldOrigin);
+      this.digitalTwinViewer.rotation.set(0, 0, 0);
+      this.digitalTwinViewer.scale.setScalar(1);
+
+      this.digitalTwinGroup = twinGroup;
+      this.digitalTwinViewer.visible = true;
+      this.digitalTwinViewer.setContent(twinGroup);
+
+      // Hide the flat 2D circle quad so the in-place 3D Digital Twin mesh is unobstructed
+      if (this.circleQuad) {
+        this.circleQuad.visible = false;
+        this.circleQuad.xb = {pointerEvents: 'none', reticleMode: 'auto'};
+      }
+
+      // Position the floating telemetry pill card directly above the 3D Digital Twin in world space
+      if (this.telemetryBadgeCard && this.telemetryBadgeText) {
+        const twinSummary = `SAM ${segResult.totalMs.toFixed(0)}ms + MoGe-2 ${twinResult.mogeMs.toFixed(0)}ms (${twinResult.triangleCount.toLocaleString()} tris)`;
+        this.telemetryBadgeText.text = `3D Twin Mesh · ${twinSummary}`;
+        const eyePos = new THREE.Vector3();
+        xb.core.camera.getWorldPosition(eyePos);
+        this.telemetryBadgeCard.position.set(
+          twinResult.bboxTopWorld[0],
+          twinResult.bboxTopWorld[1] + 0.12,
+          twinResult.bboxTopWorld[2]
+        );
+        this.telemetryBadgeCard.lookAt(eyePos);
+        const distToBadge = eyePos.distanceTo(this.telemetryBadgeCard.position);
+        this.telemetryBadgeCard.scale.setScalar(
+          THREE.MathUtils.clamp(distToBadge * 0.5, 0.45, 1.4)
+        );
+        this.telemetryBadgeCard.visible = true;
+      }
+
+      const twinSummary = `SAM ${segResult.totalMs.toFixed(0)}ms + MoGe-2 ${twinResult.mogeMs.toFixed(0)}ms (${twinResult.triangleCount.toLocaleString()} tris)`;
+      if (this.hudMetricsText) {
+        this.hudMetricsText.text = `${twinSummary} | IoU: ${segResult.bestIou.toFixed(2)}`;
+      }
+      this.updateStatusText(
+        `<strong>3D Digital Twin Mesh Ready!</strong> (${twinResult.triangleCount.toLocaleString()} triangles in ${twinResult.mogeMs.toFixed(0)} ms) — Spawned in-place on object.`
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn('MoGe-2 3D Digital Twin generation failed:', err);
+      this.updateStatusText(
+        `Segmented (${segResult.totalMs.toFixed(1)} ms) — 3D Twin error: ${message}`
+      );
+    }
+  }
+
+  private disposeDigitalTwinMesh(): void {
+    if (this.digitalTwinGroup) {
+      this.digitalTwinGroup.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (mesh.geometry) {
+          mesh.geometry.dispose();
+        }
+        if (mesh.material) {
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach((m) => m.dispose());
+          } else {
+            mesh.material.dispose();
+          }
+        }
+      });
+      this.digitalTwinGroup.removeFromParent();
+      this.digitalTwinGroup = null;
+    }
+    if (this.digitalTwinTexture) {
+      this.digitalTwinTexture.dispose();
+      this.digitalTwinTexture = null;
     }
   }
 
@@ -1112,7 +1476,7 @@ export class XRCircleToSearchScript extends xb.Script {
   }
 
   /**
-   * Hides and clears the 30cm circle quad.
+   * Hides and clears the 30cm circle quad and 3D Digital Twin mesh.
    */
   public clearQuadOverlay(): void {
     this.circlePath = [];
@@ -1126,6 +1490,10 @@ export class XRCircleToSearchScript extends xb.Script {
     }
     if (this.telemetryBadgeCard) {
       this.telemetryBadgeCard.visible = false;
+    }
+    this.disposeDigitalTwinMesh();
+    if (this.digitalTwinViewer) {
+      this.digitalTwinViewer.visible = false;
     }
     if (this.hudCutoutImage) {
       this.hudCutoutImage.style.display = 'none';
@@ -1178,6 +1546,7 @@ export class XRCircleToSearchScript extends xb.Script {
     }
     this.pendingWorkerRequests.clear();
     this.isSegmenting = false;
+    this.disposeDigitalTwinMesh();
     this.quadTexture.dispose();
     if (this.circleQuad) {
       this.circleQuad.geometry.dispose();

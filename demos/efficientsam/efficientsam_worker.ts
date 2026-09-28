@@ -28,7 +28,7 @@
       options?: {threads?: boolean; jspi?: boolean}
     ): Promise<{getWebGpuDevice(): unknown}>;
     loadAndCompile(
-      modelPath: string,
+      modelPathOrBytes: string | Uint8Array,
       options?: {accelerator?: Accelerator}
     ): Promise<LiteRtCompiledModel>;
     supportsFeature(
@@ -51,15 +51,37 @@
   const DECODER_MODEL_URL =
     'https://rawcdn.githack.com/xrblocks/proprietary-assets/21bcc2a3e5a44a05b778889244a212d33acaf119/tflite_models/efficientsam/efficientsam_ti_decoder.tflite';
 
+  const MOGE_HF_BASE =
+    'https://huggingface.co/litert-community/MoGe-2-LiteRT/resolve/main/';
+  const MOGE_MODEL_URLS: Record<Accelerator, string> = {
+    webgpu: `${MOGE_HF_BASE}moge_fp16.tflite`,
+    wasm: `${MOGE_HF_BASE}moge.tflite`,
+  };
+  const MOGE_MODEL_SIZES_MB: Record<Accelerator, number> = {
+    webgpu: 71,
+    wasm: 136,
+  };
+  const MOGE_CACHE_NAME = 'xrblocks-photo-to-3d-v1';
+  const MOGE_SIZE = 448;
+  const MOGE_MASK_THRESHOLD = 0.5;
+
   let litertMod: LiteRtCoreModule | null = null;
+  let hasWebGpuSupport = false;
   let encoderModel: LiteRtCompiledModel | null = null;
   let decoderModel: LiteRtCompiledModel | null = null;
   let encoderAccelerator: Accelerator = 'wasm';
   let decoderAccelerator: Accelerator = 'wasm';
 
+  let mogeModel: LiteRtCompiledModel | null = null;
+  let mogeAccelerator: Accelerator = 'wasm';
+  let mogeInitPromise: Promise<{
+    mogeAccelerator: Accelerator;
+    mogeWarmupMs: number;
+  }> | null = null;
+
   interface WorkerRequestMessage {
     id: number;
-    type: 'init' | 'xr_segment';
+    type: 'init' | 'xr_segment' | 'init_moge' | 'xr_moge_twin';
     payload?: Record<string, unknown>;
   }
 
@@ -134,6 +156,7 @@
 
     const liteRt = await litertMod.loadLiteRt(LITERT_WASM_URL, {jspi});
     const hasWebGpu = Boolean(liteRt.getWebGpuDevice());
+    hasWebGpuSupport = hasWebGpu;
     const preferred: Accelerator = hasWebGpu ? 'webgpu' : 'wasm';
     console.info(
       `[EfficientSAM Worker] LiteRT 2.5.3 initialized (hasWebGpu=${hasWebGpu}, jspi=${jspi})`
@@ -187,6 +210,7 @@
   async function handleXrSegment(payload: Record<string, unknown>): Promise<{
     quadOverlayBuffer: ArrayBuffer;
     cutoutRgbaBuffer: ArrayBuffer | null;
+    cameraBinaryMaskBuffer: ArrayBuffer;
     cropW: number;
     cropH: number;
     quadMinY: number;
@@ -399,6 +423,7 @@
     return {
       quadOverlayBuffer: quadOverlayRgba.buffer,
       cutoutRgbaBuffer,
+      cameraBinaryMaskBuffer: cameraBinaryMask.buffer,
       cropW,
       cropH,
       quadMinY,
@@ -407,6 +432,522 @@
       decoderMs,
       totalMs,
       bestIou,
+    };
+  }
+
+  async function fetchCachedModelInWorker(
+    url: string,
+    expectedMb: number,
+    onProgress?: (status: string) => void
+  ): Promise<Uint8Array> {
+    let cache: Cache | null = null;
+    if ('caches' in self) {
+      try {
+        cache = await self.caches.open(MOGE_CACHE_NAME);
+        const hit = await cache.match(url);
+        if (hit) {
+          return new Uint8Array(await hit.arrayBuffer());
+        }
+      } catch {
+        cache = null;
+      }
+    }
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch ${url} (HTTP ${response.status})`);
+    }
+    const total = Number(response.headers.get('Content-Length')) || 0;
+    if (!response.body) {
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (cache) {
+        await cache.put(url, new Response(bytes.slice())).catch(() => {});
+      }
+      return bytes;
+    }
+
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      if (value) {
+        chunks.push(value);
+        received += value.byteLength;
+        const mb = (received / 1048576).toFixed(0);
+        const pct = total ? ` (${Math.round((100 * received) / total)}%)` : '';
+        onProgress?.(
+          `Downloading MoGe-2 3D model… ${mb}/${expectedMb} MB${pct}`
+        );
+      }
+    }
+    const combined = new Uint8Array(received);
+    let offset = 0;
+    for (const chunk of chunks) {
+      combined.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    if (cache) {
+      await cache.put(url, new Response(combined.slice())).catch(() => {});
+    }
+    return combined;
+  }
+
+  function unitLengthError(map: Float32Array): number {
+    const pixels = map.length / 3;
+    const step = Math.max(1, Math.floor(pixels / 5000));
+    let sum = 0;
+    let n = 0;
+    for (let p = 0; p < pixels; p += step) {
+      const x = map[p * 3];
+      const y = map[p * 3 + 1];
+      const z = map[p * 3 + 2];
+      const len = Math.sqrt(x * x + y * y + z * z);
+      if (!Number.isFinite(len)) continue;
+      sum += Math.abs(len - 1);
+      n++;
+    }
+    return n ? sum / n : Infinity;
+  }
+
+  function resolveMogeOutputs(buffers: Float32Array[]): {
+    points: Float32Array;
+    mask: Float32Array;
+    scale: number;
+  } {
+    const plane = MOGE_SIZE * MOGE_SIZE;
+    const big = buffers.filter((b) => b.length === plane * 3);
+    const mask = buffers.find((b) => b.length === plane);
+    const scaleBuf = buffers.find((b) => b.length === 1);
+    if (big.length < 2 || !mask) {
+      throw new Error('Unexpected MoGe-2 output tensor shapes.');
+    }
+    const points =
+      unitLengthError(big[0]) >= unitLengthError(big[1]) ? big[0] : big[1];
+    const scale =
+      scaleBuf && Number.isFinite(scaleBuf[0]) && scaleBuf[0] > 0
+        ? scaleBuf[0]
+        : 1.0;
+    return {points, mask, scale};
+  }
+
+  async function runMogeRaw(nchw: Float32Array): Promise<{
+    points: Float32Array;
+    mask: Float32Array;
+    scale: number;
+  }> {
+    if (!litertMod || !mogeModel) {
+      throw new Error('MoGe-2 model is not initialized.');
+    }
+    let inputTensor: LiteRtTensor | null = null;
+    let outputs: LiteRtTensor[] = [];
+    try {
+      inputTensor = new litertMod.Tensor(nchw, [1, 3, MOGE_SIZE, MOGE_SIZE]);
+      outputs = await mogeModel.run([inputTensor]);
+      const buffers: Float32Array[] = [];
+      for (const out of outputs) {
+        buffers.push(new Float32Array((await out.data()) as Float32Array));
+      }
+      return resolveMogeOutputs(buffers);
+    } finally {
+      for (const t of [inputTensor, ...outputs]) {
+        if (t && !t.deleted) {
+          t.delete();
+        }
+      }
+    }
+  }
+
+  async function handleInitMoge(): Promise<{
+    mogeAccelerator: Accelerator;
+    mogeWarmupMs: number;
+    compileTimeMs: number;
+  }> {
+    if (mogeModel) {
+      return {mogeAccelerator, mogeWarmupMs: 0, compileTimeMs: 0};
+    }
+    if (mogeInitPromise) {
+      const res = await mogeInitPromise;
+      return {...res, compileTimeMs: res.mogeWarmupMs};
+    }
+
+    mogeInitPromise = (async () => {
+      if (!litertMod) {
+        await handleInit();
+      }
+      const acceleratorsToTry: Accelerator[] = hasWebGpuSupport
+        ? ['webgpu', 'wasm']
+        : ['wasm'];
+
+      for (const accel of acceleratorsToTry) {
+        let candidate: LiteRtCompiledModel | null = null;
+        try {
+          const bytes = await fetchCachedModelInWorker(
+            MOGE_MODEL_URLS[accel],
+            MOGE_MODEL_SIZES_MB[accel],
+            (status) => {
+              self.postMessage({type: 'moge_status', status});
+            }
+          );
+          self.postMessage({
+            type: 'moge_status',
+            status: `Compiling MoGe-2 (${accel})…`,
+          });
+          candidate = await litertMod!.loadAndCompile(bytes, {
+            accelerator: accel,
+          });
+          mogeModel = candidate;
+          mogeAccelerator = accel;
+
+          self.postMessage({
+            type: 'moge_status',
+            status: `Warming up MoGe-2 (${accel})…`,
+          });
+          const tWarm0 = performance.now();
+          const dummy = new Float32Array(3 * MOGE_SIZE * MOGE_SIZE).fill(0.5);
+          await runMogeRaw(dummy);
+          const mogeWarmupMs = performance.now() - tWarm0;
+          return {
+            mogeAccelerator,
+            mogeWarmupMs,
+            compileTimeMs: mogeWarmupMs,
+          };
+        } catch (err) {
+          console.warn(
+            `[EfficientSAM Worker] MoGe-2 '${accel}' init failed, falling back:`,
+            err
+          );
+          if (candidate && !candidate.deleted) {
+            candidate.delete();
+          }
+          mogeModel = null;
+        }
+      }
+      throw new Error('Could not initialize MoGe-2 on any LiteRT accelerator.');
+    })();
+
+    try {
+      const res = await mogeInitPromise;
+      return {...res, compileTimeMs: res.mogeWarmupMs};
+    } catch (err) {
+      mogeInitPromise = null;
+      throw err;
+    }
+  }
+
+  function median(values: number[]): number {
+    const sorted = values.slice().sort((a, b) => a - b);
+    return sorted[sorted.length >> 1] ?? 0;
+  }
+
+  async function handleMoGeTwin(payload: Record<string, unknown>): Promise<{
+    positionsBuffer: ArrayBuffer;
+    uvsBuffer: ArrayBuffer;
+    indicesBuffer: ArrayBuffer;
+    worldOrigin: [number, number, number];
+    bboxTopWorld: [number, number, number];
+    vertexCount: number;
+    triangleCount: number;
+    mogeMs: number;
+  }> {
+    if (!mogeModel) {
+      await handleInitMoge();
+    }
+
+    const rgba = new Uint8ClampedArray(payload.rgbaBuffer as ArrayBuffer);
+    const maskArrayBuffer = (payload.maskBuffer ??
+      payload.cameraBinaryMaskBuffer) as ArrayBuffer;
+    const samMask512 = new Uint8Array(maskArrayBuffer);
+    const clipFromView = payload.clipFromViewBuffer
+      ? new Float32Array(payload.clipFromViewBuffer as ArrayBuffer)
+      : null;
+    const worldFromView = payload.worldFromViewBuffer
+      ? new Float32Array(payload.worldFromViewBuffer as ArrayBuffer)
+      : null;
+    const anchorDepthMeters = Number(payload.anchorDepthMeters ?? 0);
+
+    // 1. Downsample 512x512 camera RGBA and EfficientSAM binary mask to 448x448
+    const SIZE = MOGE_SIZE;
+    const plane = SIZE * SIZE;
+    const nchw = new Float32Array(3 * plane);
+    const samMask448 = new Uint8Array(plane);
+    const scaleRatio = MODEL_IMG_SIZE / SIZE;
+    const inv255 = 1.0 / 255.0;
+
+    for (let y = 0; y < SIZE; y++) {
+      const srcY = Math.min(MODEL_IMG_SIZE - 1, Math.floor(y * scaleRatio));
+      for (let x = 0; x < SIZE; x++) {
+        const srcX = Math.min(MODEL_IMG_SIZE - 1, Math.floor(x * scaleRatio));
+        const srcIdx = srcY * MODEL_IMG_SIZE + srcX;
+        const dstIdx = y * SIZE + x;
+        const srcP = srcIdx * 4;
+
+        nchw[dstIdx] = rgba[srcP] * inv255;
+        nchw[plane + dstIdx] = rgba[srcP + 1] * inv255;
+        nchw[2 * plane + dstIdx] = rgba[srcP + 2] * inv255;
+
+        samMask448[dstIdx] = samMask512[srcIdx];
+      }
+    }
+
+    // 2. Erode SAM mask by 1px to trim mixed boundary pixels while preserving thin legs/structures
+    const erodedMask448 = new Uint8Array(plane);
+    let erodedCount = 0;
+    for (let y = 1; y < SIZE - 1; y++) {
+      for (let x = 1; x < SIZE - 1; x++) {
+        const i = y * SIZE + x;
+        if (
+          samMask448[i] &&
+          samMask448[i - 1] &&
+          samMask448[i + 1] &&
+          samMask448[i - SIZE] &&
+          samMask448[i + SIZE]
+        ) {
+          erodedMask448[i] = 1;
+          erodedCount++;
+        }
+      }
+    }
+    const activeMask = erodedCount >= 32 ? erodedMask448 : samMask448;
+
+    // 3. Run MoGe-2 inference
+    const tMoge0 = performance.now();
+    const {points, mask: mogeMask, scale: mogeScale} = await runMogeRaw(nchw);
+    const mogeMs = performance.now() - tMoge0;
+
+    // 4. Collect valid MoGe forward depths inside the segmented object mask
+    const rawDepthGrid = new Float32Array(plane);
+    const depthSamples: number[] = [];
+    for (let pass = 0; pass < 2; pass++) {
+      const requireConfidence = pass === 0;
+      for (let i = 0; i < plane; i++) {
+        if (!activeMask[i]) continue;
+        if (requireConfidence && mogeMask[i] <= MOGE_MASK_THRESHOLD) continue;
+        const z = points[i * 3 + 2];
+        if (!Number.isFinite(z) || z <= 1e-4) continue;
+        rawDepthGrid[i] = z;
+        depthSamples.push(z);
+      }
+      if (depthSamples.length >= 24) break;
+      rawDepthGrid.fill(0);
+      depthSamples.length = 0;
+    }
+
+    if (depthSamples.length === 0) {
+      throw new Error('No valid 3D surface found inside the segmented mask.');
+    }
+
+    const medianMogeDepth = Math.max(median(depthSamples), 1e-5);
+    const trueAnchorDepth =
+      anchorDepthMeters > 0.1 && Number.isFinite(anchorDepthMeters)
+        ? anchorDepthMeters
+        : Math.max(0.35, Math.min(8.0, medianMogeDepth * mogeScale));
+
+    // 5. Convert MoGe relative depth to metric depth anchored at trueAnchorDepth,
+    // clamping depth excursions so silhouette bleed never stretches triangles into the background.
+    let depthGrid = new Float32Array(plane);
+    for (let i = 0; i < plane; i++) {
+      const z = rawDepthGrid[i];
+      if (z <= 0) continue;
+      const ratio = Math.max(0.76, Math.min(1.28, z / medianMogeDepth));
+      depthGrid[i] = trueAnchorDepth * ratio;
+    }
+
+    // 6. Smooth the metric depth map (2 passes of 3x3 neighbor averaging inside the mask)
+    for (let iter = 0; iter < 2; iter++) {
+      const nextGrid = new Float32Array(plane);
+      for (let y = 0; y < SIZE; y++) {
+        for (let x = 0; x < SIZE; x++) {
+          const i = y * SIZE + x;
+          const centerD = depthGrid[i];
+          if (centerD <= 0) continue;
+          let sum = centerD * 2.0;
+          let weight = 2.0;
+          const y0 = Math.max(0, y - 1);
+          const y1 = Math.min(SIZE - 1, y + 1);
+          const x0 = Math.max(0, x - 1);
+          const x1 = Math.min(SIZE - 1, x + 1);
+          for (let ny = y0; ny <= y1; ny++) {
+            for (let nx = x0; nx <= x1; nx++) {
+              const nd = depthGrid[ny * SIZE + nx];
+              if (nd > 0 && Math.abs(nd - centerD) < 0.18 * trueAnchorDepth) {
+                sum += nd;
+                weight += 1.0;
+              }
+            }
+          }
+          nextGrid[i] = sum / weight;
+        }
+      }
+      depthGrid = nextGrid;
+    }
+
+    // 7. Unproject every valid mask pixel into 3D world space using the camera's exact intrinsics & pose
+    const fx =
+      clipFromView && Math.abs(clipFromView[0]) > 1e-5 ? clipFromView[0] : 1.0;
+    const fy =
+      clipFromView && Math.abs(clipFromView[5]) > 1e-5 ? clipFromView[5] : 1.0;
+    const m =
+      worldFromView && worldFromView.length === 16
+        ? worldFromView
+        : new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1.6, 0, 1]);
+
+    const vertexIndexMap = new Int32Array(plane).fill(-1);
+    const worldPositions: number[] = [];
+    const uvs: number[] = [];
+    let minX = Infinity;
+    let minY = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let maxZ = -Infinity;
+
+    for (let y = 0; y < SIZE; y++) {
+      const v = (y + 0.5) / SIZE;
+      const ndcY = 1.0 - 2.0 * v;
+      for (let x = 0; x < SIZE; x++) {
+        const i = y * SIZE + x;
+        const d = depthGrid[i];
+        if (d <= 0) continue;
+
+        const u = (x + 0.5) / SIZE;
+        const ndcX = 2.0 * u - 1.0;
+        // Shift 1.5 cm toward the camera so the in-place mesh sits cleanly in front of the real surface
+        const zMetric = Math.max(0.1, d - 0.015);
+
+        const vx = (ndcX / fx) * zMetric;
+        const vy = (ndcY / fy) * zMetric;
+        const vz = -zMetric;
+
+        const wx = m[0] * vx + m[4] * vy + m[8] * vz + m[12];
+        const wy = m[1] * vx + m[5] * vy + m[9] * vz + m[13];
+        const wz = m[2] * vx + m[6] * vy + m[10] * vz + m[14];
+
+        const vIdx = worldPositions.length / 3;
+        vertexIndexMap[i] = vIdx;
+        worldPositions.push(wx, wy, wz);
+        uvs.push(u, 1.0 - v);
+
+        if (wx < minX) minX = wx;
+        if (wy < minY) minY = wy;
+        if (wz < minZ) minZ = wz;
+        if (wx > maxX) maxX = wx;
+        if (wy > maxY) maxY = wy;
+        if (wz > maxZ) maxZ = wz;
+      }
+    }
+
+    const vertexCount = worldPositions.length / 3;
+    if (vertexCount < 3) {
+      throw new Error('Insufficient vertices to build 3D Digital Twin mesh.');
+    }
+
+    // 8. Triangulate adjacent 2x2 grid cells inside the segmented mask
+    const indices: number[] = [];
+    const maxStepJump = 0.14 * trueAnchorDepth;
+    const canConnect = (idxA: number, idxB: number): boolean => {
+      return Math.abs(depthGrid[idxA] - depthGrid[idxB]) <= maxStepJump;
+    };
+
+    for (let y = 0; y < SIZE - 1; y++) {
+      const row = y * SIZE;
+      const nextRow = (y + 1) * SIZE;
+      for (let x = 0; x < SIZE - 1; x++) {
+        const p00 = row + x;
+        const p10 = row + x + 1;
+        const p01 = nextRow + x;
+        const p11 = nextRow + x + 1;
+
+        const i00 = vertexIndexMap[p00];
+        const i10 = vertexIndexMap[p10];
+        const i01 = vertexIndexMap[p01];
+        const i11 = vertexIndexMap[p11];
+
+        const has00 = i00 >= 0;
+        const has10 = i10 >= 0;
+        const has01 = i01 >= 0;
+        const has11 = i11 >= 0;
+
+        if (has00 && has10 && has01 && has11) {
+          if (
+            canConnect(p00, p01) &&
+            canConnect(p00, p10) &&
+            canConnect(p01, p10)
+          ) {
+            indices.push(i00, i01, i10);
+          }
+          if (
+            canConnect(p10, p01) &&
+            canConnect(p10, p11) &&
+            canConnect(p01, p11)
+          ) {
+            indices.push(i10, i01, i11);
+          }
+        } else if (has00 && has01 && has10) {
+          if (
+            canConnect(p00, p01) &&
+            canConnect(p00, p10) &&
+            canConnect(p01, p10)
+          ) {
+            indices.push(i00, i01, i10);
+          }
+        } else if (has10 && has01 && has11) {
+          if (
+            canConnect(p10, p01) &&
+            canConnect(p10, p11) &&
+            canConnect(p01, p11)
+          ) {
+            indices.push(i10, i01, i11);
+          }
+        } else if (has00 && has01 && has11) {
+          if (
+            canConnect(p00, p01) &&
+            canConnect(p01, p11) &&
+            canConnect(p00, p11)
+          ) {
+            indices.push(i00, i01, i11);
+          }
+        } else if (has00 && has11 && has10) {
+          if (
+            canConnect(p00, p11) &&
+            canConnect(p11, p10) &&
+            canConnect(p00, p10)
+          ) {
+            indices.push(i00, i11, i10);
+          }
+        }
+      }
+    }
+
+    const triangleCount = indices.length / 3;
+    if (triangleCount === 0) {
+      throw new Error('Could not triangulate segmented 3D surface.');
+    }
+
+    // 9. Express mesh vertices relative to the object's true world-space bottom-center origin
+    const originX = 0.5 * (minX + maxX);
+    const originY = minY;
+    const originZ = 0.5 * (minZ + maxZ);
+
+    const positionsFloat32 = new Float32Array(worldPositions.length);
+    for (let i = 0; i < vertexCount; i++) {
+      positionsFloat32[i * 3] = worldPositions[i * 3] - originX;
+      positionsFloat32[i * 3 + 1] = worldPositions[i * 3 + 1] - originY;
+      positionsFloat32[i * 3 + 2] = worldPositions[i * 3 + 2] - originZ;
+    }
+    const uvsFloat32 = new Float32Array(uvs);
+    const indicesUint32 = new Uint32Array(indices);
+
+    return {
+      positionsBuffer: positionsFloat32.buffer,
+      uvsBuffer: uvsFloat32.buffer,
+      indicesBuffer: indicesUint32.buffer,
+      worldOrigin: [originX, originY, originZ],
+      bboxTopWorld: [originX, maxY, originZ],
+      vertexCount,
+      triangleCount,
+      mogeMs,
     };
   }
 
@@ -420,11 +961,29 @@
           self.postMessage({id, ok: true, result});
         } else if (type === 'xr_segment') {
           const result = await handleXrSegment(payload);
-          const transferList: Transferable[] = [result.quadOverlayBuffer];
+          const transferList: Transferable[] = [
+            result.quadOverlayBuffer,
+            result.cameraBinaryMaskBuffer,
+          ];
           if (result.cutoutRgbaBuffer) {
             transferList.push(result.cutoutRgbaBuffer);
           }
           self.postMessage({id, ok: true, result}, {transfer: transferList});
+        } else if (type === 'init_moge') {
+          const result = await handleInitMoge();
+          self.postMessage({id, ok: true, result});
+        } else if (type === 'xr_moge_twin') {
+          const result = await handleMoGeTwin(payload);
+          self.postMessage(
+            {id, ok: true, result},
+            {
+              transfer: [
+                result.positionsBuffer,
+                result.uvsBuffer,
+                result.indicesBuffer,
+              ],
+            }
+          );
         } else {
           throw new Error(`Unknown worker command: ${String(type)}`);
         }

@@ -10,6 +10,8 @@ Interactive **WebXR / XR Blocks (`v0.20.0+`)** Circle to Search segmentation dem
   - As you move your pinching hand or mouse cursor, the **XR Blocks `Reticle`** glides across the invisible quad and draws a glowing Circle to Search trail at the reticle's UV intersection (`event.intersection` / `xb.user.getIntersectionAt`).
 - **Web Worker LiteRT Segmentation (`efficientsam_worker.ts`)**:
   - Releasing the pinch captures the `512×512` view framed directly behind the quad and transfers the buffer to `build/efficientsam_worker.js`, which runs the LiteRT `EfficientSAM-Ti` encoder & decoder off the main thread, projects the segmentation mask & glowing contour back onto the 3D quad in space, and updates the `xb.UICard` spatial HUD with the transparent cutout and runtime metrics.
+- **On-Device 3D Digital Twin (`MoGe-2-LiteRT` × `EfficientSAM-Ti`)**:
+  - Immediately after segmentation, the Web Worker runs [`litert-community/MoGe-2-LiteRT`](https://huggingface.co/litert-community/MoGe-2-LiteRT) (`moge_fp16.tflite` on WebGPU / `moge.tflite` on WASM, cached persistently in `xrblocks-photo-to-3d-v1`), intersects MoGe-2's `448×448×3` metric point map and surface normals with the eroded EfficientSAM binary mask, filters depth outliers, and mounts an interactive `THREE.Points` 3D Digital Twin of the circled object onto a manipulable `xb.ModelViewer` pedestal (`manipulation: true`).
 
 ## Building & Running Locally
 

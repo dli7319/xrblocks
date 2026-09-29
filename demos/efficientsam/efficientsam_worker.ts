@@ -1,3 +1,38 @@
+import type {
+  GraphCutTexturedMesh,
+  TextureKeyframe,
+} from './graphcut_texture.js';
+import type {
+  BoundingBox2D,
+  ExtractedTSDFMesh,
+  ObjectTSDFVolume,
+  SupportPlane3D,
+  Vec3Tuple,
+  VolumeSeedParams,
+  VolumeSeedResult,
+} from './tsdf_volume.js';
+
+export interface WorkerTsdfMeshPayload {
+  positionsBuffer: ArrayBuffer;
+  normalsBuffer: ArrayBuffer;
+  uvsBuffer: ArrayBuffer;
+  colorsBuffer: ArrayBuffer;
+  atlasRgbaBuffer: ArrayBuffer;
+  atlasWidth: number;
+  atlasHeight: number;
+  chartCount: number;
+  triangleCount: number;
+  fusedFrameCount: number;
+  updatedVoxels: number;
+  volumeCenter: Vec3Tuple;
+  volumeSizeMeters: number;
+  boundsMin: Vec3Tuple;
+  boundsMax: Vec3Tuple;
+  voxelSizeMm: number;
+  projectedBox2D: BoundingBox2D | null;
+  tsdfMs: number;
+}
+
 (() => {
   type Accelerator = 'webgpu' | 'wasm';
 
@@ -37,6 +72,48 @@
     Tensor: LiteRtTensorConstructor;
   }
 
+  interface TsdfVolumeModule {
+    ObjectTSDFVolume: new (
+      center: Vec3Tuple,
+      sizeMeters: number,
+      resolution?: number,
+      supportFloorY?: number,
+      supportPlane?: SupportPlane3D | null,
+      boundsMin?: Vec3Tuple,
+      boundsMax?: Vec3Tuple
+    ) => ObjectTSDFVolume;
+    seedVolumeFromMaskAndDepth: (
+      params: VolumeSeedParams
+    ) => VolumeSeedResult | null;
+    filterDepthDiscontinuities: (
+      depthData: Float32Array | Uint16Array,
+      width: number,
+      height: number,
+      rawValueToMeters: number,
+      minDepthMeters?: number,
+      maxDepthMeters?: number,
+      edgeJumpThresholdMeters?: number
+    ) => Float32Array;
+    invertMatrix4ColMajor: (m: Float32Array, out?: Float32Array) => boolean;
+  }
+
+  interface GraphCutTextureModule {
+    computeMaskDistanceField: (
+      mask: Uint8Array,
+      width: number,
+      height: number,
+      maxDist?: number
+    ) => Uint8Array;
+    filterLargestConnectedMeshComponent: (
+      mesh: ExtractedTSDFMesh,
+      targetCenter: Vec3Tuple
+    ) => ExtractedTSDFMesh;
+    computeGraphCutTextureAtlas: (
+      mesh: ExtractedTSDFMesh,
+      keyframes: TextureKeyframe[]
+    ) => GraphCutTexturedMesh;
+  }
+
   const LITERT_CORE_ESM_URL =
     'https://cdn.jsdelivr.net/npm/@litertjs/core@2.5.3/+esm';
   const LITERT_WASM_URL =
@@ -45,6 +122,8 @@
   const MODEL_IMG_SIZE = 512;
   const MASK_LOW_RES = 128;
   const MAX_POINTS = 6;
+  const TSDF_RESOLUTION = 64;
+  const MAX_TEXTURE_KEYFRAMES = 9;
 
   const ENCODER_MODEL_URL =
     'https://rawcdn.githack.com/xrblocks/proprietary-assets/21bcc2a3e5a44a05b778889244a212d33acaf119/tflite_models/efficientsam/efficientsam_ti_encoder.tflite';
@@ -52,15 +131,46 @@
     'https://rawcdn.githack.com/xrblocks/proprietary-assets/21bcc2a3e5a44a05b778889244a212d33acaf119/tflite_models/efficientsam/efficientsam_ti_decoder.tflite';
 
   let litertMod: LiteRtCoreModule | null = null;
+  let tsdfMod: TsdfVolumeModule | null = null;
+  let graphCutMod: GraphCutTextureModule | null = null;
   let encoderModel: LiteRtCompiledModel | null = null;
   let decoderModel: LiteRtCompiledModel | null = null;
   let encoderAccelerator: Accelerator = 'wasm';
   let decoderAccelerator: Accelerator = 'wasm';
 
+  let activeTsdfVolume: ObjectTSDFVolume | null = null;
+  let textureKeyframes: TextureKeyframe[] = [];
+  let nextKeyframeId = 1;
+  let pendingSeedCache: {
+    cameraBinaryMask: Uint8Array;
+    rgba: Uint8ClampedArray;
+    rgbClipFromWorldMatrix: Float32Array;
+  } | null = null;
+
   interface WorkerRequestMessage {
     id: number;
-    type: 'init' | 'xr_segment';
+    type:
+      | 'init'
+      | 'xr_segment'
+      | 'tsdf_integrate_depth'
+      | 'tsdf_integrate_rgb_mask'
+      | 'tsdf_reset';
     payload?: Record<string, unknown>;
+  }
+
+  async function ensureWorkerModules(): Promise<{
+    tsdf: TsdfVolumeModule;
+    graphCut: GraphCutTextureModule;
+  }> {
+    if (!tsdfMod) {
+      const tsdfUrl = new URL('./tsdf_volume.js', self.location.href).href;
+      tsdfMod = (await import(tsdfUrl)) as unknown as TsdfVolumeModule;
+    }
+    if (!graphCutMod) {
+      const gcUrl = new URL('./graphcut_texture.js', self.location.href).href;
+      graphCutMod = (await import(gcUrl)) as unknown as GraphCutTextureModule;
+    }
+    return {tsdf: tsdfMod, graphCut: graphCutMod};
   }
 
   async function compileWithWarmupFallback(
@@ -118,6 +228,8 @@
     compileTimeMs: number;
   }> {
     const t0 = performance.now();
+    await ensureWorkerModules();
+
     if (!litertMod) {
       litertMod = (await import(
         LITERT_CORE_ESM_URL
@@ -184,13 +296,17 @@
     return inputFloat32;
   }
 
-  async function handleXrSegment(payload: Record<string, unknown>): Promise<{
-    quadOverlayBuffer: ArrayBuffer;
-    cutoutRgbaBuffer: ArrayBuffer | null;
-    cropW: number;
-    cropH: number;
-    quadMinY: number;
+  async function runSamInferenceOnRgba(
+    rgba: Uint8ClampedArray,
+    pts: Float32Array,
+    lbls: Float32Array
+  ): Promise<{
+    cameraBinaryMask: Uint8Array;
     fgCount: number;
+    camMinX: number;
+    camMinY: number;
+    camMaxX: number;
+    camMaxY: number;
     encoderMs: number;
     decoderMs: number;
     totalMs: number;
@@ -200,23 +316,13 @@
       throw new Error('LiteRT models are not initialized yet.');
     }
 
-    const rgbaBuffer = payload.rgbaBuffer as ArrayBuffer;
-    const pts = new Float32Array(payload.ptsBuffer as ArrayBuffer);
-    const lbls = new Float32Array(payload.lblsBuffer as ArrayBuffer);
-    const quadToClipElements = new Float32Array(
-      payload.quadToClipBuffer as ArrayBuffer
-    );
-    const quadSizeMeters = Number(payload.quadSizeMeters ?? 0.8);
-
-    const rgba = new Uint8ClampedArray(rgbaBuffer);
     const inputFloat32 = rgbaToPlanarFloat32(rgba);
 
-    // 1. Run LiteRT Encoder & 2. Run LiteRT Decoder with guaranteed tensor cleanup
-    let inputTensor: Tensor | null = null;
-    let ptsTensor: Tensor | null = null;
-    let lblsTensor: Tensor | null = null;
-    let encOutputs: Tensor[] = [];
-    let decOutputs: Tensor[] = [];
+    let inputTensor: LiteRtTensor | null = null;
+    let ptsTensor: LiteRtTensor | null = null;
+    let lblsTensor: LiteRtTensor | null = null;
+    let encOutputs: LiteRtTensor[] = [];
+    let decOutputs: LiteRtTensor[] = [];
     let encoderMs = 0;
     let decoderMs = 0;
     let masksLogits: Float32Array;
@@ -257,6 +363,7 @@
         }
       }
     }
+
     const totalMs = encoderMs + decoderMs;
 
     let bestIdx = 0;
@@ -264,7 +371,6 @@
     if (ious[2] > ious[bestIdx]) bestIdx = 2;
     const bestIou = ious[bestIdx];
 
-    // 3. Bilinearly upsample 128x128 mask logits -> 512x512 camera binary mask
     const W = MODEL_IMG_SIZE;
     const H = MODEL_IMG_SIZE;
     const maskOffset = bestIdx * MASK_LOW_RES * MASK_LOW_RES;
@@ -312,7 +418,382 @@
       }
     }
 
-    // 4. Project cameraBinaryMask onto circleQuad's 512x512 UV space
+    return {
+      cameraBinaryMask,
+      fgCount,
+      camMinX,
+      camMinY,
+      camMaxX,
+      camMaxY,
+      encoderMs,
+      decoderMs,
+      totalMs,
+      bestIou,
+    };
+  }
+
+  function extractCutoutFromMask(
+    rgba: Uint8ClampedArray,
+    cameraBinaryMask: Uint8Array,
+    fgCount: number,
+    camMinX: number,
+    camMinY: number,
+    camMaxX: number,
+    camMaxY: number
+  ): {cutoutRgbaBuffer: ArrayBuffer | null; cropW: number; cropH: number} {
+    const W = MODEL_IMG_SIZE;
+    let cutoutRgbaBuffer: ArrayBuffer | null = null;
+    let cropW = 0;
+    let cropH = 0;
+    if (fgCount > 0 && camMaxX >= camMinX && camMaxY >= camMinY) {
+      cropW = Math.max(1, camMaxX - camMinX + 1);
+      cropH = Math.max(1, camMaxY - camMinY + 1);
+      const cutoutRgba = new Uint8ClampedArray(cropW * cropH * 4);
+      for (let cy = 0; cy < cropH; cy++) {
+        const srcY = camMinY + cy;
+        for (let cx = 0; cx < cropW; cx++) {
+          const srcX = camMinX + cx;
+          const srcIdx = srcY * W + srcX;
+          if (cameraBinaryMask[srcIdx]) {
+            const srcP = srcIdx * 4;
+            const dstP = (cy * cropW + cx) * 4;
+            cutoutRgba[dstP] = rgba[srcP];
+            cutoutRgba[dstP + 1] = rgba[srcP + 1];
+            cutoutRgba[dstP + 2] = rgba[srcP + 2];
+            cutoutRgba[dstP + 3] = 255;
+          }
+        }
+      }
+      cutoutRgbaBuffer = cutoutRgba.buffer;
+    }
+    return {cutoutRgbaBuffer, cropW, cropH};
+  }
+
+  function decodeDepthBuffer(
+    depthBuffer: ArrayBuffer,
+    depthFormat: string
+  ): Float32Array | Uint16Array {
+    return depthFormat === 'uint16' || depthFormat === 'luminance-alpha'
+      ? new Uint16Array(depthBuffer)
+      : new Float32Array(depthBuffer);
+  }
+
+  function extractCameraPoseFromViewMatrix(
+    depthViewMatrix: Float32Array,
+    invertMatrix4: (m: Float32Array, out?: Float32Array) => boolean
+  ): {cameraPos: Vec3Tuple; cameraForward: Vec3Tuple} {
+    const worldFromView = new Float32Array(16);
+    if (invertMatrix4(depthViewMatrix, worldFromView)) {
+      const fx = -worldFromView[8];
+      const fy = -worldFromView[9];
+      const fz = -worldFromView[10];
+      const len = Math.hypot(fx, fy, fz) || 1.0;
+      return {
+        cameraPos: {
+          x: worldFromView[12],
+          y: worldFromView[13],
+          z: worldFromView[14],
+        },
+        cameraForward: {x: fx / len, y: fy / len, z: fz / len},
+      };
+    }
+    return {
+      cameraPos: {x: 0, y: 1.5, z: 0},
+      cameraForward: {x: 0, y: 0, z: -1},
+    };
+  }
+
+  function addOrUpdateTextureKeyframe(
+    rgba: Uint8ClampedArray,
+    cameraBinaryMask: Uint8Array,
+    rgbClipFromWorldMatrix: Float32Array,
+    depthData: Float32Array | Uint16Array,
+    depthWidth: number,
+    depthHeight: number,
+    rawValueToMeters: number,
+    depthViewMatrix: Float32Array,
+    depthProjectionMatrix: Float32Array,
+    normDepthBufferFromNormViewMatrix: Float32Array | undefined,
+    tsdf: TsdfVolumeModule,
+    graphCut: GraphCutTextureModule
+  ): void {
+    const {cameraPos, cameraForward} = extractCameraPoseFromViewMatrix(
+      depthViewMatrix,
+      tsdf.invertMatrix4ColMajor
+    );
+    const maskDistField = graphCut.computeMaskDistanceField(
+      cameraBinaryMask,
+      MODEL_IMG_SIZE,
+      MODEL_IMG_SIZE,
+      32
+    );
+    const cleanDepth = tsdf.filterDepthDiscontinuities(
+      depthData,
+      depthWidth,
+      depthHeight,
+      rawValueToMeters
+    );
+
+    const newKf: TextureKeyframe = {
+      id: nextKeyframeId++,
+      rgba: new Uint8ClampedArray(rgba),
+      width: MODEL_IMG_SIZE,
+      height: MODEL_IMG_SIZE,
+      cameraBinaryMask: new Uint8Array(cameraBinaryMask),
+      maskDistField,
+      rgbClipFromWorldMatrix: new Float32Array(rgbClipFromWorldMatrix),
+      cameraPos,
+      cameraForward,
+      depthData: cleanDepth,
+      depthWidth,
+      depthHeight,
+      depthViewMatrix: new Float32Array(depthViewMatrix),
+      depthProjectionMatrix: new Float32Array(depthProjectionMatrix),
+      normDepthBufferFromNormViewMatrix: normDepthBufferFromNormViewMatrix
+        ? new Float32Array(normDepthBufferFromNormViewMatrix)
+        : undefined,
+    };
+
+    if (textureKeyframes.length === 0) {
+      textureKeyframes.push(newKf);
+      return;
+    }
+
+    // Check if an existing keyframe has a very similar viewing direction (< 7 deg)
+    let closestIdx = -1;
+    let maxDot = -1.0;
+    for (let i = 0; i < textureKeyframes.length; i++) {
+      const kf = textureKeyframes[i];
+      const dot =
+        kf.cameraForward.x * cameraForward.x +
+        kf.cameraForward.y * cameraForward.y +
+        kf.cameraForward.z * cameraForward.z;
+      if (dot > maxDot) {
+        maxDot = dot;
+        closestIdx = i;
+      }
+    }
+
+    // cos(7 deg) ~= 0.9925 — never overwrite Keyframe 0 (user's primary circled view)
+    if (maxDot > 0.9925) {
+      if (closestIdx > 0) {
+        textureKeyframes[closestIdx] = newKf;
+      }
+      return;
+    }
+
+    if (textureKeyframes.length < MAX_TEXTURE_KEYFRAMES) {
+      textureKeyframes.push(newKf);
+    } else if (closestIdx > 0) {
+      // Replace the most redundant non-initial keyframe
+      textureKeyframes[closestIdx] = newKf;
+    }
+  }
+
+  function buildTexturedMeshPayload(
+    volume: ObjectTSDFVolume,
+    updatedVoxels: number,
+    rgbClipFromWorldMatrix: Float32Array | undefined,
+    graphCut: GraphCutTextureModule,
+    t0: number
+  ): WorkerTsdfMeshPayload {
+    const rawExtracted = volume.extractMesh(1.0);
+    const cleanMesh = graphCut.filterLargestConnectedMeshComponent(
+      rawExtracted,
+      volume.center
+    );
+    const textured = graphCut.computeGraphCutTextureAtlas(
+      cleanMesh,
+      textureKeyframes
+    );
+
+    const projectedBox2D = rgbClipFromWorldMatrix
+      ? volume.projectBoundingBoxToCamera(
+          rgbClipFromWorldMatrix,
+          MODEL_IMG_SIZE,
+          MODEL_IMG_SIZE
+        )
+      : null;
+    const tsdfMs = performance.now() - t0;
+
+    return {
+      positionsBuffer: textured.positions.buffer,
+      normalsBuffer: textured.normals.buffer,
+      uvsBuffer: textured.uvs.buffer,
+      colorsBuffer: textured.colors.buffer,
+      atlasRgbaBuffer: textured.atlasRgba.buffer,
+      atlasWidth: textured.atlasWidth,
+      atlasHeight: textured.atlasHeight,
+      chartCount: textured.chartCount,
+      triangleCount: textured.triangleCount,
+      fusedFrameCount: volume.fusedFrameCount,
+      updatedVoxels,
+      volumeCenter: volume.center,
+      volumeSizeMeters: volume.sizeMeters,
+      boundsMin: volume.boundsMin,
+      boundsMax: volume.boundsMax,
+      voxelSizeMm: volume.voxelSize * 1000,
+      projectedBox2D,
+      tsdfMs,
+    };
+  }
+
+  async function seedAndIntegrateInitialVolume(
+    payload: Record<string, unknown>,
+    cameraBinaryMask: Uint8Array,
+    rgba: Uint8ClampedArray,
+    rgbClipFromWorldMatrix: Float32Array
+  ): Promise<WorkerTsdfMeshPayload | null> {
+    const depthBuffer = payload.depthBuffer as ArrayBuffer | undefined;
+    const depthViewMatrixBuffer = payload.depthViewMatrixBuffer as
+      | ArrayBuffer
+      | undefined;
+    const depthProjectionMatrixBuffer = payload.depthProjectionMatrixBuffer as
+      | ArrayBuffer
+      | undefined;
+    const depthProjectionInverseMatrixBuffer =
+      payload.depthProjectionInverseMatrixBuffer as ArrayBuffer | undefined;
+
+    if (
+      !depthBuffer ||
+      !depthViewMatrixBuffer ||
+      !depthProjectionMatrixBuffer ||
+      !depthProjectionInverseMatrixBuffer
+    ) {
+      return null;
+    }
+
+    const {tsdf, graphCut} = await ensureWorkerModules();
+
+    const t0 = performance.now();
+    const depthWidth = Number(payload.depthWidth ?? 160);
+    const depthHeight = Number(payload.depthHeight ?? 160);
+    const rawValueToMeters = Number(payload.rawValueToMeters ?? 1.0);
+    const depthFormat = String(payload.depthFormat ?? 'float32');
+    const depthData = decodeDepthBuffer(depthBuffer, depthFormat);
+
+    const depthViewMatrix = new Float32Array(depthViewMatrixBuffer);
+    const depthProjectionMatrix = new Float32Array(depthProjectionMatrixBuffer);
+    const depthProjectionInverseMatrix = new Float32Array(
+      depthProjectionInverseMatrixBuffer
+    );
+    const normDepthBufferFromNormViewMatrix =
+      payload.normDepthBufferFromNormViewMatrixBuffer instanceof ArrayBuffer
+        ? new Float32Array(payload.normDepthBufferFromNormViewMatrixBuffer)
+        : undefined;
+
+    const seed = tsdf.seedVolumeFromMaskAndDepth({
+      depthData,
+      depthWidth,
+      depthHeight,
+      rawValueToMeters,
+      depthViewMatrix,
+      depthProjectionInverseMatrix,
+      normDepthBufferFromNormViewMatrix,
+      rgbClipFromWorldMatrix,
+      cameraBinaryMask,
+      maskWidth: MODEL_IMG_SIZE,
+      maskHeight: MODEL_IMG_SIZE,
+    });
+
+    if (!seed) {
+      return null;
+    }
+
+    activeTsdfVolume = new tsdf.ObjectTSDFVolume(
+      seed.center,
+      seed.sizeMeters,
+      TSDF_RESOLUTION,
+      seed.supportFloorY,
+      seed.supportPlane,
+      seed.boundsMin,
+      seed.boundsMax
+    );
+    textureKeyframes = [];
+    pendingSeedCache = null;
+
+    addOrUpdateTextureKeyframe(
+      rgba,
+      cameraBinaryMask,
+      rgbClipFromWorldMatrix,
+      depthData,
+      depthWidth,
+      depthHeight,
+      rawValueToMeters,
+      depthViewMatrix,
+      depthProjectionMatrix,
+      normDepthBufferFromNormViewMatrix,
+      tsdf,
+      graphCut
+    );
+
+    const updatedVoxels = activeTsdfVolume.integrateFrame({
+      depthData,
+      depthWidth,
+      depthHeight,
+      rawValueToMeters,
+      depthViewMatrix,
+      depthProjectionMatrix,
+      normDepthBufferFromNormViewMatrix,
+      rgbClipFromWorldMatrix,
+      rgbaData: rgba,
+      rgbWidth: MODEL_IMG_SIZE,
+      rgbHeight: MODEL_IMG_SIZE,
+      cameraBinaryMask,
+      maskWidth: MODEL_IMG_SIZE,
+      maskHeight: MODEL_IMG_SIZE,
+      carveOutsideMask: true,
+    });
+
+    return buildTexturedMeshPayload(
+      activeTsdfVolume,
+      updatedVoxels,
+      rgbClipFromWorldMatrix,
+      graphCut,
+      t0
+    );
+  }
+
+  async function handleXrSegment(payload: Record<string, unknown>): Promise<{
+    quadOverlayBuffer: ArrayBuffer;
+    cutoutRgbaBuffer: ArrayBuffer | null;
+    cropW: number;
+    cropH: number;
+    quadMinY: number;
+    fgCount: number;
+    encoderMs: number;
+    decoderMs: number;
+    totalMs: number;
+    bestIou: number;
+    tsdfMesh: WorkerTsdfMeshPayload | null;
+  }> {
+    const rgbaBuffer = payload.rgbaBuffer as ArrayBuffer;
+    const pts = new Float32Array(payload.ptsBuffer as ArrayBuffer);
+    const lbls = new Float32Array(payload.lblsBuffer as ArrayBuffer);
+    const quadToClipElements = new Float32Array(
+      payload.quadToClipBuffer as ArrayBuffer
+    );
+    const quadSizeMeters = Number(payload.quadSizeMeters ?? 0.8);
+
+    const rgba = new Uint8ClampedArray(rgbaBuffer);
+    const samRes = await runSamInferenceOnRgba(rgba, pts, lbls);
+    const {
+      cameraBinaryMask,
+      fgCount,
+      camMinX,
+      camMinY,
+      camMaxX,
+      camMaxY,
+      encoderMs,
+      decoderMs,
+      totalMs,
+      bestIou,
+    } = samRes;
+
+    const W = MODEL_IMG_SIZE;
+    const H = MODEL_IMG_SIZE;
+
+    // Project cameraBinaryMask onto circleQuad's 512x512 UV space
     const quadBinaryMask = new Uint8Array(W * H);
     let quadMinY = H;
     const e = quadToClipElements;
@@ -337,7 +818,7 @@
       }
     }
 
-    // 5. Build RGBA overlay for the 3D quad
+    // Build RGBA overlay for the 3D quad
     const quadOverlayRgba = new Uint8ClampedArray(W * H * 4);
     for (let y = 0; y < H; y++) {
       const rowOffset = y * W;
@@ -370,30 +851,39 @@
       }
     }
 
-    // 6. Extract cropped RGBA cutout of the segmented object in camera space
-    let cutoutRgbaBuffer: ArrayBuffer | null = null;
-    let cropW = 0;
-    let cropH = 0;
-    if (fgCount > 0 && camMaxX >= camMinX && camMaxY >= camMinY) {
-      cropW = Math.max(1, camMaxX - camMinX + 1);
-      cropH = Math.max(1, camMaxY - camMinY + 1);
-      const cutoutRgba = new Uint8ClampedArray(cropW * cropH * 4);
-      for (let cy = 0; cy < cropH; cy++) {
-        const srcY = camMinY + cy;
-        for (let cx = 0; cx < cropW; cx++) {
-          const srcX = camMinX + cx;
-          const srcIdx = srcY * W + srcX;
-          if (cameraBinaryMask[srcIdx]) {
-            const srcP = srcIdx * 4;
-            const dstP = (cy * cropW + cx) * 4;
-            cutoutRgba[dstP] = rgba[srcP];
-            cutoutRgba[dstP + 1] = rgba[srcP + 1];
-            cutoutRgba[dstP + 2] = rgba[srcP + 2];
-            cutoutRgba[dstP + 3] = 255;
-          }
-        }
+    const {cutoutRgbaBuffer, cropW, cropH} = extractCutoutFromMask(
+      rgba,
+      cameraBinaryMask,
+      fgCount,
+      camMinX,
+      camMinY,
+      camMaxX,
+      camMaxY
+    );
+
+    // Seed & fuse Frame 0 into ObjectTSDFVolume if depth is available
+    let tsdfMesh: WorkerTsdfMeshPayload | null = null;
+    if (
+      fgCount > 16 &&
+      payload.rgbClipFromWorldMatrixBuffer instanceof ArrayBuffer
+    ) {
+      const rgbClipFromWorldMatrix = new Float32Array(
+        payload.rgbClipFromWorldMatrixBuffer
+      );
+      tsdfMesh = await seedAndIntegrateInitialVolume(
+        payload,
+        cameraBinaryMask,
+        rgba,
+        rgbClipFromWorldMatrix
+      );
+      if (!tsdfMesh) {
+        // Cache mask + RGB so the very next depth frame can lazily seed the volume
+        pendingSeedCache = {
+          cameraBinaryMask,
+          rgba: new Uint8ClampedArray(rgba),
+          rgbClipFromWorldMatrix,
+        };
       }
-      cutoutRgbaBuffer = cutoutRgba.buffer;
     }
 
     return {
@@ -407,6 +897,201 @@
       decoderMs,
       totalMs,
       bestIou,
+      tsdfMesh,
+    };
+  }
+
+  async function handleTsdfIntegrateDepth(
+    payload: Record<string, unknown>
+  ): Promise<WorkerTsdfMeshPayload | null> {
+    // Only used when lazily seeding Frame 0 if depth wasn't ready on the exact circle release frame
+    if (!activeTsdfVolume && pendingSeedCache) {
+      return seedAndIntegrateInitialVolume(
+        payload,
+        pendingSeedCache.cameraBinaryMask,
+        pendingSeedCache.rgba,
+        pendingSeedCache.rgbClipFromWorldMatrix
+      );
+    }
+    return null;
+  }
+
+  async function handleTsdfIntegrateRgbMask(
+    payload: Record<string, unknown>
+  ): Promise<{
+    tsdfMesh: WorkerTsdfMeshPayload | null;
+    cutoutRgbaBuffer: ArrayBuffer | null;
+    cropW: number;
+    cropH: number;
+    bestIou: number;
+    totalSamMs: number;
+  } | null> {
+    if (!activeTsdfVolume && pendingSeedCache) {
+      const tsdfMesh = await seedAndIntegrateInitialVolume(
+        payload,
+        pendingSeedCache.cameraBinaryMask,
+        pendingSeedCache.rgba,
+        pendingSeedCache.rgbClipFromWorldMatrix
+      );
+      return tsdfMesh
+        ? {
+            tsdfMesh,
+            cutoutRgbaBuffer: null,
+            cropW: 0,
+            cropH: 0,
+            bestIou: 1.0,
+            totalSamMs: 0,
+          }
+        : null;
+    }
+
+    if (!activeTsdfVolume) {
+      return null;
+    }
+
+    const rgbaBuffer = payload.rgbaBuffer as ArrayBuffer | undefined;
+    const rgbClipFromWorldMatrixBuffer =
+      payload.rgbClipFromWorldMatrixBuffer as ArrayBuffer | undefined;
+    const depthBuffer = payload.depthBuffer as ArrayBuffer | undefined;
+    const depthViewMatrixBuffer = payload.depthViewMatrixBuffer as
+      | ArrayBuffer
+      | undefined;
+    const depthProjectionMatrixBuffer = payload.depthProjectionMatrixBuffer as
+      | ArrayBuffer
+      | undefined;
+
+    if (
+      !rgbaBuffer ||
+      !rgbClipFromWorldMatrixBuffer ||
+      !depthBuffer ||
+      !depthViewMatrixBuffer ||
+      !depthProjectionMatrixBuffer
+    ) {
+      return null;
+    }
+
+    const {tsdf, graphCut} = await ensureWorkerModules();
+
+    const rgbClipFromWorldMatrix = new Float32Array(
+      rgbClipFromWorldMatrixBuffer
+    );
+    const box2d = activeTsdfVolume.projectBoundingBoxToCamera(
+      rgbClipFromWorldMatrix,
+      MODEL_IMG_SIZE,
+      MODEL_IMG_SIZE
+    );
+    if (!box2d) {
+      return null;
+    }
+
+    // Require the object center to be comfortably within the camera frame
+    if (
+      box2d.cx < 40 ||
+      box2d.cx > MODEL_IMG_SIZE - 40 ||
+      box2d.cy < 40 ||
+      box2d.cy > MODEL_IMG_SIZE - 40
+    ) {
+      return null;
+    }
+
+    // Build automatic 2D bounding-box + center prompt from the projected 3D volume
+    const pts = new Float32Array(MAX_POINTS * 2).fill(-1.0);
+    const lbls = new Float32Array(MAX_POINTS).fill(-1.0);
+    pts[0] = box2d.x1;
+    pts[1] = box2d.y1;
+    lbls[0] = 2.0;
+    pts[2] = box2d.x2;
+    pts[3] = box2d.y2;
+    lbls[1] = 3.0;
+    pts[4] = box2d.cx;
+    pts[5] = box2d.cy;
+    lbls[2] = 1.0;
+
+    const rgba = new Uint8ClampedArray(rgbaBuffer);
+    const samRes = await runSamInferenceOnRgba(rgba, pts, lbls);
+
+    if (samRes.bestIou < 0.65 || samRes.fgCount < 48) {
+      return null;
+    }
+
+    const t0 = performance.now();
+    const depthWidth = Number(payload.depthWidth ?? 160);
+    const depthHeight = Number(payload.depthHeight ?? 160);
+    const rawValueToMeters = Number(payload.rawValueToMeters ?? 1.0);
+    const depthFormat = String(payload.depthFormat ?? 'float32');
+    const depthData = decodeDepthBuffer(depthBuffer, depthFormat);
+
+    const depthViewMatrix = new Float32Array(depthViewMatrixBuffer);
+    const depthProjectionMatrix = new Float32Array(depthProjectionMatrixBuffer);
+    const normDepthBufferFromNormViewMatrix =
+      payload.normDepthBufferFromNormViewMatrixBuffer instanceof ArrayBuffer
+        ? new Float32Array(payload.normDepthBufferFromNormViewMatrixBuffer)
+        : undefined;
+
+    const updatedVoxels = activeTsdfVolume.integrateFrame({
+      depthData,
+      depthWidth,
+      depthHeight,
+      rawValueToMeters,
+      depthViewMatrix,
+      depthProjectionMatrix,
+      normDepthBufferFromNormViewMatrix,
+      rgbClipFromWorldMatrix,
+      rgbaData: rgba,
+      rgbWidth: MODEL_IMG_SIZE,
+      rgbHeight: MODEL_IMG_SIZE,
+      cameraBinaryMask: samRes.cameraBinaryMask,
+      maskWidth: MODEL_IMG_SIZE,
+      maskHeight: MODEL_IMG_SIZE,
+      carveOutsideMask: true,
+    });
+
+    if (updatedVoxels < 36) {
+      return null;
+    }
+
+    // Only admit this view into the Graph-Cut texture keyframe bank if it genuinely
+    // observed and updated the 3D object's surface depth!
+    addOrUpdateTextureKeyframe(
+      rgba,
+      samRes.cameraBinaryMask,
+      rgbClipFromWorldMatrix,
+      depthData,
+      depthWidth,
+      depthHeight,
+      rawValueToMeters,
+      depthViewMatrix,
+      depthProjectionMatrix,
+      normDepthBufferFromNormViewMatrix,
+      tsdf,
+      graphCut
+    );
+
+    const tsdfMesh = buildTexturedMeshPayload(
+      activeTsdfVolume,
+      updatedVoxels,
+      rgbClipFromWorldMatrix,
+      graphCut,
+      t0
+    );
+
+    const {cutoutRgbaBuffer, cropW, cropH} = extractCutoutFromMask(
+      rgba,
+      samRes.cameraBinaryMask,
+      samRes.fgCount,
+      samRes.camMinX,
+      samRes.camMinY,
+      samRes.camMaxX,
+      samRes.camMaxY
+    );
+
+    return {
+      tsdfMesh,
+      cutoutRgbaBuffer,
+      cropW,
+      cropH,
+      bestIou: samRes.bestIou,
+      totalSamMs: samRes.totalMs,
     };
   }
 
@@ -424,7 +1109,50 @@
           if (result.cutoutRgbaBuffer) {
             transferList.push(result.cutoutRgbaBuffer);
           }
+          if (result.tsdfMesh) {
+            transferList.push(
+              result.tsdfMesh.positionsBuffer,
+              result.tsdfMesh.normalsBuffer,
+              result.tsdfMesh.uvsBuffer,
+              result.tsdfMesh.colorsBuffer,
+              result.tsdfMesh.atlasRgbaBuffer
+            );
+          }
           self.postMessage({id, ok: true, result}, {transfer: transferList});
+        } else if (type === 'tsdf_integrate_depth') {
+          const result = await handleTsdfIntegrateDepth(payload);
+          const transferList: Transferable[] = [];
+          if (result) {
+            transferList.push(
+              result.positionsBuffer,
+              result.normalsBuffer,
+              result.uvsBuffer,
+              result.colorsBuffer,
+              result.atlasRgbaBuffer
+            );
+          }
+          self.postMessage({id, ok: true, result}, {transfer: transferList});
+        } else if (type === 'tsdf_integrate_rgb_mask') {
+          const result = await handleTsdfIntegrateRgbMask(payload);
+          const transferList: Transferable[] = [];
+          if (result?.tsdfMesh) {
+            transferList.push(
+              result.tsdfMesh.positionsBuffer,
+              result.tsdfMesh.normalsBuffer,
+              result.tsdfMesh.uvsBuffer,
+              result.tsdfMesh.colorsBuffer,
+              result.tsdfMesh.atlasRgbaBuffer
+            );
+          }
+          if (result?.cutoutRgbaBuffer) {
+            transferList.push(result.cutoutRgbaBuffer);
+          }
+          self.postMessage({id, ok: true, result}, {transfer: transferList});
+        } else if (type === 'tsdf_reset') {
+          activeTsdfVolume = null;
+          textureKeyframes = [];
+          pendingSeedCache = null;
+          self.postMessage({id, ok: true, result: {reset: true}});
         } else {
           throw new Error(`Unknown worker command: ${String(type)}`);
         }

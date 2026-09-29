@@ -1,7 +1,9 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <title>XR Circle to Search | EfficientSAM × LiteRT × XR Blocks</title>
+    <title>
+      XR Circle to Digitize | EfficientSAM × KinectFusion × XR Blocks
+    </title>
     <meta charset="utf-8" />
     <meta
       name="viewport"
@@ -46,7 +48,7 @@
         display: flex;
         flex-direction: column;
         gap: 8px;
-        max-width: 360px;
+        max-width: 390px;
         padding: 12px 14px;
         border-radius: 14px;
         background: rgba(13, 18, 30, 0.84);
@@ -83,7 +85,7 @@
       }
       .xr-hud-metrics {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(2, 1fr);
         gap: 6px;
         padding-top: 4px;
       }
@@ -102,7 +104,7 @@
         font-weight: 600;
       }
       .xr-metric-pill span {
-        font-size: 0.82rem;
+        font-size: 0.78rem;
         font-weight: 700;
         color: #e2e8f0;
         font-variant-numeric: tabular-nums;
@@ -115,7 +117,7 @@
       .xr-hud-btn {
         flex: 1;
         padding: 6px 10px;
-        font-size: 0.74rem;
+        font-size: 0.73rem;
         font-weight: 600;
         border-radius: 8px;
         border: 1px solid rgba(148, 163, 184, 0.28);
@@ -133,14 +135,14 @@
   <body>
     <div id="xr-hud-overlay">
       <div class="xr-hud-top">
-        <div class="xr-hud-title">✨ XR Circle to Search</div>
+        <div class="xr-hud-title">✨ XR Circle to Digitize (SAM + TSDF)</div>
       </div>
       <div id="xr-hud-status" class="xr-hud-status">
         Loading <strong>EfficientSAM-Ti</strong> on LiteRT...
       </div>
       <div class="xr-hud-metrics">
         <div class="xr-metric-pill">
-          <small>Total</small>
+          <small>SAM Total</small>
           <span id="xr-metric-total">-- ms</span>
         </div>
         <div class="xr-metric-pill">
@@ -151,10 +153,20 @@
           <small>Mask IoU</small>
           <span id="xr-metric-iou">--</span>
         </div>
+        <div class="xr-metric-pill">
+          <small>3D TSDF Scan</small>
+          <span id="xr-metric-tsdf">Waiting...</span>
+        </div>
       </div>
       <div class="xr-hud-actions">
+        <button type="button" id="xr-popout-btn" class="xr-hud-btn">
+          Pop Out 3D
+        </button>
+        <button type="button" id="xr-export-btn" class="xr-hud-btn">
+          Export .GLB
+        </button>
         <button type="button" id="xr-clear-btn" class="xr-hud-btn">
-          Clear Circle
+          Clear
         </button>
       </div>
     </div>

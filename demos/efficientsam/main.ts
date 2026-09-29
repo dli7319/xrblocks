@@ -1,6 +1,8 @@
 import * as THREE from 'three';
+import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
 import * as xb from 'xrblocks';
 import type {Accelerator} from '@litertjs/core';
+import type {WorkerTsdfMeshPayload} from './efficientsam_worker.js';
 
 const MODEL_IMG_SIZE = 512;
 const MAX_POINTS = 6;
@@ -8,6 +10,11 @@ const QUAD_DISTANCE_METERS = 0.3;
 const QUAD_SIZE_METERS = 0.8;
 const MOUSE_QUAD_DISTANCE_METERS = 1.0;
 const MOUSE_QUAD_SIZE_METERS = 1.4;
+
+const MIN_KEYFRAME_TRANSLATION_METERS = 0.018;
+const MIN_KEYFRAME_ROTATION_RAD = THREE.MathUtils.degToRad(2.5);
+const DEPTH_FUSION_INTERVAL_MS = 70;
+const RGB_MASK_FUSION_INTERVAL_MS = 220;
 
 interface CirclePoint {
   x: number;
@@ -36,6 +43,20 @@ interface CameraCaptureResult {
   clipFromWorld: THREE.Matrix4;
 }
 
+interface DepthTransferPayload {
+  depthBuffer: ArrayBuffer;
+  depthWidth: number;
+  depthHeight: number;
+  rawValueToMeters: number;
+  depthFormat: string;
+  depthViewMatrixBuffer: ArrayBuffer;
+  depthProjectionMatrixBuffer: ArrayBuffer;
+  depthProjectionInverseMatrixBuffer: ArrayBuffer;
+  normDepthBufferFromNormViewMatrixBuffer: ArrayBuffer;
+  cameraPos: THREE.Vector3;
+  cameraQuat: THREE.Quaternion;
+}
+
 interface WorkerInitResult {
   encoderAccelerator: Accelerator;
   decoderAccelerator: Accelerator;
@@ -53,12 +74,27 @@ interface WorkerXrSegmentResult {
   decoderMs: number;
   totalMs: number;
   bestIou: number;
+  tsdfMesh: WorkerTsdfMeshPayload | null;
+}
+
+interface WorkerRgbMaskIntegrateResult {
+  tsdfMesh: WorkerTsdfMeshPayload | null;
+  cutoutRgbaBuffer: ArrayBuffer | null;
+  cropW: number;
+  cropH: number;
+  bestIou: number;
+  totalSamMs: number;
 }
 
 /**
- * XR Circle to Search Script powered by XR Blocks (v0.20.0+) and LiteRT 2.5.3 EfficientSAM-Ti.
- * All CPU/GPU-intensive LiteRT compilation, image preprocessing, inference, and mask
- * reprojection run inside `efficientsam_worker.js` so the WebXR render loop never stalls.
+ * XR Circle to Digitize Script powered by XR Blocks (v0.20.0+), LiteRT 2.5.3 EfficientSAM-Ti,
+ * Object-Centric KinectFusion (WebXR Depth TSDF + RANSAC Table Removal + Marching Cubes),
+ * and Multi-View Graph-Cut Texture Mapping.
+ *
+ * All CPU/GPU-intensive LiteRT compilation, image preprocessing, inference, mask reprojection,
+ * RANSAC table plane subtraction, TSDF volumetric integration, Marching Cubes surface extraction,
+ * and Graph-Cut UV texture atlas synthesis run inside `efficientsam_worker.js` so the 72 FPS
+ * WebXR render loop never stalls.
  */
 export class XRCircleToSearchScript extends xb.Script {
   private worker: Worker | null = null;
@@ -75,6 +111,7 @@ export class XRCircleToSearchScript extends xb.Script {
   private decoderAccelerator: Accelerator = 'wasm';
   private modelsReady = false;
   private isSegmenting = false;
+  private isIntegratingTsdf = false;
   private compileTimeMs = 0;
 
   private activeController: xb.InteractionSource['controller'] | null = null;
@@ -90,14 +127,48 @@ export class XRCircleToSearchScript extends xb.Script {
   private readonly captureCanvas: HTMLCanvasElement;
   private readonly captureCtx: CanvasRenderingContext2D;
   private readonly cutoutCanvas: HTMLCanvasElement;
+  private readonly atlasCanvas: HTMLCanvasElement;
+  private readonly atlasCtx: CanvasRenderingContext2D;
+  private atlasTexture: THREE.CanvasTexture;
 
   private circleQuad: THREE.Mesh<
     THREE.PlaneGeometry,
     THREE.MeshBasicMaterial
   > | null = null;
+
+  // Object-Centric KinectFusion live 3D reconstruction state
+  private isScanningTsdf = false;
+  private isPoppedOut = false;
+  private fusedFrameCount = 0;
+  private triangleCount = 0;
+  private chartCount = 0;
+  private voxelSizeMm = 0;
+  private lastDepthFusionMs = 0;
+  private lastRgbMaskFusionMs = 0;
+  private readonly lastFusedCameraPos = new THREE.Vector3(NaN, NaN, NaN);
+  private readonly lastFusedCameraQuat = new THREE.Quaternion(
+    NaN,
+    NaN,
+    NaN,
+    NaN
+  );
+  private readonly currentVolumeCenter = new THREE.Vector3();
+  private currentVolumeSize = 0.25;
+
+  private tsdfMeshGroup: THREE.Group | null = null;
+  private tsdfLiveMesh: THREE.Mesh<
+    THREE.BufferGeometry,
+    THREE.MeshStandardMaterial
+  > | null = null;
+  private tsdfBoundingBox: THREE.LineSegments<
+    THREE.EdgesGeometry,
+    THREE.LineBasicMaterial
+  > | null = null;
+
   private hudCard: xb.UICard | null = null;
   private hudStatusText: xb.UIText | null = null;
   private hudMetricsText: xb.UIText | null = null;
+  private hudTsdfMetricsText: xb.UIText | null = null;
   private hudCutoutPlaceholder: xb.UIPanel | null = null;
   private hudCutoutImage: xb.UIImage | null = null;
   private telemetryBadgeCard: xb.UICard | null = null;
@@ -109,6 +180,7 @@ export class XRCircleToSearchScript extends xb.Script {
   private readonly domMetricTotal: HTMLElement | null;
   private readonly domMetricSplit: HTMLElement | null;
   private readonly domMetricIou: HTMLElement | null;
+  private readonly domMetricTsdf: HTMLElement | null;
 
   constructor() {
     super();
@@ -141,10 +213,22 @@ export class XRCircleToSearchScript extends xb.Script {
     this.cutoutCanvas.width = 320;
     this.cutoutCanvas.height = 320;
 
+    this.atlasCanvas = document.createElement('canvas');
+    this.atlasCanvas.width = MODEL_IMG_SIZE;
+    this.atlasCanvas.height = MODEL_IMG_SIZE;
+    this.atlasCtx = this.atlasCanvas.getContext('2d')!;
+    this.atlasTexture = new THREE.CanvasTexture(this.atlasCanvas);
+    this.atlasTexture.flipY = false;
+    this.atlasTexture.colorSpace = THREE.SRGBColorSpace;
+    this.atlasTexture.minFilter = THREE.LinearFilter;
+    this.atlasTexture.magFilter = THREE.LinearFilter;
+    this.atlasTexture.generateMipmaps = false;
+
     this.domStatus = document.getElementById('xr-hud-status');
     this.domMetricTotal = document.getElementById('xr-metric-total');
     this.domMetricSplit = document.getElementById('xr-metric-split');
     this.domMetricIou = document.getElementById('xr-metric-iou');
+    this.domMetricTsdf = document.getElementById('xr-metric-tsdf');
 
     const clearBtn = document.getElementById('xr-clear-btn');
     if (clearBtn) {
@@ -153,21 +237,47 @@ export class XRCircleToSearchScript extends xb.Script {
         this.clearQuadOverlay();
       });
     }
+
+    const popOutBtn = document.getElementById('xr-popout-btn');
+    if (popOutBtn) {
+      popOutBtn.addEventListener('click', (e: MouseEvent) => {
+        e.stopPropagation();
+        this.finishAndPopOut3DModel();
+      });
+    }
+
+    const exportBtn = document.getElementById('xr-export-btn');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', (e: MouseEvent) => {
+        e.stopPropagation();
+        this.exportDigitizedMeshGlb();
+      });
+    }
   }
 
   override async init(): Promise<void> {
-    // 1. Build the 30cm invisible raycast quad
+    // 1. Ensure scene has directional + ambient lighting so the vertex-colored 3D TSDF mesh is shaded clearly
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.1);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.4);
+    dirLight.position.set(0.8, 2.2, 1.2);
+    this.add(ambientLight);
+    this.add(dirLight);
+
+    // 2. Build the 30cm invisible raycast quad
     this.createInvisibleCircleQuad();
 
-    // 2. Build XR Blocks Spatial HUD Card & Floating Telemetry Badge (v0.20.0 UICard API)
+    // 3. Build the live TSDF 3D Mesh + Bounding Volume visualizer
+    this.createTsdfVisualizerObjects();
+
+    // 4. Build XR Blocks Spatial HUD Card & Floating Telemetry Badge (v0.20.0 UICard API)
     this.createSpatialHudCard();
 
-    // 3. Initialize LiteRT and compile EfficientSAM-Ti models
+    // 5. Initialize LiteRT and compile EfficientSAM-Ti models in Worker
     await this.initLiteRtModels();
   }
 
   /**
-   * Creates the invisible quad that spawns 10 cm in front of the user's pinching hand.
+   * Creates the invisible quad that spawns 30 cm in front of the user's pinching hand.
    * When cleared, its CanvasTexture is 100% transparent (`rgba(0,0,0,0)`), making
    * the quad invisible while still allowing the XR Blocks Reticle to raycast and
    * glide across its surface.
@@ -197,6 +307,39 @@ export class XRCircleToSearchScript extends xb.Script {
   }
 
   /**
+   * Creates the live `THREE.Mesh` and wireframe `THREE.LineSegments` bounding box
+   * that display the ongoing multi-view KinectFusion TSDF reconstruction in world space.
+   */
+  private createTsdfVisualizerObjects(): void {
+    this.tsdfMeshGroup = new THREE.Group();
+    this.tsdfMeshGroup.name = 'KinectFusionTSDFGroup';
+    this.tsdfMeshGroup.visible = false;
+    this.add(this.tsdfMeshGroup);
+
+    const meshGeo = new THREE.BufferGeometry();
+    const meshMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.48,
+      metalness: 0.08,
+      side: THREE.DoubleSide,
+    });
+    this.tsdfLiveMesh = new THREE.Mesh(meshGeo, meshMat);
+    this.tsdfLiveMesh.name = 'DigitizedObjectMesh';
+    this.tsdfMeshGroup.add(this.tsdfLiveMesh);
+
+    const boxEdges = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+    const boxMat = new THREE.LineBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.75,
+    });
+    this.tsdfBoundingBox = new THREE.LineSegments(boxEdges, boxMat);
+    this.tsdfBoundingBox.name = 'TSDFVolumeWireframe';
+    this.tsdfBoundingBox.visible = false;
+    this.add(this.tsdfBoundingBox);
+  }
+
+  /**
    * Builds the XR Blocks Spatial UI Card (`xb.UICard`) to the left of the user's main view
    * and the floating telemetry pill (`xb.UICard`) that appears above segmented masks.
    */
@@ -204,7 +347,7 @@ export class XRCircleToSearchScript extends xb.Script {
     const userHeight = xb.user?.height || 1.6;
 
     this.hudStatusText = new xb.UIText({
-      text: 'Pinch & draw a circle with hand reticle (30cm quad)',
+      text: 'Pinch & circle an object to segment & 3D digitize',
       style: {fontSize: 14},
     });
 
@@ -213,10 +356,15 @@ export class XRCircleToSearchScript extends xb.Script {
       style: {fontSize: 12},
     });
 
+    this.hudTsdfMetricsText = new xb.UIText({
+      text: '3D TSDF Scan: Waiting for circle seed...',
+      style: {fontSize: 12, color: '#38bdf8'},
+    });
+
     this.hudCutoutPlaceholder = new xb.UIPanel({
       style: {
         width: '100%',
-        height: 190,
+        height: 180,
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
@@ -228,15 +376,15 @@ export class XRCircleToSearchScript extends xb.Script {
       },
       children: [
         new xb.UIIcon({
-          icon: 'crop_free',
+          icon: 'view_in_ar',
           style: {fontSize: 28, color: '#38bdf8'},
         }),
         new xb.UIText({
-          text: 'Camera Cutout',
+          text: 'Circle-to-Digitize (KinectFusion)',
           style: {fontSize: 15, fontWeight: 'bold', color: '#e2e8f0'},
         }),
         new xb.UIText({
-          text: 'Pinch & circle any object',
+          text: 'Circle once, then move around object to fuse 3D mesh',
           style: {fontSize: 12, color: '#94a3b8'},
         }),
       ],
@@ -246,15 +394,31 @@ export class XRCircleToSearchScript extends xb.Script {
       src: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
       style: {
         width: '100%',
-        height: 190,
+        height: 180,
         objectFit: 'contain',
         borderRadius: 12,
         display: 'none',
       },
     });
 
+    const popOutBtn = new xb.UIButton({
+      label: 'Pop Out 3D',
+      icon: 'deployed_code',
+      onClick: () => {
+        this.finishAndPopOut3DModel();
+      },
+    });
+
+    const exportBtn = new xb.UIButton({
+      label: 'Export .GLB',
+      icon: 'download',
+      onClick: () => {
+        this.exportDigitizedMeshGlb();
+      },
+    });
+
     const clearBtn = new xb.UIButton({
-      label: 'Clear Circle',
+      label: 'Clear',
       icon: 'delete',
       onClick: () => {
         this.clearQuadOverlay();
@@ -262,12 +426,12 @@ export class XRCircleToSearchScript extends xb.Script {
     });
 
     const card = new xb.UICard({
-      size: {width: 0.54, height: 'auto'},
+      size: {width: 0.56, height: 'auto'},
       manipulation: true,
       edge: true,
       style: {
         flexDirection: 'column',
-        gap: 10,
+        gap: 9,
         padding: 16,
       },
       children: [
@@ -278,15 +442,16 @@ export class XRCircleToSearchScript extends xb.Script {
             gap: 8,
           },
           children: [
-            new xb.UIIcon({icon: 'search'}),
+            new xb.UIIcon({icon: 'view_in_ar'}),
             new xb.UIText({
-              text: 'XR Circle to Search (LiteRT)',
+              text: 'XR Circle to Digitize (SAM + TSDF)',
               style: {fontSize: 17},
             }),
           ],
         }),
         this.hudStatusText,
         this.hudMetricsText,
+        this.hudTsdfMetricsText,
         this.hudCutoutPlaceholder,
         this.hudCutoutImage,
         new xb.UIPanel({
@@ -295,7 +460,7 @@ export class XRCircleToSearchScript extends xb.Script {
             justifyContent: 'flex-start',
             gap: 8,
           },
-          children: [clearBtn],
+          children: [popOutBtn, exportBtn, clearBtn],
         }),
       ],
     });
@@ -316,7 +481,7 @@ export class XRCircleToSearchScript extends xb.Script {
     });
 
     this.telemetryBadgeCard = new xb.UICard({
-      size: {width: 0.52, height: 'auto'},
+      size: {width: 0.54, height: 'auto'},
       appearance: 'surface',
       visible: false,
       pointerEvents: 'none',
@@ -374,6 +539,7 @@ export class XRCircleToSearchScript extends xb.Script {
         }
         this.pendingWorkerRequests.clear();
         this.isSegmenting = false;
+        this.isIntegratingTsdf = false;
       };
       this.worker.addEventListener('error', (event: ErrorEvent) => {
         rejectAllPending(
@@ -390,7 +556,12 @@ export class XRCircleToSearchScript extends xb.Script {
   }
 
   private callWorker<T>(
-    type: 'init' | 'xr_segment' | 'encode_image' | 'decode_prompts',
+    type:
+      | 'init'
+      | 'xr_segment'
+      | 'tsdf_integrate_depth'
+      | 'tsdf_integrate_rgb_mask'
+      | 'tsdf_reset',
     payload: Record<string, unknown> = {},
     transfer: Transferable[] = []
   ): Promise<T> {
@@ -424,7 +595,7 @@ export class XRCircleToSearchScript extends xb.Script {
           : 'WASM XNNPACK';
 
       this.updateStatusText(
-        `Ready (${accelLabel} Worker) — Pinch & circle with your hand!`
+        `Ready (${accelLabel} Worker) — Circle any object to digitize in 3D!`
       );
       if (this.hudMetricsText) {
         this.hudMetricsText.text = `LiteRT 2.5.3 (${accelLabel} Worker) | Compile: ${this.compileTimeMs.toFixed(0)} ms`;
@@ -442,6 +613,25 @@ export class XRCircleToSearchScript extends xb.Script {
     }
     if (this.hudStatusText) {
       this.hudStatusText.text = msg.replace(/<[^>]*>/g, '');
+    }
+  }
+
+  private updateTsdfMetricsDisplay(tsdfMs?: number): void {
+    const chartLabel =
+      this.chartCount > 0 ? ` · ${this.chartCount} charts` : '';
+    const summary =
+      this.fusedFrameCount > 0
+        ? `${this.fusedFrameCount} views${chartLabel} · ${this.triangleCount} tris (${this.voxelSizeMm.toFixed(1)}mm)`
+        : 'Waiting for depth...';
+    if (this.domMetricTsdf) {
+      this.domMetricTsdf.textContent = summary;
+    }
+    if (this.hudTsdfMetricsText) {
+      const msSuffix =
+        typeof tsdfMs === 'number'
+          ? ` | Fuse+GraphCut: ${tsdfMs.toFixed(1)} ms`
+          : '';
+      this.hudTsdfMetricsText.text = `3D TSDF Scan: ${summary}${msSuffix}`;
     }
   }
 
@@ -530,6 +720,9 @@ export class XRCircleToSearchScript extends xb.Script {
       return;
     }
 
+    // Starting a new circle resets any previous TSDF scan
+    this.resetTsdfScanState();
+
     this.activeController = controller;
     this.isDrawingCircle = true;
     this.circlePath = [];
@@ -589,7 +782,7 @@ export class XRCircleToSearchScript extends xb.Script {
 
   /**
    * Called when the user releases their pinch.
-   * Triggers device camera capture and LiteRT EfficientSAM segmentation.
+   * Triggers device camera capture, LiteRT EfficientSAM segmentation, and Frame 0 TSDF seeding.
    */
   override onSelectEnd(event: xb.SelectEndEvent): void {
     const controller = event?.source?.controller;
@@ -761,11 +954,73 @@ export class XRCircleToSearchScript extends xb.Script {
   }
 
   /**
-   * Captures the 512x512 RGB frame directly from `xb.core.deviceCamera` (not the virtual
-   * scene screenshot) along with the camera's `clipFromWorld` matrix so 3D points on the
-   * 30cm quad map directly to camera image pixels.
+   * Captures the current `160x160` WebXR / Simulator depth buffer and camera matrices
+   * as Transferable ArrayBuffers (< 0.15 ms copy).
    */
-  private async captureCameraImage(): Promise<CameraCaptureResult> {
+  private captureDepthPayload(): DepthTransferPayload | null {
+    const depth = xb.core?.depth;
+    if (
+      !depth ||
+      !depth.depthArray[0] ||
+      depth.width <= 0 ||
+      depth.height <= 0
+    ) {
+      return null;
+    }
+
+    const srcArray = depth.depthArray[0];
+    if (srcArray.length === 0) return null;
+
+    const clonedDepth =
+      srcArray instanceof Float32Array
+        ? new Float32Array(srcArray)
+        : new Uint16Array(srcArray);
+
+    const viewMat =
+      depth.depthViewMatrices[0] ?? xb.core.camera.matrixWorldInverse;
+    const projMat =
+      depth.depthProjectionMatrices[0] ?? xb.core.camera.projectionMatrix;
+    const projInvMat =
+      depth.depthProjectionInverseMatrices[0] ??
+      xb.core.camera.projectionMatrixInverse;
+    const normMat =
+      depth.normDepthBufferFromNormViewMatrices[0] ?? new THREE.Matrix4();
+
+    const cameraPos = new THREE.Vector3();
+    const cameraQuat = new THREE.Quaternion();
+    if (depth.depthCameraPositions[0] && depth.depthCameraRotations[0]) {
+      cameraPos.copy(depth.depthCameraPositions[0]);
+      cameraQuat.copy(depth.depthCameraRotations[0]);
+    } else {
+      xb.core.camera.getWorldPosition(cameraPos);
+      xb.core.camera.getWorldQuaternion(cameraQuat);
+    }
+
+    return {
+      depthBuffer: clonedDepth.buffer,
+      depthWidth: depth.width,
+      depthHeight: depth.height,
+      rawValueToMeters: depth.rawValueToMeters || 1.0,
+      depthFormat:
+        srcArray instanceof Uint16Array
+          ? 'uint16'
+          : (depth.depthDataFormat ?? 'float32'),
+      depthViewMatrixBuffer: new Float32Array(viewMat.elements).buffer,
+      depthProjectionMatrixBuffer: new Float32Array(projMat.elements).buffer,
+      depthProjectionInverseMatrixBuffer: new Float32Array(projInvMat.elements)
+        .buffer,
+      normDepthBufferFromNormViewMatrixBuffer: new Float32Array(
+        normMat.elements
+      ).buffer,
+      cameraPos,
+      cameraQuat,
+    };
+  }
+
+  /**
+   * Computes the current RGB camera `clipFromWorld` matrix without reading back pixels.
+   */
+  private getRgbClipFromWorldMatrix(): THREE.Matrix4 {
     const renderCamera = xb.core.camera as THREE.PerspectiveCamera;
     renderCamera.updateMatrixWorld(true);
 
@@ -774,7 +1029,6 @@ export class XRCircleToSearchScript extends xb.Script {
       ? (xb.core.renderer.xr.getCamera() as THREE.WebXRArrayCamera)
       : null;
 
-    let clipFromWorld: THREE.Matrix4 | null = null;
     if (deviceCamera) {
       const cameraParams = xb.getCameraParametersSnapshot(
         renderCamera,
@@ -783,37 +1037,76 @@ export class XRCircleToSearchScript extends xb.Script {
         this.targetDevice
       );
       if (cameraParams) {
-        clipFromWorld = cameraParams.worldFromClip.clone().invert();
+        return cameraParams.worldFromClip.clone().invert();
       }
     }
 
-    if (!clipFromWorld) {
-      clipFromWorld = new THREE.Matrix4().multiplyMatrices(
-        renderCamera.projectionMatrix,
-        renderCamera.matrixWorldInverse
+    return new THREE.Matrix4().multiplyMatrices(
+      renderCamera.projectionMatrix,
+      renderCamera.matrixWorldInverse
+    );
+  }
+
+  /**
+   * Captures the 512x512 RGB frame and synchronized `clipFromWorld` matrix.
+   *
+   * - In the Desktop Simulator, reads synchronously from `SimulatorCamera.canvas`
+   *   (which contains only `simulatorScene` rendered at the exact current camera pose),
+   *   avoiding Chrome's frame throttling on detached `<video>` elements.
+   * - On WebXR headsets, awaits `deviceCamera.waitForFreshFrame()` before capturing
+   *   and samples `clipFromWorld` immediately upon frame resolution.
+   */
+  private async captureCameraImage(): Promise<CameraCaptureResult> {
+    const simCamCanvas = (
+      xb.core.simulator?.simulatorCamera as
+        | {canvas?: HTMLCanvasElement}
+        | undefined
+    )?.canvas;
+
+    // 1. Desktop Simulator path: synchronous 0-lag read from SimulatorCamera's 512x512 canvas
+    if (simCamCanvas && !xb.core.renderer.xr.isPresenting) {
+      const clipFromWorld = this.getRgbClipFromWorldMatrix();
+      this.captureCtx.clearRect(0, 0, MODEL_IMG_SIZE, MODEL_IMG_SIZE);
+      this.captureCtx.drawImage(
+        simCamCanvas,
+        0,
+        0,
+        MODEL_IMG_SIZE,
+        MODEL_IMG_SIZE
       );
+      return {
+        imageData: this.captureCtx.getImageData(
+          0,
+          0,
+          MODEL_IMG_SIZE,
+          MODEL_IMG_SIZE
+        ),
+        clipFromWorld,
+      };
     }
 
-    // 1. Capture 512x512 ImageData directly from XRDeviceCamera
+    // 2. WebXR Device Camera path: wait for fresh frame and sample pose at capture time
+    const deviceCamera = xb.core.deviceCamera;
     if (deviceCamera) {
+      try {
+        await deviceCamera.waitForFreshFrame?.(120);
+      } catch {
+        // Best-effort freshness wait
+      }
       const snapshot = await deviceCamera.captureSnapshot({
         width: MODEL_IMG_SIZE,
         height: MODEL_IMG_SIZE,
         outputFormat: 'imageData',
       });
       if (snapshot instanceof ImageData) {
+        const clipFromWorld = this.getRgbClipFromWorldMatrix();
         return {imageData: snapshot, clipFromWorld};
       }
     }
 
-    // 2. Fallback if the simulator camera <video> stream is still warming up:
-    // read directly from SimulatorCamera's 512x512 canvas (which contains only simulatorScene).
-    const simCamCanvas = (
-      xb.core.simulator?.simulatorCamera as
-        | {canvas?: HTMLCanvasElement}
-        | undefined
-    )?.canvas;
+    // 3. Fallback if SimulatorCamera canvas is available
     if (simCamCanvas) {
+      const clipFromWorld = this.getRgbClipFromWorldMatrix();
       this.captureCtx.clearRect(0, 0, MODEL_IMG_SIZE, MODEL_IMG_SIZE);
       this.captureCtx.drawImage(
         simCamCanvas,
@@ -921,8 +1214,8 @@ export class XRCircleToSearchScript extends xb.Script {
   }
 
   /**
-   * Runs EfficientSAM-Ti Encoder + Decoder + mask reprojection inside `efficientsam_worker.js`
-   * on the 512x512 camera image so the main WebXR thread never blocks.
+   * Runs EfficientSAM-Ti Encoder + Decoder + mask reprojection + Frame 0 TSDF seeding
+   * inside `efficientsam_worker.js` so the main WebXR thread never blocks.
    */
   private async executeCircleToSearch(): Promise<void> {
     if (!this.modelsReady) {
@@ -933,14 +1226,19 @@ export class XRCircleToSearchScript extends xb.Script {
     }
 
     this.isSegmenting = true;
-    this.updateStatusText('Segmenting camera image in Web Worker...');
+    this.updateStatusText(
+      'Segmenting & seeding 3D TSDF volume in Web Worker...'
+    );
 
     try {
       // 1. Capture the 512x512 RGB image directly from the device camera
       const {imageData: cameraImageData, clipFromWorld} =
         await this.captureCameraImage();
 
-      // 2. Build Camera-Space Circle Prompt & quadToClip matrix
+      // 2. Capture the current 160x160 WebXR Depth frame for Frame 0 TSDF seeding
+      const depthPayload = this.captureDepthPayload();
+
+      // 3. Build Camera-Space Circle Prompt & quadToClip matrix
       const promptInfo = this.buildPromptFromCircle(clipFromWorld);
       const quadToClip = new THREE.Matrix4();
       if (this.circleQuad) {
@@ -948,29 +1246,74 @@ export class XRCircleToSearchScript extends xb.Script {
         quadToClip.multiplyMatrices(clipFromWorld, this.circleQuad.matrixWorld);
       }
       const quadToClipElements = new Float32Array(quadToClip.elements);
+      const rgbClipFromWorldElements = new Float32Array(clipFromWorld.elements);
+
       const rgbaBuffer = cameraImageData.data.buffer.slice(0);
       const ptsBuffer = promptInfo.pts.buffer.slice(0);
       const lblsBuffer = promptInfo.lbls.buffer.slice(0);
       const quadToClipBuffer = quadToClipElements.buffer;
+      const rgbClipFromWorldMatrixBuffer = rgbClipFromWorldElements.buffer;
 
-      // 3. Run preprocessing + LiteRT Encoder + Decoder + mask reprojection in Web Worker
+      const workerPayload: Record<string, unknown> = {
+        rgbaBuffer,
+        ptsBuffer,
+        lblsBuffer,
+        quadToClipBuffer,
+        rgbClipFromWorldMatrixBuffer,
+        quadSizeMeters: QUAD_SIZE_METERS,
+      };
+      const transferList: Transferable[] = [
+        rgbaBuffer,
+        ptsBuffer,
+        lblsBuffer,
+        quadToClipBuffer,
+        rgbClipFromWorldMatrixBuffer,
+      ];
+
+      if (depthPayload) {
+        workerPayload.depthBuffer = depthPayload.depthBuffer;
+        workerPayload.depthWidth = depthPayload.depthWidth;
+        workerPayload.depthHeight = depthPayload.depthHeight;
+        workerPayload.rawValueToMeters = depthPayload.rawValueToMeters;
+        workerPayload.depthFormat = depthPayload.depthFormat;
+        workerPayload.depthViewMatrixBuffer =
+          depthPayload.depthViewMatrixBuffer;
+        workerPayload.depthProjectionMatrixBuffer =
+          depthPayload.depthProjectionMatrixBuffer;
+        workerPayload.depthProjectionInverseMatrixBuffer =
+          depthPayload.depthProjectionInverseMatrixBuffer;
+        workerPayload.normDepthBufferFromNormViewMatrixBuffer =
+          depthPayload.normDepthBufferFromNormViewMatrixBuffer;
+
+        transferList.push(
+          depthPayload.depthBuffer,
+          depthPayload.depthViewMatrixBuffer,
+          depthPayload.depthProjectionMatrixBuffer,
+          depthPayload.depthProjectionInverseMatrixBuffer,
+          depthPayload.normDepthBufferFromNormViewMatrixBuffer
+        );
+      }
+
+      // 4. Run preprocessing + LiteRT Encoder + Decoder + TSDF seeding in Web Worker
       const workerResult = await this.callWorker<WorkerXrSegmentResult>(
         'xr_segment',
-        {
-          rgbaBuffer,
-          ptsBuffer,
-          lblsBuffer,
-          quadToClipBuffer,
-          quadSizeMeters: QUAD_SIZE_METERS,
-        },
-        [rgbaBuffer, ptsBuffer, lblsBuffer, quadToClipBuffer]
+        workerPayload,
+        transferList
       );
 
-      // 4. Present the precomputed RGBA quad overlay & cutout on the main thread
+      if (depthPayload && workerResult.tsdfMesh) {
+        this.lastFusedCameraPos.copy(depthPayload.cameraPos);
+        this.lastFusedCameraQuat.copy(depthPayload.cameraQuat);
+        const now = performance.now();
+        this.lastDepthFusionMs = now;
+        this.lastRgbMaskFusionMs = now;
+      }
+
+      // 5. Present the precomputed RGBA quad overlay, cutout, and live 3D TSDF mesh
       this.presentWorkerSegmentationResult(workerResult);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error('XR Circle to Search segmentation failed:', err);
+      console.error('XR Circle to Digitize segmentation failed:', err);
       this.updateStatusText(`Segmentation error: ${message}`);
     } finally {
       this.isSegmenting = false;
@@ -978,7 +1321,8 @@ export class XRCircleToSearchScript extends xb.Script {
   }
 
   /**
-   * Applies the precomputed RGBA overlay and cropped cutout returned by the Web Worker.
+   * Applies the precomputed RGBA overlay, cropped 2D cutout, and Frame 0 TSDF 3D mesh
+   * returned by the Web Worker.
    */
   private presentWorkerSegmentationResult(res: WorkerXrSegmentResult): void {
     const W = MODEL_IMG_SIZE;
@@ -1011,7 +1355,7 @@ export class XRCircleToSearchScript extends xb.Script {
 
     // Update and position the native XR Blocks Spatial UI telemetry pill card above the mask
     if (this.telemetryBadgeCard && this.telemetryBadgeText && this.circleQuad) {
-      this.telemetryBadgeText.text = `Segmented in ${res.totalMs.toFixed(1)} ms (Enc ${res.encoderMs.toFixed(0)}ms · Dec ${res.decoderMs.toFixed(1)}ms · IoU ${res.bestIou.toFixed(2)})`;
+      this.telemetryBadgeText.text = `Segmented in ${res.totalMs.toFixed(1)} ms · Scanning 3D TSDF...`;
       const badgePixelY = Math.max(
         36,
         (res.quadMinY < H ? res.quadMinY : 96) - 36
@@ -1031,18 +1375,7 @@ export class XRCircleToSearchScript extends xb.Script {
     }
 
     if (res.cutoutRgbaBuffer && res.cropW > 0 && res.cropH > 0) {
-      const cutoutDataUrl = this.buildCutoutDataUrlFromCrop(
-        res.cutoutRgbaBuffer,
-        res.cropW,
-        res.cropH
-      );
-      if (this.hudCutoutImage) {
-        this.hudCutoutImage.src = cutoutDataUrl;
-        this.hudCutoutImage.style.display = 'flex';
-      }
-      if (this.hudCutoutPlaceholder) {
-        this.hudCutoutPlaceholder.style.display = 'none';
-      }
+      this.updateCutoutPreview(res.cutoutRgbaBuffer, res.cropW, res.cropH);
     }
 
     const coveragePct = ((res.fgCount / (W * H)) * 100).toFixed(1);
@@ -1056,12 +1389,420 @@ export class XRCircleToSearchScript extends xb.Script {
       this.domMetricIou.textContent = `${res.bestIou.toFixed(3)} (${coveragePct}%)`;
     }
 
-    this.updateStatusText(
-      `<strong>Segmented!</strong> Pinch & circle again anywhere in XR.`
-    );
     if (this.hudMetricsText) {
-      this.hudMetricsText.text = `Total: ${res.totalMs.toFixed(1)}ms (Enc ${res.encoderMs.toFixed(0)}ms / Dec ${res.decoderMs.toFixed(1)}ms) | IoU: ${res.bestIou.toFixed(2)}`;
+      this.hudMetricsText.text = `SAM: ${res.totalMs.toFixed(1)}ms (Enc ${res.encoderMs.toFixed(0)}ms / Dec ${res.decoderMs.toFixed(1)}ms) | IoU: ${res.bestIou.toFixed(2)}`;
     }
+
+    if (res.fgCount > 16) {
+      this.isScanningTsdf = true;
+      this.isPoppedOut = false;
+      if (res.tsdfMesh) {
+        this.applyTsdfMeshPayload(res.tsdfMesh);
+        this.updateStatusText(
+          `<strong>3D Digitizing!</strong> Move around object to fuse views (${this.fusedFrameCount} views · ${this.triangleCount} tris).`
+        );
+      } else {
+        this.updateTsdfMetricsDisplay();
+        this.updateStatusText(
+          `<strong>Segmented!</strong> Waiting for WebXR Depth to seed 3D TSDF volume...`
+        );
+      }
+    } else {
+      this.updateStatusText(
+        `<strong>Segmented!</strong> Pinch & circle again anywhere in XR.`
+      );
+    }
+  }
+
+  private updateCutoutPreview(
+    cutoutRgbaBuffer: ArrayBuffer,
+    cropW: number,
+    cropH: number
+  ): void {
+    const cutoutDataUrl = this.buildCutoutDataUrlFromCrop(
+      cutoutRgbaBuffer,
+      cropW,
+      cropH
+    );
+    if (this.hudCutoutImage) {
+      this.hudCutoutImage.src = cutoutDataUrl;
+      this.hudCutoutImage.style.display = 'flex';
+    }
+    if (this.hudCutoutPlaceholder) {
+      this.hudCutoutPlaceholder.style.display = 'none';
+    }
+  }
+
+  /**
+   * Zero-copy main-thread `BufferGeometry` + Graph-Cut UV Atlas Texture update
+   * using the `Float32Array` and `Uint8Array` buffers transferred from the Web Worker.
+   */
+  private applyTsdfMeshPayload(mesh: WorkerTsdfMeshPayload): void {
+    this.fusedFrameCount = mesh.fusedFrameCount;
+    this.triangleCount = mesh.triangleCount;
+    this.chartCount = mesh.chartCount ?? 0;
+    this.voxelSizeMm = mesh.voxelSizeMm;
+    this.currentVolumeCenter.set(
+      mesh.volumeCenter.x,
+      mesh.volumeCenter.y,
+      mesh.volumeCenter.z
+    );
+    this.currentVolumeSize = mesh.volumeSizeMeters;
+
+    if (this.tsdfBoundingBox && !this.isPoppedOut) {
+      if (mesh.boundsMin && mesh.boundsMax) {
+        const bMin = mesh.boundsMin;
+        const bMax = mesh.boundsMax;
+        this.tsdfBoundingBox.position.set(
+          (bMin.x + bMax.x) * 0.5,
+          (bMin.y + bMax.y) * 0.5,
+          (bMin.z + bMax.z) * 0.5
+        );
+        this.tsdfBoundingBox.scale.set(
+          Math.max(0.02, bMax.x - bMin.x),
+          Math.max(0.02, bMax.y - bMin.y),
+          Math.max(0.02, bMax.z - bMin.z)
+        );
+      } else {
+        this.tsdfBoundingBox.position.copy(this.currentVolumeCenter);
+        this.tsdfBoundingBox.scale.setScalar(this.currentVolumeSize);
+      }
+      this.tsdfBoundingBox.visible = true;
+    }
+
+    if (this.tsdfLiveMesh && this.tsdfMeshGroup) {
+      const positions = new Float32Array(mesh.positionsBuffer);
+      const normals = new Float32Array(mesh.normalsBuffer);
+      const uvs = new Float32Array(mesh.uvsBuffer);
+      const colors = new Float32Array(mesh.colorsBuffer);
+
+      const geom = new THREE.BufferGeometry();
+      if (positions.length > 0) {
+        geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geom.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+        if (uvs.length > 0) {
+          geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+        }
+        geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        geom.computeBoundingSphere();
+      }
+
+      if (
+        mesh.atlasRgbaBuffer &&
+        mesh.atlasRgbaBuffer.byteLength > 0 &&
+        mesh.atlasWidth > 0 &&
+        mesh.atlasHeight > 0 &&
+        uvs.length > 0
+      ) {
+        const sizeChanged =
+          this.atlasCanvas.width !== mesh.atlasWidth ||
+          this.atlasCanvas.height !== mesh.atlasHeight;
+        if (sizeChanged) {
+          this.atlasCanvas.width = mesh.atlasWidth;
+          this.atlasCanvas.height = mesh.atlasHeight;
+        }
+        this.atlasCtx.putImageData(
+          new ImageData(
+            new Uint8ClampedArray(mesh.atlasRgbaBuffer),
+            mesh.atlasWidth,
+            mesh.atlasHeight
+          ),
+          0,
+          0
+        );
+        if (sizeChanged) {
+          this.atlasTexture.dispose();
+          this.atlasTexture = new THREE.CanvasTexture(this.atlasCanvas);
+          this.atlasTexture.flipY = false;
+          this.atlasTexture.colorSpace = THREE.SRGBColorSpace;
+          this.atlasTexture.minFilter = THREE.LinearFilter;
+          this.atlasTexture.magFilter = THREE.LinearFilter;
+          this.atlasTexture.generateMipmaps = false;
+        }
+        this.atlasTexture.needsUpdate = true;
+
+        const mat = this.tsdfLiveMesh.material;
+        if (mat.map !== this.atlasTexture || mat.vertexColors !== true) {
+          mat.map = this.atlasTexture;
+          mat.vertexColors = true;
+          mat.color.setHex(0xffffff);
+          mat.needsUpdate = true;
+        }
+      } else {
+        const mat = this.tsdfLiveMesh.material;
+        if (mat.map !== null || mat.vertexColors !== true) {
+          mat.map = null;
+          mat.vertexColors = true;
+          mat.color.setHex(0xffffff);
+          mat.needsUpdate = true;
+        }
+      }
+
+      this.tsdfLiveMesh.geometry.dispose();
+      this.tsdfLiveMesh.geometry = geom;
+
+      if (!this.isPoppedOut) {
+        this.tsdfMeshGroup.position.set(0, 0, 0);
+        this.tsdfMeshGroup.rotation.set(0, 0, 0);
+        this.tsdfMeshGroup.scale.setScalar(1.0);
+        this.tsdfLiveMesh.position.set(0, 0, 0);
+      }
+      this.tsdfMeshGroup.visible = mesh.triangleCount > 0;
+    }
+
+    if (
+      this.telemetryBadgeCard &&
+      this.telemetryBadgeText &&
+      this.isScanningTsdf
+    ) {
+      const chartLabel =
+        this.chartCount > 0 ? ` · ${this.chartCount} charts` : '';
+      this.telemetryBadgeText.text = `Scanning 3D: ${this.fusedFrameCount} views${chartLabel} · ${this.triangleCount} tris (${mesh.tsdfMs.toFixed(1)}ms)`;
+    }
+
+    this.updateTsdfMetricsDisplay(mesh.tsdfMs);
+  }
+
+  /**
+   * Streams a fast depth-only keyframe (`102 KB`) to the Worker for initial Frame 0
+   * TSDF seeding if WebXR depth warmed up after `onSelectEnd`.
+   */
+  private async integrateDepthKeyframe(
+    depthPayload: DepthTransferPayload
+  ): Promise<void> {
+    if (this.isIntegratingTsdf || this.isSegmenting) return;
+    this.isIntegratingTsdf = true;
+    this.lastDepthFusionMs = performance.now();
+
+    try {
+      const clipFromWorld = this.getRgbClipFromWorldMatrix();
+      const rgbClipFromWorldMatrixBuffer = new Float32Array(
+        clipFromWorld.elements
+      ).buffer;
+
+      const res = await this.callWorker<WorkerTsdfMeshPayload | null>(
+        'tsdf_integrate_depth',
+        {
+          depthBuffer: depthPayload.depthBuffer,
+          depthWidth: depthPayload.depthWidth,
+          depthHeight: depthPayload.depthHeight,
+          rawValueToMeters: depthPayload.rawValueToMeters,
+          depthFormat: depthPayload.depthFormat,
+          depthViewMatrixBuffer: depthPayload.depthViewMatrixBuffer,
+          depthProjectionMatrixBuffer: depthPayload.depthProjectionMatrixBuffer,
+          depthProjectionInverseMatrixBuffer:
+            depthPayload.depthProjectionInverseMatrixBuffer,
+          normDepthBufferFromNormViewMatrixBuffer:
+            depthPayload.normDepthBufferFromNormViewMatrixBuffer,
+          rgbClipFromWorldMatrixBuffer,
+        },
+        [
+          depthPayload.depthBuffer,
+          depthPayload.depthViewMatrixBuffer,
+          depthPayload.depthProjectionMatrixBuffer,
+          depthPayload.depthProjectionInverseMatrixBuffer,
+          depthPayload.normDepthBufferFromNormViewMatrixBuffer,
+          rgbClipFromWorldMatrixBuffer,
+        ]
+      );
+
+      if (res && this.isScanningTsdf) {
+        this.lastFusedCameraPos.copy(depthPayload.cameraPos);
+        this.lastFusedCameraQuat.copy(depthPayload.cameraQuat);
+        this.applyTsdfMeshPayload(res);
+
+        // Once the user starts moving around to scan, fade out the 2D circle quad so they have an unobstructed view of the 3D mesh
+        if (this.fusedFrameCount >= 2 && this.circleQuad?.visible) {
+          this.circleQuad.visible = false;
+        }
+
+        this.updateStatusText(
+          `<strong>3D Digitizing!</strong> Move around object (${this.fusedFrameCount} views · ${this.triangleCount} tris).`
+        );
+      }
+    } catch (err) {
+      console.warn('TSDF depth keyframe integration skipped:', err);
+    } finally {
+      this.isIntegratingTsdf = false;
+    }
+  }
+
+  /**
+   * Runs automatic 3D-to-2D bounding-box projection + EfficientSAM segmentation
+   * + support-plane clipping + Graph-Cut multi-view texturing in the Worker for
+   * every new viewpoint so background/table surfaces never leak into the 3D mesh.
+   */
+  private async integrateRgbMaskKeyframe(
+    depthPayload: DepthTransferPayload
+  ): Promise<void> {
+    if (this.isIntegratingTsdf || this.isSegmenting) return;
+    this.isIntegratingTsdf = true;
+    const now = performance.now();
+    this.lastRgbMaskFusionMs = now;
+    this.lastDepthFusionMs = now;
+
+    try {
+      const {imageData, clipFromWorld} = await this.captureCameraImage();
+      const rgbaBuffer = imageData.data.buffer.slice(0);
+      const rgbClipFromWorldMatrixBuffer = new Float32Array(
+        clipFromWorld.elements
+      ).buffer;
+
+      const res = await this.callWorker<WorkerRgbMaskIntegrateResult | null>(
+        'tsdf_integrate_rgb_mask',
+        {
+          rgbaBuffer,
+          rgbClipFromWorldMatrixBuffer,
+          depthBuffer: depthPayload.depthBuffer,
+          depthWidth: depthPayload.depthWidth,
+          depthHeight: depthPayload.depthHeight,
+          rawValueToMeters: depthPayload.rawValueToMeters,
+          depthFormat: depthPayload.depthFormat,
+          depthViewMatrixBuffer: depthPayload.depthViewMatrixBuffer,
+          depthProjectionMatrixBuffer: depthPayload.depthProjectionMatrixBuffer,
+          normDepthBufferFromNormViewMatrixBuffer:
+            depthPayload.normDepthBufferFromNormViewMatrixBuffer,
+        },
+        [
+          rgbaBuffer,
+          rgbClipFromWorldMatrixBuffer,
+          depthPayload.depthBuffer,
+          depthPayload.depthViewMatrixBuffer,
+          depthPayload.depthProjectionMatrixBuffer,
+          depthPayload.normDepthBufferFromNormViewMatrixBuffer,
+        ]
+      );
+
+      if (res?.tsdfMesh && this.isScanningTsdf) {
+        this.lastFusedCameraPos.copy(depthPayload.cameraPos);
+        this.lastFusedCameraQuat.copy(depthPayload.cameraQuat);
+        this.applyTsdfMeshPayload(res.tsdfMesh);
+
+        if (this.fusedFrameCount >= 2 && this.circleQuad?.visible) {
+          this.circleQuad.visible = false;
+        }
+
+        if (res.cutoutRgbaBuffer && res.cropW > 0 && res.cropH > 0) {
+          this.updateCutoutPreview(res.cutoutRgbaBuffer, res.cropW, res.cropH);
+        }
+
+        this.updateStatusText(
+          `<strong>3D Digitizing!</strong> Move around object (${this.fusedFrameCount} views · ${this.chartCount} charts · ${this.triangleCount} tris).`
+        );
+      }
+    } catch (err) {
+      console.warn('TSDF RGB+Mask keyframe integration skipped:', err);
+    } finally {
+      this.isIntegratingTsdf = false;
+    }
+  }
+
+  /**
+   * Stops scanning and pops out the reconstructed 3D mesh onto a rotating turntable
+   * in front of the user for inspection.
+   */
+  public finishAndPopOut3DModel(): void {
+    if (!this.tsdfLiveMesh || !this.tsdfMeshGroup || this.triangleCount === 0) {
+      this.updateStatusText(
+        'No 3D mesh reconstructed yet — pinch & circle an object first!'
+      );
+      return;
+    }
+
+    this.isScanningTsdf = false;
+    this.isPoppedOut = true;
+
+    if (this.circleQuad) {
+      this.circleQuad.visible = false;
+      this.circleQuad.xb = {pointerEvents: 'none', reticleMode: 'auto'};
+    }
+    if (this.tsdfBoundingBox) {
+      this.tsdfBoundingBox.visible = false;
+    }
+    if (this.telemetryBadgeCard) {
+      this.telemetryBadgeCard.visible = false;
+    }
+
+    // Center the mesh geometry around (0, 0, 0) inside tsdfMeshGroup so it rotates around its own centroid
+    this.tsdfLiveMesh.geometry.computeBoundingBox();
+    const bbox = this.tsdfLiveMesh.geometry.boundingBox;
+    if (bbox) {
+      const center = new THREE.Vector3();
+      bbox.getCenter(center);
+      this.tsdfLiveMesh.position.copy(center).multiplyScalar(-1);
+    }
+
+    // Place the popped-out 3D model 0.65m in front of the user's current view
+    const camPos = new THREE.Vector3();
+    const camQuat = new THREE.Quaternion();
+    xb.core.camera.getWorldPosition(camPos);
+    xb.core.camera.getWorldQuaternion(camQuat);
+    const forward = new THREE.Vector3(0, 0, -1)
+      .applyQuaternion(camQuat)
+      .normalize();
+
+    this.tsdfMeshGroup.position.copy(camPos).addScaledVector(forward, 0.65);
+    this.tsdfMeshGroup.rotation.set(0, 0, 0);
+    this.tsdfMeshGroup.scale.setScalar(1.15);
+    this.tsdfMeshGroup.visible = true;
+
+    this.updateStatusText(
+      `<strong>3D Model Popped Out!</strong> (${this.fusedFrameCount} views · ${this.chartCount} charts · ${this.triangleCount} tris) — Click Export .GLB to save.`
+    );
+  }
+
+  /**
+   * Exports the digitized Graph-Cut UV-textured `THREE.Mesh` as a binary `.glb` file.
+   */
+  public exportDigitizedMeshGlb(): void {
+    if (!this.tsdfLiveMesh || this.triangleCount === 0) {
+      this.updateStatusText(
+        'No 3D mesh to export yet — pinch & circle an object first!'
+      );
+      return;
+    }
+
+    // Clone geometry centered at origin for clean GLB export
+    const exportGeom = this.tsdfLiveMesh.geometry.clone();
+    exportGeom.computeBoundingBox();
+    if (exportGeom.boundingBox) {
+      const center = new THREE.Vector3();
+      exportGeom.boundingBox.getCenter(center);
+      exportGeom.translate(-center.x, -center.y, -center.z);
+    }
+    const exportMesh = new THREE.Mesh(
+      exportGeom,
+      this.tsdfLiveMesh.material.clone()
+    );
+    exportMesh.name = 'CircleToDigitizeMesh';
+
+    const exporter = new GLTFExporter();
+    exporter.parse(
+      exportMesh,
+      (result) => {
+        exportGeom.dispose();
+        if (result instanceof ArrayBuffer) {
+          const blob = new Blob([result], {type: 'model/gltf-binary'});
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `circle_to_digitize_${this.fusedFrameCount}views.glb`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          this.updateStatusText(
+            `<strong>Exported .GLB!</strong> (${this.triangleCount} triangles from ${this.fusedFrameCount} fused views)`
+          );
+        }
+      },
+      (err) => {
+        exportGeom.dispose();
+        console.error('GLTFExporter failed:', err);
+        this.updateStatusText('Failed to export .GLB file.');
+      },
+      {binary: true}
+    );
   }
 
   /**
@@ -1111,8 +1852,37 @@ export class XRCircleToSearchScript extends xb.Script {
     return this.cutoutCanvas.toDataURL('image/png');
   }
 
+  private resetTsdfScanState(): void {
+    this.isScanningTsdf = false;
+    this.isPoppedOut = false;
+    this.fusedFrameCount = 0;
+    this.triangleCount = 0;
+    this.chartCount = 0;
+    this.voxelSizeMm = 0;
+    this.lastFusedCameraPos.set(NaN, NaN, NaN);
+    this.lastFusedCameraQuat.set(NaN, NaN, NaN, NaN);
+
+    if (this.tsdfMeshGroup) {
+      this.tsdfMeshGroup.visible = false;
+    }
+    if (this.tsdfLiveMesh) {
+      this.tsdfLiveMesh.geometry.dispose();
+      this.tsdfLiveMesh.geometry = new THREE.BufferGeometry();
+      this.tsdfLiveMesh.material.map = null;
+      this.tsdfLiveMesh.material.vertexColors = true;
+      this.tsdfLiveMesh.material.needsUpdate = true;
+    }
+    if (this.tsdfBoundingBox) {
+      this.tsdfBoundingBox.visible = false;
+    }
+    if (this.modelsReady) {
+      void this.callWorker('tsdf_reset').catch(() => {});
+    }
+    this.updateTsdfMetricsDisplay();
+  }
+
   /**
-   * Hides and clears the 30cm circle quad.
+   * Hides and clears the 30cm circle quad and resets the 3D TSDF volume.
    */
   public clearQuadOverlay(): void {
     this.circlePath = [];
@@ -1133,13 +1903,14 @@ export class XRCircleToSearchScript extends xb.Script {
     if (this.hudCutoutPlaceholder) {
       this.hudCutoutPlaceholder.style.display = 'flex';
     }
+    this.resetTsdfScanState();
     this.updateStatusText(
-      'Cleared — Pinch & draw a circle with your hand (30cm quad)'
+      'Cleared — Pinch & circle any object to segment & 3D digitize'
     );
   }
 
   /**
-   * Per-frame update loop.
+   * Per-frame update loop (72+ FPS).
    */
   override update(): void {
     // Keep the idle reticle at 1m for Simulator/MouseController and 30cm for XR device controllers
@@ -1162,9 +1933,76 @@ export class XRCircleToSearchScript extends xb.Script {
         targetDistance;
     }
 
+    // Automatic fallback if a WebXR headset provides GPU depth instead of CPU depth
+    const depth = xb.core?.depth;
+    if (
+      depth &&
+      depth.gpuDepthData.length > 0 &&
+      !depth.depthArray[0] &&
+      !depth.options.depthMesh.enabled
+    ) {
+      depth.options.depthMesh.enabled = true;
+    }
+
     // Ensure continuous reticle sampling while drawing a circle
     if (this.isDrawingCircle && this.activeController) {
       this.sampleReticleOnQuad(this.activeController);
+      return;
+    }
+
+    // Gently rotate popped-out 3D model on a turntable
+    if (this.isPoppedOut && this.tsdfMeshGroup?.visible) {
+      this.tsdfMeshGroup.rotation.y += 0.012;
+      return;
+    }
+
+    // Continuous multi-view KinectFusion TSDF scanning when camera moves
+    if (
+      this.isScanningTsdf &&
+      !this.isSegmenting &&
+      !this.isIntegratingTsdf &&
+      this.modelsReady
+    ) {
+      if (
+        this.hudCard &&
+        (xb.user?.isPointingAt?.(this.hudCard) ||
+          xb.user?.isSelectingAt?.(this.hudCard))
+      ) {
+        return;
+      }
+
+      const now = performance.now();
+      const needsInitialSeed = this.fusedFrameCount === 0;
+      const requiredIntervalMs = needsInitialSeed
+        ? DEPTH_FUSION_INTERVAL_MS
+        : RGB_MASK_FUSION_INTERVAL_MS;
+      if (now - this.lastDepthFusionMs < requiredIntervalMs) {
+        return;
+      }
+
+      const depthPayload = this.captureDepthPayload();
+      if (!depthPayload) {
+        return;
+      }
+
+      const posDelta = Number.isNaN(this.lastFusedCameraPos.x)
+        ? Infinity
+        : depthPayload.cameraPos.distanceTo(this.lastFusedCameraPos);
+      const rotDelta = Number.isNaN(this.lastFusedCameraQuat.x)
+        ? Infinity
+        : depthPayload.cameraQuat.angleTo(this.lastFusedCameraQuat);
+
+      if (
+        needsInitialSeed ||
+        posDelta >= MIN_KEYFRAME_TRANSLATION_METERS ||
+        rotDelta >= MIN_KEYFRAME_ROTATION_RAD
+      ) {
+        if (needsInitialSeed) {
+          void this.integrateDepthKeyframe(depthPayload);
+        } else {
+          void this.integrateRgbMaskKeyframe(depthPayload);
+        }
+      }
     }
   }
 
@@ -1178,11 +2016,23 @@ export class XRCircleToSearchScript extends xb.Script {
     }
     this.pendingWorkerRequests.clear();
     this.isSegmenting = false;
+    this.isIntegratingTsdf = false;
     this.quadTexture.dispose();
+    this.atlasTexture.dispose();
     if (this.circleQuad) {
       this.circleQuad.geometry.dispose();
       this.circleQuad.material.dispose();
       this.circleQuad = null;
+    }
+    if (this.tsdfLiveMesh) {
+      this.tsdfLiveMesh.geometry.dispose();
+      this.tsdfLiveMesh.material.dispose();
+      this.tsdfLiveMesh = null;
+    }
+    if (this.tsdfBoundingBox) {
+      this.tsdfBoundingBox.geometry.dispose();
+      this.tsdfBoundingBox.material.dispose();
+      this.tsdfBoundingBox = null;
     }
     super.dispose();
   }
@@ -1196,6 +2046,11 @@ document.addEventListener('DOMContentLoaded', () => {
   options.controllers.visualizeRays = false;
   options.enableHands();
   options.enableCamera('environment');
+
+  // Enable WebXR / Simulator Depth in cpu-optimized mode for 72 FPS Worker TSDF fusion
+  options.enableDepth();
+  options.depth.usagePreference = ['cpu-optimized'];
+  options.depth.depthMesh.enabled = false;
 
   options.hands.enabled = true;
   options.hands.visualization = false;

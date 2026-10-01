@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>
+      XR Semantic Object Tracker | YOLOE-11s × EfficientSAM-Ti × XR Blocks
+    </title>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <meta
+      http-equiv="Cache-Control"
+      content="no-cache, no-store, must-revalidate"
+    />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <link rel="stylesheet" href="../../samples/main.css" />
+    <script>
+      window.litDisableBundleWarning = true;
+    </script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+          "three/": "https://cdn.jsdelivr.net/npm/three@0.186.0/",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/",
+          "@pmndrs/uikit": "https://cdn.jsdelivr.net/npm/@pmndrs/uikit@1.0.64/dist/index.min.js",
+          "@pmndrs/uikit-pub-sub": "https://cdn.jsdelivr.net/npm/@pmndrs/uikit-pub-sub@1.0.64/dist/index.min.js",
+          "@pmndrs/msdfonts": "https://cdn.jsdelivr.net/npm/@pmndrs/msdfonts@1.0.64/dist/index.min.js",
+          "@preact/signals-core": "https://cdn.jsdelivr.net/npm/@preact/signals-core@1.14.0/dist/signals-core.mjs",
+          "yoga-layout/load": "https://cdn.jsdelivr.net/npm/yoga-layout@3.2.1/dist/src/load.js",
+          "lit": "https://esm.sh/lit@3.3.1",
+          "lit/": "https://esm.sh/lit@3.3.1/",
+          "xrblocks": "../../build/xrblocks.js",
+          "xrblocks/addons/": "../../build/addons/",
+          "@litertjs/core": "https://cdn.jsdelivr.net/npm/@litertjs/core@2.5.3/dist/index.js",
+          "@litertjs/wasm-utils": "https://cdn.jsdelivr.net/npm/@litertjs/wasm-utils@2.5.3/dist/index.js",
+          "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.9.10/build/index.module.js"
+        }
+      }
+    </script>
+    <style>
+      #xr-hud-overlay {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+        max-width: 370px;
+        padding: 13px 15px;
+        border-radius: 14px;
+        background: rgba(13, 18, 30, 0.86);
+        backdrop-filter: blur(14px);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        color: #f1f5f9;
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+        pointer-events: auto;
+      }
+      .xr-hud-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .xr-hud-title {
+        font-size: 0.9rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        color: #f8fafc;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .xr-hud-link {
+        font-size: 0.72rem;
+        color: #38bdf8;
+        text-decoration: none;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(56, 189, 248, 0.35);
+        background: rgba(14, 165, 233, 0.12);
+      }
+      .xr-hud-link:hover {
+        background: rgba(14, 165, 233, 0.24);
+      }
+      .xr-hud-status {
+        font-size: 0.76rem;
+        color: #94a3b8;
+        line-height: 1.4;
+      }
+      .xr-hud-status strong {
+        color: #f8fafc;
+      }
+      .xr-hud-metrics {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+        padding-top: 2px;
+      }
+      .xr-metric-pill {
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 8px;
+        padding: 5px 7px;
+        display: flex;
+        flex-direction: column;
+      }
+      .xr-metric-pill small {
+        font-size: 0.62rem;
+        text-transform: uppercase;
+        color: #64748b;
+        font-weight: 600;
+      }
+      .xr-metric-pill span {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #e2e8f0;
+        font-variant-numeric: tabular-nums;
+      }
+      .xr-slider-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 0.73rem;
+        color: #cbd5e1;
+      }
+      .xr-slider-row input[type='range'] {
+        flex: 1;
+        accent-color: #f8fafc;
+      }
+      .xr-slider-val {
+        min-width: 34px;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        color: #94a3b8;
+      }
+      .xr-hud-actions {
+        display: flex;
+        gap: 6px;
+        padding-top: 2px;
+      }
+      .xr-hud-btn {
+        flex: 1;
+        padding: 6px 10px;
+        font-size: 0.74rem;
+        font-weight: 600;
+        border-radius: 8px;
+        border: 1px solid rgba(148, 163, 184, 0.28);
+        background: rgba(30, 41, 59, 0.85);
+        color: #e2e8f0;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .xr-hud-btn:hover {
+        border-color: #f8fafc;
+        color: #ffffff;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="xr-hud-overlay">
+      <div class="xr-hud-top">
+        <div class="xr-hud-title">✨ XR YOLOE-11s × SAM Tracker</div>
+        <a href="desktop.html" class="xr-hud-link">2D Studio →</a>
+      </div>
+      <div id="xr-hud-status" class="xr-hud-status">
+        Loading <strong>YOLOE-11s (365 classes)</strong> &amp;
+        <strong>EfficientSAM-Ti</strong>...
+      </div>
+      <div class="xr-hud-metrics">
+        <div class="xr-metric-pill">
+          <small>Tracked Object</small>
+          <span id="xr-metric-object">None</span>
+        </div>
+        <div class="xr-metric-pill">
+          <small>YOLOE / SAM</small>
+          <span id="xr-metric-latency">-- / -- ms</span>
+        </div>
+        <div class="xr-metric-pill">
+          <small>OpenXR Depth</small>
+          <span id="xr-metric-depth">-- m</span>
+        </div>
+      </div>
+      <div class="xr-slider-row">
+        <span>Outline Smoothness</span>
+        <input
+          type="range"
+          id="xr-smoothness-slider"
+          min="0"
+          max="40"
+          value="7"
+        />
+        <span id="xr-smoothness-val" class="xr-slider-val">7</span>
+      </div>
+      <div class="xr-slider-row">
+        <span>Outline Padding</span>
+        <input
+          type="range"
+          id="xr-padding-slider"
+          min="-8"
+          max="40"
+          value="17"
+        />
+        <span id="xr-padding-val" class="xr-slider-val">17px</span>
+      </div>
+      <div class="xr-hud-actions">
+        <button type="button" id="xr-clear-btn" class="xr-hud-btn">
+          Unlock / Clear Selection
+        </button>
+        <button type="button" id="xr-camera-btn" class="xr-hud-btn">
+          Camera: Galaxy XR
+        </button>
+      </div>
+    </div>
+
+    <script type="module" src="build/main.js"></script>
+  </body>
+</html>

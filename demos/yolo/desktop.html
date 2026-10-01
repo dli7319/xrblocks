@@ -1,0 +1,698 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>YOLOE-11s × EfficientSAM-Ti 2D Desktop Demo</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Cache-Control"
+      content="no-cache, no-store, must-revalidate"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.webgpu.min.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "xrblocks/addons/": "../../build/addons/",
+          "@litertjs/core": "https://cdn.jsdelivr.net/npm/@litertjs/core@2.5.3/dist/index.js",
+          "@litertjs/wasm-utils": "https://cdn.jsdelivr.net/npm/@litertjs/wasm-utils@2.5.3/dist/index.js"
+        }
+      }
+    </script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0f19;
+        --panel: #111827;
+        --panel-border: rgba(148, 163, 184, 0.2);
+        --accent: #38bdf8;
+        --accent-strong: #0284c7;
+        --pos: #22c55e;
+        --neg: #ef4444;
+        --text: #f8fafc;
+        --muted: #94a3b8;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(circle at top, #162033 0%, var(--bg) 70%);
+        color: var(--text);
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 24px;
+        border-bottom: 1px solid var(--panel-border);
+        background: rgba(15, 23, 42, 0.85);
+        backdrop-filter: blur(12px);
+        flex-wrap: wrap;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .brand h1 {
+        margin: 0;
+        font-size: 1.08rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      .badge {
+        font-size: 0.73rem;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(56, 189, 248, 0.14);
+        border: 1px solid rgba(56, 189, 248, 0.4);
+        color: var(--accent);
+      }
+      .badge.yoloe {
+        background: rgba(168, 85, 247, 0.16);
+        border-color: rgba(168, 85, 247, 0.45);
+        color: #d8b4fe;
+      }
+      #status-banner {
+        font-size: 0.84rem;
+        color: var(--muted);
+      }
+      #status-banner strong {
+        color: var(--accent);
+      }
+      main {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 330px minmax(520px, 1fr) 350px;
+        gap: 18px;
+        padding: 18px 24px;
+        max-width: 1520px;
+        width: 100%;
+        margin: 0 auto;
+        align-items: start;
+      }
+      @media (max-width: 1180px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+      .card {
+        background: rgba(17, 24, 39, 0.88);
+        border: 1px solid var(--panel-border);
+        border-radius: 14px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 13px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      }
+      .card h2 {
+        margin: 0;
+        font-size: 0.84rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+      }
+      .mode-tabs {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 7px;
+      }
+      .mode-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 3px;
+        padding: 9px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--panel-border);
+        background: rgba(30, 41, 59, 0.65);
+        color: var(--text);
+        cursor: pointer;
+        text-align: left;
+        transition: all 0.15s ease;
+      }
+      .mode-btn:hover {
+        border-color: rgba(56, 189, 248, 0.5);
+      }
+      .mode-btn.active {
+        border-color: var(--accent);
+        background: rgba(56, 189, 248, 0.16);
+        box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.35);
+      }
+      .mode-btn .title {
+        font-size: 0.86rem;
+        font-weight: 700;
+        color: #fff;
+      }
+      .mode-btn .desc {
+        font-size: 0.73rem;
+        color: var(--muted);
+        line-height: 1.3;
+      }
+      .sub-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 10px;
+        border-radius: 10px;
+        background: rgba(15, 23, 42, 0.75);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        font-size: 0.78rem;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .btn {
+        flex: 1;
+        padding: 7px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--panel-border);
+        background: rgba(30, 41, 59, 0.85);
+        color: var(--text);
+        font-size: 0.76rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .btn:hover:not(:disabled) {
+        border-color: var(--accent);
+        color: #fff;
+      }
+      .btn:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      .btn.pos-active {
+        border-color: var(--pos);
+        background: rgba(34, 197, 94, 0.2);
+        color: #bbf7d0;
+      }
+      .btn.neg-active {
+        border-color: var(--neg);
+        background: rgba(239, 68, 68, 0.2);
+        color: #fecaca;
+      }
+      .preset-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+      .preset-btn {
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--panel-border);
+        background: rgba(30, 41, 59, 0.65);
+        color: var(--text);
+        font-size: 0.76rem;
+        font-weight: 600;
+        cursor: pointer;
+        text-align: center;
+        transition: all 0.15s ease;
+      }
+      .preset-btn:hover,
+      .preset-btn.active {
+        border-color: var(--accent);
+        background: rgba(56, 189, 248, 0.16);
+      }
+      .upload-zone {
+        border: 1.5px dashed rgba(56, 189, 248, 0.45);
+        border-radius: 10px;
+        padding: 10px;
+        text-align: center;
+        background: rgba(15, 23, 42, 0.55);
+        cursor: pointer;
+        font-size: 0.76rem;
+        color: var(--muted);
+        transition: all 0.15s ease;
+      }
+      .upload-zone:hover,
+      .upload-zone.dragover {
+        border-color: var(--accent);
+        background: rgba(56, 189, 248, 0.1);
+        color: var(--text);
+      }
+      .canvas-stage {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+      .canvas-wrapper {
+        position: relative;
+        width: 512px;
+        height: 512px;
+        max-width: 100%;
+        aspect-ratio: 1 / 1;
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1.5px solid rgba(56, 189, 248, 0.35);
+        background: #020617;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+        user-select: none;
+        touch-action: none;
+      }
+      #interactive-canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        cursor: crosshair;
+      }
+      .stage-hint {
+        font-size: 0.8rem;
+        color: var(--muted);
+        text-align: center;
+      }
+      .detected-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        width: 100%;
+        max-width: 512px;
+        min-height: 28px;
+      }
+      .det-chip {
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.73rem;
+        font-weight: 600;
+        background: rgba(30, 41, 59, 0.85);
+        border: 1px solid rgba(168, 85, 247, 0.4);
+        color: #e9d5ff;
+        cursor: pointer;
+        transition: all 0.12s ease;
+      }
+      .det-chip:hover,
+      .det-chip.active {
+        background: rgba(168, 85, 247, 0.28);
+        border-color: #c084fc;
+        color: #fff;
+      }
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+      .metric-box {
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 8px;
+        padding: 8px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .metric-box small {
+        font-size: 0.64rem;
+        text-transform: uppercase;
+        color: #64748b;
+        font-weight: 700;
+      }
+      .metric-box span {
+        font-size: 0.88rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        color: #e2e8f0;
+      }
+      .cutout-box {
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        border-radius: 12px;
+        border: 1px solid var(--panel-border);
+        background-color: #0f172a;
+        background-image:
+          linear-gradient(45deg, #1e293b 25%, transparent 25%),
+          linear-gradient(-45deg, #1e293b 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #1e293b 75%),
+          linear-gradient(-45deg, transparent 75%, #1e293b 75%);
+        background-size: 20px 20px;
+        background-position:
+          0 0,
+          0 10px,
+          10px -10px,
+          -10px 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      #cutout-canvas {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      pre#prompt-debug {
+        margin: 0;
+        padding: 10px;
+        border-radius: 8px;
+        background: rgba(2, 6, 23, 0.85);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.71rem;
+        line-height: 1.4;
+        color: #cbd5e1;
+        overflow-x: auto;
+        white-space: pre;
+      }
+      label.inline-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        color: #cbd5e1;
+        font-size: 0.76rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <h1>✨ YOLOE-11s × EfficientSAM-Ti 2D Studio</h1>
+        <span id="accel-badge" class="badge">SAM: Initializing...</span>
+        <span id="yoloe-badge" class="badge yoloe">
+          YOLOE-11s (365 classes): Loading...
+        </span>
+      </div>
+      <div id="status-banner">
+        Loading <strong>YOLOE-11s (Objects365)</strong> &amp;
+        <strong>EfficientSAM-Ti</strong>...
+      </div>
+    </header>
+
+    <main>
+      <!-- Left Column: Image Source & Prompt Modes -->
+      <section class="card">
+        <h2>1. Image Source</h2>
+        <div class="preset-grid" id="preset-grid">
+          <button
+            type="button"
+            class="preset-btn active"
+            data-preset="livingroom"
+          >
+            🛋️ Living Room
+          </button>
+          <button type="button" class="preset-btn" data-preset="dogs">
+            🐕 Dogs (SAM)
+          </button>
+          <button type="button" class="preset-btn" data-preset="ballpit">
+            🎱 Ballpit Room
+          </button>
+          <button type="button" class="preset-btn" data-preset="desk">
+            ☕ Studio Desk
+          </button>
+        </div>
+
+        <label class="upload-zone" id="upload-zone" for="file-input">
+          📤 <strong>Upload Custom Image / Video</strong> or Drag &amp; Drop /
+          Paste
+          <input
+            type="file"
+            id="file-input"
+            accept="image/*,video/*"
+            style="display: none"
+          />
+        </label>
+
+        <div class="row" style="display: flex; gap: 8px">
+          <button type="button" id="webcam-btn" class="btn" style="flex: 1">
+            📹 Start Live Webcam
+          </button>
+          <button
+            type="button"
+            id="camera-flip-btn"
+            class="btn"
+            style="flex: 0 0 auto"
+            title="Switch Front/Rear Camera"
+          >
+            🔄 Flip
+          </button>
+        </div>
+        <div class="row">
+          <label class="inline-toggle">
+            <input type="checkbox" id="mirror-camera-toggle" checked />
+            Mirror Front Camera (Selfie View)
+          </label>
+        </div>
+
+        <video
+          id="webcam-video"
+          autoplay
+          playsinline
+          muted
+          style="display: none"
+        ></video>
+
+        <div class="row">
+          <label class="inline-toggle">
+            <input type="checkbox" id="fit-contain-toggle" />
+            Letterbox (preserve aspect ratio)
+          </label>
+        </div>
+
+        <h2>2. Prompt Mode</h2>
+        <div class="mode-tabs">
+          <button
+            type="button"
+            class="mode-btn active"
+            data-mode="hover"
+            id="mode-hover"
+          >
+            <span class="title">🎯 YOLOE-11s Semantic Hover</span>
+            <span class="desc">
+              YOLOE-11s detects 365 semantic classes + precomputes SAM masks for
+              instant 0 ms object hover!
+            </span>
+          </button>
+          <button
+            type="button"
+            class="mode-btn"
+            data-mode="bbox"
+            id="mode-bbox"
+          >
+            <span class="title">🔲 Bounding Box Mode</span>
+            <span class="desc">
+              Click &amp; drag a box around any object (Labels 2 &amp; 3).
+            </span>
+          </button>
+          <button
+            type="button"
+            class="mode-btn"
+            data-mode="circle"
+            id="mode-circle"
+          >
+            <span class="title">⭕ Circle to Search Mode</span>
+            <span class="desc">
+              Draw a freehand loop around an object or tap to segment.
+            </span>
+          </button>
+          <button
+            type="button"
+            class="mode-btn"
+            data-mode="points"
+            id="mode-points"
+          >
+            <span class="title">📍 Pos / Neg Points Mode</span>
+            <span class="desc">
+              Click to add up to 6 positive (FG) or negative (BG) points.
+            </span>
+          </button>
+        </div>
+
+        <!-- Mode-specific sub-controls -->
+        <div class="sub-controls" id="hover-controls">
+          <div class="row">
+            <span style="color: var(--muted)">YOLOE Confidence</span>
+            <input
+              type="range"
+              id="yoloe-conf-slider"
+              min="10"
+              max="65"
+              value="20"
+              style="flex: 1"
+            />
+            <span id="yoloe-conf-label" style="min-width: 34px">20%</span>
+          </div>
+          <label class="inline-toggle">
+            <input type="checkbox" id="show-all-boxes-toggle" checked />
+            Show all YOLOE-11s semantic boxes
+          </label>
+          <label class="inline-toggle">
+            <input type="checkbox" id="hover-fallback-sam-toggle" checked />
+            1-point SAM fallback outside YOLOE boxes
+          </label>
+        </div>
+
+        <div class="sub-controls" id="candidate-controls" style="display: none">
+          <div style="font-size: 0.73rem; color: var(--muted)">
+            SAM candidate mask (M0 / M1 / M2):
+          </div>
+          <div class="row" id="mask-candidate-row">
+            <button type="button" class="btn pos-active" data-candidate="auto">
+              Auto
+            </button>
+            <button type="button" class="btn" data-candidate="0">M0</button>
+            <button type="button" class="btn" data-candidate="1">M1</button>
+            <button type="button" class="btn" data-candidate="2">M2</button>
+          </div>
+        </div>
+
+        <div class="sub-controls" id="bbox-controls" style="display: none">
+          <label class="inline-toggle">
+            <input type="checkbox" id="bbox-center-toggle" checked />
+            Include box center FG point (Label 1)
+          </label>
+        </div>
+
+        <div class="sub-controls" id="points-controls" style="display: none">
+          <div class="row">
+            <button type="button" id="pt-pos-btn" class="btn pos-active">
+              + Positive (FG)
+            </button>
+            <button type="button" id="pt-neg-btn" class="btn">
+              − Negative (BG)
+            </button>
+          </div>
+          <div style="font-size: 0.72rem; color: var(--muted)">
+            Tip: Right-click or Shift+click always adds a Negative (BG) point.
+          </div>
+          <div class="row">
+            <button type="button" id="undo-pt-btn" class="btn" disabled>
+              ↩ Undo Point
+            </button>
+            <span
+              id="points-count"
+              style="font-size: 0.75rem; color: var(--muted)"
+              >0 / 6 pts</span
+            >
+          </div>
+        </div>
+
+        <h2>3. Display &amp; Actions</h2>
+        <div class="sub-controls">
+          <label class="inline-toggle">
+            <input type="checkbox" id="show-mask-toggle" checked />
+            Show Segmentation Mask
+          </label>
+          <label class="inline-toggle">
+            <input type="checkbox" id="show-outline-toggle" checked />
+            Show Smooth Bounding Outline Curve
+          </label>
+          <label class="inline-toggle">
+            <input type="checkbox" id="show-prompt-toggle" checked />
+            Show Prompt / Boxes Overlay
+          </label>
+          <div class="row">
+            <span style="color: var(--muted)">Mask Opacity</span>
+            <input
+              type="range"
+              id="mask-opacity-slider"
+              min="15"
+              max="100"
+              value="80"
+              style="flex: 1"
+            />
+          </div>
+          <div class="row">
+            <span style="color: var(--muted)">Outline Smoothness</span>
+            <input
+              type="range"
+              id="outline-smoothness-slider"
+              min="0"
+              max="40"
+              value="7"
+              style="flex: 1"
+            />
+            <span
+              id="outline-smoothness-label"
+              style="min-width: 34px; text-align: right; font-size: 0.75rem"
+              >7</span
+            >
+          </div>
+          <div class="row">
+            <span style="color: var(--muted)">Outline Padding</span>
+            <input
+              type="range"
+              id="outline-padding-slider"
+              min="-8"
+              max="40"
+              value="17"
+              style="flex: 1"
+            />
+            <span
+              id="outline-padding-label"
+              style="min-width: 34px; text-align: right; font-size: 0.75rem"
+              >17px</span
+            >
+          </div>
+        </div>
+
+        <div class="row">
+          <button type="button" id="clear-btn" class="btn">
+            🗑️ Clear Selection
+          </button>
+        </div>
+      </section>
+
+      <!-- Center Column: Interactive 512x512 Canvas + YOLOE Chips -->
+      <section class="card canvas-stage">
+        <div class="canvas-wrapper" id="canvas-wrapper">
+          <canvas id="interactive-canvas" width="512" height="512"></canvas>
+        </div>
+        <div class="stage-hint" id="stage-hint">
+          Hover over any YOLOE-11s semantic object to highlight its mask &amp;
+          label (click to lock/unlock).
+        </div>
+        <div class="detected-chips" id="detected-chips"></div>
+      </section>
+
+      <!-- Right Column: Metrics, Cutout & Tensor Inspector -->
+      <section class="card">
+        <h2>Runtime Telemetry</h2>
+        <div class="metrics-grid">
+          <div class="metric-box">
+            <small>Semantic Object</small>
+            <span id="metric-total">--</span>
+          </div>
+          <div class="metric-box">
+            <small>YOLOE / SAM Enc / Dec</small>
+            <span id="metric-split">-- / -- / -- ms</span>
+          </div>
+          <div class="metric-box">
+            <small>Mask IoU / Conf</small>
+            <span id="metric-iou">--</span>
+          </div>
+          <div class="metric-box">
+            <small>Mask Area</small>
+            <span id="metric-area">--</span>
+          </div>
+        </div>
+
+        <h2>Segmented Object Cutout</h2>
+        <div class="cutout-box">
+          <canvas id="cutout-canvas" width="320" height="320"></canvas>
+        </div>
+        <div class="row">
+          <button type="button" id="download-cutout-btn" class="btn" disabled>
+            💾 Download Cutout PNG
+          </button>
+        </div>
+
+        <h2>YOLOE-11s + SAM Inspector</h2>
+        <pre id="prompt-debug">No active prompt.</pre>
+      </section>
+    </main>
+
+    <script type="module" src="build/desktop.js"></script>
+  </body>
+</html>

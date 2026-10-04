@@ -122,35 +122,96 @@
 
       // GLB meshes are non-indexed triangle soup with no normals, so
       // computeVertexNormals gives flat per-face normals and curved cloth
-      // visibly facets under the real-time sun. Average normals across
-      // vertices sharing a position (independent of UV splits) for smooth
-      // shading; the unlit bake base never reads normals, so the endpoints
-      // stay pixel-faithful.
-      function smoothNormalsByPosition(geo) {
-        geo.computeVertexNormals();
+      // visibly facets under the real-time sun. Average the face normals at
+      // each shared position - but only across faces within ~50 degrees of
+      // each other (crease-aware): averaging across hard edges tilted flat
+      // walls' corner vertices and painted a smooth gradient wash over the
+      // whole wall panel. The unlit bake base never reads normals, so the
+      // endpoints stay pixel-faithful.
+      function smoothNormalsByPosition(geo, creaseDeg = 50) {
         const pos = geo.getAttribute('position');
-        const nor = geo.getAttribute('normal');
+        const index = geo.index;
+        const triCount = index ? index.count / 3 : pos.count / 3;
+        const vertAt = (t, k) =>
+          index ? index.getX(t * 3 + k) : t * 3 + k;
         const key = (i) =>
           Math.round(pos.getX(i) * 2000) +
           ',' +
           Math.round(pos.getY(i) * 2000) +
           ',' +
           Math.round(pos.getZ(i) * 2000);
-        const acc = new Map();
-        for (let i = 0; i < pos.count; i++) {
-          const k = key(i);
-          let a = acc.get(k);
-          if (!a) acc.set(k, (a = [0, 0, 0]));
-          a[0] += nor.getX(i);
-          a[1] += nor.getY(i);
-          a[2] += nor.getZ(i);
+        // per-face normals
+        const face = new Array(triCount);
+        const a = new THREE.Vector3(),
+          b = new THREE.Vector3(),
+          c = new THREE.Vector3(),
+          ab = new THREE.Vector3(),
+          ac = new THREE.Vector3();
+        for (let t = 0; t < triCount; t++) {
+          a.fromBufferAttribute(pos, vertAt(t, 0));
+          b.fromBufferAttribute(pos, vertAt(t, 1));
+          c.fromBufferAttribute(pos, vertAt(t, 2));
+          ab.subVectors(b, a);
+          ac.subVectors(c, a);
+          const n = new THREE.Vector3().crossVectors(ab, ac);
+          const l = n.length();
+          face[t] = l > 1e-12 ? n.divideScalar(l) : new THREE.Vector3(0, 1, 0);
         }
-        for (let i = 0; i < pos.count; i++) {
-          const a = acc.get(key(i));
-          const l = Math.hypot(a[0], a[1], a[2]) || 1;
-          nor.setXYZ(i, a[0] / l, a[1] / l, a[2] / l);
+        // faces sharing each position
+        const groups = new Map();
+        for (let t = 0; t < triCount; t++) {
+          for (let k = 0; k < 3; k++) {
+            const i = vertAt(t, k);
+            const kk = key(i);
+            let g = groups.get(kk);
+            if (!g) groups.set(kk, (g = []));
+            g.push(t);
+          }
         }
-        nor.needsUpdate = true;
+        // crease-aware averaged normals
+        const cosCrease = Math.cos(THREE.MathUtils.degToRad(creaseDeg));
+        const cosFlat = Math.cos(THREE.MathUtils.degToRad(5));
+        const nor = new Float32Array(pos.count * 3);
+        const acc = new THREE.Vector3();
+        for (let t = 0; t < triCount; t++) {
+          const fn = face[t];
+          for (let k = 0; k < 3; k++) {
+            const i = vertAt(t, k);
+            const g = groups.get(key(i));
+            // Only faces within the crease angle participate. If that set is
+            // nearly coplanar, keep the face's own normal: the room shells vary
+            // 0.5-3 degrees at their seams, and averaging those into a big wall
+            // triangle painted the smooth gradient wash the user saw. Flat
+            // per-face shading makes it a sub-1% step instead. Hard-edge
+            // neighbors (window reveals, 90 degrees) are excluded by the crease
+            // test and must not force smoothing.
+            acc.set(0, 0, 0);
+            let count = 0;
+            let flat = true;
+            for (const tt of g) {
+              const fo = face[tt];
+              if (fo.dot(fn) < cosCrease) continue;
+              if (fo.dot(fn) < cosFlat) flat = false;
+              acc.add(fo);
+              count++;
+            }
+            if (!count) {
+              acc.copy(fn);
+              count = 1;
+            }
+            if (flat) {
+              nor[i * 3] = fn.x;
+              nor[i * 3 + 1] = fn.y;
+              nor[i * 3 + 2] = fn.z;
+              continue;
+            }
+            const l = acc.length() || 1;
+            nor[i * 3] = acc.x / l;
+            nor[i * 3 + 1] = acc.y / l;
+            nor[i * 3 + 2] = acc.z / l;
+          }
+        }
+        geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
       }
 
       function collectMeshes(root) {
@@ -303,7 +364,7 @@
         // real-time shadow-mapped sun carries the moving directional light on
         // top. Additive terms are ZERO at both endpoints so t=0 renders the
         // reference Daytime Loft bake and t=1 the Evening Loft bake as-is.
-        const mixU = smoothstep(0.3, 0.72, t); // base: day bake -> night bake
+        const mixU = smoothstep(0.38, 0.62, t); // base: day bake -> night bake (narrow: the two bakes superimpose incompatible baked gradients during the crossfade)
         for (const b of state.blendMeshes) {
           const sh = b.mat.userData.shader;
           if (sh) sh.uniforms.mixU.value = mixU;
@@ -312,7 +373,7 @@
         // Additive strength tracks mixU: the real sun REPLACES the baked sun
         // exactly as the day bake fades out - never doubles it (that was the
         // over-bright middle).
-        const dayness = 1 - smoothstep(0.58, 0.8, t);
+        const dayness = 1 - smoothstep(0.45, 0.62, t);
         const elevation = THREE.MathUtils.degToRad(
           50 - 48 * smoothstep(0.0, 0.8, t)
         );
@@ -333,12 +394,12 @@
           Math.sin(bElev) * r,
           Math.cos(bElev) * Math.sin(azimuth) * r
         );
-        bounce.intensity = 0.25 * mixU * (1 - smoothstep(0.55, 0.82, t));
+        bounce.intensity = 0.25 * mixU * (1 - smoothstep(0.45, 0.62, t));
         bounce.color.setRGB(1, 0.97 - 0.12 * warmth, 0.9 - 0.3 * warmth);
         // faint corner lift during the dark half only (endpoints stay pure -
         // with NoToneMapping the night endpoint is exactly the bake, which
         // reads as a visible dark-brown interior, not crushed black)
-        skyFill.intensity = 0.05 * mixU * (1 - smoothstep(0.5, 0.85, t));
+        skyFill.intensity = 0.05 * mixU * (1 - smoothstep(0.5, 0.68, t));
         skyFill.color.setRGB(
           0.55 - 0.4 * warmth,
           0.66 - 0.5 * warmth,
@@ -599,8 +660,8 @@
       // Two bakes of the same room: base = mapDay at day, mapNight at night,
       // cross-faded by the global mixU. Endpoints stay pixel-faithful to the
       // reference GLBs; the moving sun lives in the additive pass on top.
-      function buildBlendMaterial(mapDay, mapNight, delta, extra = {}) {
-        const m = new THREE.MeshBasicMaterial({map: mapDay, ...extra});
+      function buildBlendMaterial(mapDay, mapNight, delta) {
+        const m = new THREE.MeshBasicMaterial({map: mapDay});
         m.onBeforeCompile = (shader) => {
           shader.uniforms.mapNight = {value: mapNight};
           shader.uniforms.mixU = {value: 0};
@@ -768,9 +829,9 @@
             const mat = buildBlendMaterial(
               d.mesh.material.map,
               n.mesh.material.map,
-              delta,
-              {name: d.mesh.material.name}
+              delta
             );
+            mat.name = d.mesh.material.name;
             const body = d.mesh.clone();
             body.geometry = d.mesh.geometry.clone();
             smoothNormalsByPosition(body.geometry);

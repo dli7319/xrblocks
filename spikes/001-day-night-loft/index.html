@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Spike 001: Day→Night Loft Cycle</title>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        margin: 0;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+          "three/": "https://cdn.jsdelivr.net/npm/three@0.186.0/",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <!--
+      Spike: sun-free baked base + real-time shadow-mapped sun.
+
+      - Base pass: the EVENING GLB as-is (unlit baked textures contain no sun,
+        only artificial/ambient light) -> preserves all baked GI/AO quality.
+      - Sun pass: second render of the same meshes with an additive Lambert
+        material, lit by ONE directional light whose shadow map is cut by the
+        real window holes -> sun patches MOVE as the sun arc changes.
+      - Shades: triangles that exist only in the night GLB are split out of the
+        wall meshes at load and animated as rolling blinds (scale about the
+        housing) + faded in early so t=0 has no hardware at all.
+      - Sky: day/night sky-box textures blended on the sky sphere.
+      - Rug: a day-only mesh fades out with t.
+    -->
+    <script type="module">
+      import * as THREE from 'three';
+      import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+
+      const ASSETS =
+        'https://cdn.jsdelivr.net/gh/xrblocks/assets@5582bd1b2d1a4e19f7ee7093b63a5ee328e974ac/simulator/scenes/';
+      const DAY_GLB = ASSETS + 'XREmulatorsceneV5.glb';
+      const NIGHT_GLB = ASSETS + 'XREmulatorscene_Dark.glb';
+
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        preserveDrawingBuffer: true,
+      });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(
+        55,
+        window.innerWidth / window.innerHeight,
+        0.05,
+        200
+      );
+
+      // ---- lights: affect ONLY the additive sun pass (base is unlit) ----
+      const sun = new THREE.DirectionalLight(0xffffff, 3);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(4096, 4096);
+      sun.shadow.camera.near = 1;
+      sun.shadow.camera.far = 80;
+      sun.shadow.camera.left = -9;
+      sun.shadow.camera.right = 9;
+      sun.shadow.camera.top = 9;
+      sun.shadow.camera.bottom = -9;
+      sun.shadow.bias = -0.0002;
+      sun.shadow.normalBias = 0.03;
+      const sunTarget = new THREE.Object3D();
+      sunTarget.position.set(0, 1.5, 0.5);
+      scene.add(sunTarget);
+      sun.target = sunTarget;
+      scene.add(sun);
+
+      const skyFill = new THREE.HemisphereLight(0x87b5ff, 0x3a2f28, 0.6);
+      scene.add(skyFill);
+
+      // additive sun/sky-fill material for the second pass
+      const sunMat = new THREE.MeshLambertMaterial({
+        color: 0xffffff,
+        blending: THREE.AdditiveBlending,
+        transparent: true,
+        depthWrite: false,
+      });
+
+      // ---- helpers ----
+      const qkey = (v) =>
+        [v.x, v.y, v.z].map((x) => Math.round(x * 200)).join(',');
+
+      function collectMeshes(root) {
+        root.updateMatrixWorld(true);
+        const out = [];
+        root.traverse((o) => {
+          if (!o.isMesh) return;
+          const box = new THREE.Box3().setFromObject(o);
+          const pos = o.geometry.getAttribute('position');
+          const world = new THREE.Vector3();
+          const verts = new Set();
+          const worldPositions = [];
+          for (let i = 0; i < pos.count; i++) {
+            world
+              .fromBufferAttribute(pos, i)
+              .applyMatrix4(o.matrixWorld)
+              .toArray();
+            worldPositions.push(world.clone());
+            verts.add(qkey(world));
+          }
+          out.push({
+            mesh: o,
+            center: box.getCenter(new THREE.Vector3()),
+            size: box.getSize(new THREE.Vector3()),
+            verts,
+            worldPositions,
+          });
+        });
+        return out;
+      }
+
+      // Split triangles whose verts are (mostly) in the extra-vert set into a
+      // separate mesh (baked to world space), leaving the rest behind.
+      function splitMesh(entry, extraKeys) {
+        const mesh = entry.mesh;
+        const geo = mesh.geometry;
+        const pos = geo.getAttribute('position');
+        const uv = geo.getAttribute('uv');
+        const index = geo.index;
+        const triCount = index ? index.count / 3 : pos.count / 3;
+        const isExtra = entry.worldPositions.map((p) => extraKeys.has(qkey(p)));
+
+        const shade = {pos: [], uv: []};
+        const wall = {pos: [], uv: []};
+        const world = new THREE.Vector3();
+        for (let t = 0; t < triCount; t++) {
+          const i0 = index ? index.getX(t * 3) : t * 3;
+          const i1 = index ? index.getX(t * 3 + 1) : t * 3 + 1;
+          const i2 = index ? index.getX(t * 3 + 2) : t * 3 + 2;
+          const n = isExtra[i0] + isExtra[i1] + isExtra[i2];
+          const bucket = n >= 2 ? shade : wall;
+          for (const i of [i0, i1, i2]) {
+            world.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+            bucket.pos.push(world.x, world.y, world.z);
+            if (uv) bucket.uv.push(uv.getX(i), uv.getY(i));
+          }
+        }
+        const make = (bucket) => {
+          const g = new THREE.BufferGeometry();
+          g.setAttribute(
+            'position',
+            new THREE.Float32BufferAttribute(bucket.pos, 3)
+          );
+          if (bucket.uv.length)
+            g.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uv, 2));
+          g.computeVertexNormals();
+          return g;
+        };
+        return {shadeGeo: make(shade), wallGeo: make(wall)};
+      }
+
+      const state = {
+        shadeGroups: [], // {mesh, topY}
+        rug: null,
+        skyMix: null, // uniform for sky blend
+        ready: false,
+      };
+
+      // ---- time-of-day controller ----
+      const smoothstep = (a, b, x) => {
+        const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+        return t * t * (3 - 2 * t);
+      };
+
+      function setTimeOfDay(t) {
+        // sun arc: high warm-white noon -> low amber -> below horizon
+        const dayness = 1 - smoothstep(0.55, 0.82, t);
+        const elevation =
+          THREE.MathUtils.degToRad(55 - 52 * smoothstep(0.0, 0.8, t));
+        const azimuth = THREE.MathUtils.degToRad(-45 + 85 * t);
+        const r = 30;
+        sun.position.set(
+          Math.cos(elevation) * Math.cos(azimuth) * r,
+          Math.sin(elevation) * r,
+          Math.cos(elevation) * Math.sin(azimuth) * r
+        );
+        sun.intensity = 3.2 * dayness;
+        const warmth = smoothstep(0.35, 0.8, t);
+        sun.color.setRGB(
+          1,
+          1 - 0.35 * warmth,
+          1 - 0.72 * warmth
+        );
+        // sky fill fades and deepens
+        skyFill.intensity = 0.55 * (1 - 0.82 * smoothstep(0.3, 0.9, t));
+        skyFill.color.setRGB(
+          0.53 - 0.42 * warmth,
+          0.71 - 0.55 * warmth,
+          1 - 0.62 * warmth
+        );
+        // sky texture blend (day view -> night view)
+        if (state.skyMix) state.skyMix.value = smoothstep(0.45, 0.8, t);
+        // rolling blinds: hardware fades in, then rolls DOWN
+        const hardware = smoothstep(0.42, 0.52, t);
+        const roll = smoothstep(0.5, 0.82, t);
+        for (const s of state.shadeGroups) {
+          s.mesh.visible = hardware > 0.01;
+          s.mesh.material.opacity = hardware;
+          s.mesh.scale.y = 0.04 + 0.96 * roll;
+        }
+        // day-only rug fades out
+        if (state.rug) {
+          state.rug.material.opacity = 1 - smoothstep(0.25, 0.55, t);
+          state.rug.visible = state.rug.material.opacity > 0.01;
+        }
+      }
+
+      // ---- camera path (slow drift) ----
+      function setCamera(p) {
+        const a = THREE.MathUtils.degToRad(-8 + 26 * p);
+        camera.position.set(
+          -0.4 + 1.6 * p + 0.4 * Math.sin(a),
+          1.62,
+          1.9 + 0.5 * Math.sin(a * 0.7)
+        );
+        camera.lookAt(3.2, 1.05, -1.6);
+      }
+
+      // ---- render ----
+      function renderFrame() {
+        renderer.shadowMap.needsUpdate = true;
+        renderer.autoClear = true;
+        renderer.render(scene, camera); // pass 1: baked base
+        renderer.autoClear = false;
+        // pass 2: additive sun + sky fill (hide sky sphere: it is not "lit")
+        const skyVisible = state.sky ? state.sky.visible : false;
+        if (state.sky) state.sky.visible = false;
+        const rugVis = state.rug ? state.rug.visible : false;
+        scene.overrideMaterial = sunMat;
+        renderer.render(scene, camera);
+        scene.overrideMaterial = null;
+        if (state.sky) state.sky.visible = skyVisible;
+        renderer.autoClear = true;
+      }
+
+      window.__frame = (t, p) => {
+        setTimeOfDay(t);
+        setCamera(p);
+        renderFrame();
+      };
+
+      // ---- load both GLBs ----
+      const loader = new GLTFLoader();
+      const load = (url) =>
+        new Promise((res, rej) => loader.load(url, res, undefined, rej));
+
+      // Bake each mesh's world transform into its geometry so meshes can be
+      // re-parented freely (GLTF nodes carry TRS above the meshes).
+      function bakeWorldTransforms(root) {
+        root.updateMatrixWorld(true);
+        root.traverse((o) => {
+          if (!o.isMesh) return;
+          o.geometry = o.geometry.clone().applyMatrix4(o.matrixWorld);
+          o.position.set(0, 0, 0);
+          o.rotation.set(0, 0, 0);
+          o.scale.set(1, 1, 1);
+        });
+      }
+
+      Promise.all([load(NIGHT_GLB), load(DAY_GLB)]).then(
+        ([night, day]) => {
+          const root = new THREE.Group();
+          root.name = 'Loft (night base)';
+          scene.add(root);
+
+          bakeWorldTransforms(night.scene);
+          bakeWorldTransforms(day.scene);
+          const dayEntries = collectMeshes(day.scene);
+          const nightEntries = collectMeshes(night.scene);
+
+          // pair night meshes to day meshes by world bounds
+          const used = new Set();
+          const pairs = [];
+          for (const n of nightEntries) {
+            let best = -1;
+            dayEntries.forEach((d, i) => {
+              if (used.has(i)) return;
+              if (
+                n.center.distanceTo(d.center) < 0.05 &&
+                n.size.distanceTo(d.size) < 0.05
+              )
+                best = i;
+            });
+            if (best >= 0) {
+              used.add(best);
+              pairs.push({n, d: dayEntries[best]});
+            }
+          }
+
+          // day-only meshes -> rug-like state meshes (fade out with t)
+          dayEntries.forEach((d, i) => {
+            if (used.has(i)) return;
+            const mesh = d.mesh.clone();
+            mesh.geometry = d.mesh.geometry.clone();
+            mesh.geometry.computeVertexNormals();
+            mesh.material = d.mesh.material.clone();
+            mesh.material.transparent = true;
+            root.add(mesh);
+            state.rug = mesh;
+          });
+
+          const shadeReport = [];
+          for (const {n, d} of pairs) {
+            // night-only verts = the state geometry (shades). Only the room
+            // shells carry window shades; other diffs (moved props, lamp
+            // re-tessellation) snap to the night state.
+            const isRoomShell = /Bake home office|Bake living room bottom/.test(
+              n.mesh.material.name
+            );
+            const extra = isRoomShell
+              ? new Set([...n.verts].filter((v) => !d.verts.has(v)))
+              : new Set();
+            if (extra.size < 12) {
+              // no meaningful state geometry: keep the night mesh as-is
+              root.add(n.mesh);
+              continue;
+            }
+            const {shadeGeo, wallGeo} = splitMesh(n, extra);
+            const wall = n.mesh.clone();
+            wall.geometry = wallGeo;
+            wall.material = n.mesh.material.clone();
+            root.add(wall);
+            if (shadeGeo.getAttribute('position').count > 0) {
+              const shade = n.mesh.clone();
+              shade.geometry = shadeGeo;
+              shade.material = n.mesh.material.clone();
+              shade.material.transparent = true;
+              shade.geometry.computeBoundingBox();
+              const topY = shade.geometry.boundingBox.max.y;
+              // scale about the housing top edge when rolling
+              shade.geometry.translate(0, -topY, 0);
+              shade.position.y = topY;
+              root.add(shade);
+              state.shadeGroups.push({mesh: shade, topY});
+              shadeReport.push({
+                from: n.mesh.material.name,
+                tris: shadeGeo.getAttribute('position').count / 3,
+                topY: +topY.toFixed(2),
+              });
+            }
+          }
+          // walls/others keep shadows; shades cast too
+          root.traverse((o) => {
+            if (o.isMesh) {
+              o.castShadow = true;
+              o.receiveShadow = true;
+            }
+          });
+
+          // sky sphere: biggest box, blend its two textures
+          let skyN = null,
+            skyD = null;
+          for (const e of nightEntries)
+            if (!skyN || e.size.length() > skyN.size.length()) skyN = e;
+          for (const e of dayEntries)
+            if (!skyD || e.size.length() > skyD.size.length()) skyD = e;
+          if (skyN && skyD) {
+            const sky = skyN.mesh;
+            root.add(sky);
+            sky.castShadow = false;
+            sky.receiveShadow = false;
+            const mixU = {value: 0};
+            const mat = sky.material.clone();
+            mat.onBeforeCompile = (shader) => {
+              shader.uniforms.mapDay = {value: skyD.mesh.material.map};
+              shader.uniforms.uMix = mixU;
+              shader.fragmentShader =
+                'uniform sampler2D mapDay;\nuniform float uMix;\n' +
+                shader.fragmentShader.replace(
+                  '#include <map_fragment>',
+                  `
+                  vec4 texelDay = texture2D( mapDay, vMapUv );
+                  vec4 texelNight = texture2D( map, vMapUv );
+                  diffuseColor *= mix( texelDay, texelNight, uMix );
+                  `
+                );
+            };
+            sky.material = mat;
+            state.sky = sky;
+            state.skyMix = mixU;
+          }
+
+          window.__info = {
+            pairs: pairs.length,
+            shades: shadeReport,
+            rug: state.rug ? state.rug.material.name : null,
+          };
+          setTimeOfDay(0);
+          setCamera(0);
+          renderFrame();
+          window.__ready = true;
+        },
+        (err) => {
+          window.__loadError = String(err);
+          window.__ready = true;
+        }
+      );
+    </script>
+  </body>
+</html>

@@ -74,6 +74,11 @@ Drive with `window.__frame(t, p)` (`t` = 0..1 day→night, `p` = camera drift).
   makes blinds on lower windows start as slivers near the ceiling and "fall"
   through the room (caught on video review). Cluster the shade triangles per
   window (x/z plane) and animate each group separately.
+- Flat fill lights wash out the bake: a hemisphere fill measured as a uniform
+  +62/255 veil over 90% of the frame. Daylight look = punchy shadow-mapped sun
+  (4.6) + shaped low "window bounce" directional (1.15, no shadow) + tiny
+  hemisphere (0.05) + **base exposure** scaling (1.5 day -> 1.08 night, applied
+  to the base pass only) — a multiply keeps contrast, a flat add destroys it.
 - The GLBs ship without normals (unlit export); `computeVertexNormals()` is
   sufficient for the sun pass on architectural geometry.
 - Only the sky sphere has `COLOR_0` (a vertex-color gradient) — no AO bake hiding

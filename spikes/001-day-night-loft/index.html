@@ -80,6 +80,16 @@
       sun.target = sunTarget;
       scene.add(sun);
 
+      // window bounce: light flooding in low from the sun's azimuth (no shadow)
+      // - shaped like real light, unlike a flat hemisphere fill
+      const bounce = new THREE.DirectionalLight(0xfff3e0, 0);
+      const bounceTarget = new THREE.Object3D();
+      bounceTarget.position.set(0, 1.0, 0);
+      scene.add(bounceTarget);
+      bounce.target = bounceTarget;
+      scene.add(bounce);
+
+      // faint sky lift so corners do not crush to pure black
       const skyFill = new THREE.HemisphereLight(0x87b5ff, 0x3a2f28, 0.6);
       scene.add(skyFill);
 
@@ -223,6 +233,7 @@
         shadeGroups: [], // {mesh, topY}
         rug: null,
         skyMix: null, // uniform for sky blend
+        baseExposure: 1.36,
         ready: false,
       };
       window.__state = state; // spike debug hook
@@ -245,20 +256,33 @@
           Math.sin(elevation) * r,
           Math.cos(elevation) * Math.sin(azimuth) * r
         );
-        sun.intensity = 3.2 * dayness;
+        // punchier sun, shaped bounce, minimal flat fill -> contrast + daylight
+        sun.intensity = 4.6 * dayness;
         const warmth = smoothstep(0.35, 0.8, t);
         sun.color.setRGB(
           1,
           1 - 0.35 * warmth,
           1 - 0.72 * warmth
         );
-        // sky fill fades and deepens
-        skyFill.intensity = 0.55 * (1 - 0.82 * smoothstep(0.3, 0.9, t));
-        skyFill.color.setRGB(
-          0.53 - 0.42 * warmth,
-          0.71 - 0.55 * warmth,
-          1 - 0.62 * warmth
+        // bounce: low directional light flooding in from the sun's azimuth
+        const bElev = THREE.MathUtils.degToRad(20);
+        bounce.position.set(
+          Math.cos(bElev) * Math.cos(azimuth) * r,
+          Math.sin(bElev) * r,
+          Math.cos(bElev) * Math.sin(azimuth) * r
         );
+        bounce.intensity = 1.15 * dayness;
+        bounce.color.setRGB(1, 0.97 - 0.12 * warmth, 0.9 - 0.3 * warmth);
+        // sky fill: barely-there corner lift (a flat fill washes the bake)
+        skyFill.intensity = 0.05 * (1 - 0.6 * smoothstep(0.3, 0.9, t));
+        skyFill.color.setRGB(
+          0.55 - 0.4 * warmth,
+          0.66 - 0.5 * warmth,
+          0.88 - 0.56 * warmth
+        );
+        // day brightness comes from BASE EXPOSURE (a multiply keeps contrast),
+        // applied to pass 1 only; the additive sun pass renders at exposure 1
+        state.baseExposure = 1.08 + 0.42 * (1 - smoothstep(0.5, 0.95, t));
         // sky texture blend (day view -> night view)
         if (state.skyMix) state.skyMix.value = smoothstep(0.45, 0.8, t);
         // rolling blinds: hardware fades in just as the roll starts
@@ -276,23 +300,55 @@
         }
       }
 
-      // ---- camera path (slow drift) ----
-      function setCamera(p) {
-        const a = THREE.MathUtils.degToRad(-8 + 26 * p);
-        camera.position.set(
-          -0.4 + 1.6 * p + 0.4 * Math.sin(a),
-          1.62,
-          1.9 + 0.5 * Math.sin(a * 0.7)
-        );
-        camera.lookAt(3.2, 1.05, -1.6);
+      // ---- camera paths (slow drift per shot) ----
+      const SHOTS = {
+        // 0: interior drift toward the window wall (original)
+        0: (p) => {
+          const a = THREE.MathUtils.degToRad(-8 + 26 * p);
+          return {
+            pos: [-0.4 + 1.6 * p + 0.4 * Math.sin(a), 1.62, 1.9 + 0.5 * Math.sin(a * 0.7)],
+            look: [3.2, 1.05, -1.6],
+          };
+        },
+        // 1: reverse angle from the TV corner, sun patches sweep toward camera
+        1: (p) => ({
+          pos: [3.7 - 0.5 * p, 1.55, -3.3 + 0.7 * p],
+          look: [-1.6, 1.15, 1.6],
+        }),
+        // 2: mid-height angle across the seating group toward the +x windows
+        2: (p) => ({
+          pos: [0.3 + 0.6 * p, 1.28, 3.3 - 0.5 * p],
+          look: [3.9, 0.8, -1.4],
+        }),
+        // 3: slow orbit around the seating group
+        3: (p) => {
+          const a = THREE.MathUtils.degToRad(105 + 55 * p);
+          return {
+            pos: [1.7 + 2.7 * Math.sin(a), 1.5, -1.0 + 2.7 * Math.cos(a)],
+            look: [1.7, 0.95, -1.2],
+          };
+        },
+        // 4: push-in from the office doorway toward the windows
+        4: (p) => ({
+          pos: [-0.7 + 2.6 * p, 1.62, 1.5 - 1.1 * p],
+          look: [4.1, 1.35, -1.7],
+        }),
+      };
+
+      function setCamera(p, shot = 0) {
+        const s = (SHOTS[shot] || SHOTS[0])(p);
+        camera.position.set(...s.pos);
+        camera.lookAt(...s.look);
       }
 
       // ---- render ----
       function renderFrame() {
         renderer.shadowMap.needsUpdate = true;
         renderer.autoClear = true;
-        renderer.render(scene, camera); // pass 1: baked base
+        renderer.toneMappingExposure = state.baseExposure; // pass 1: baked base
+        renderer.render(scene, camera);
         renderer.autoClear = false;
+        renderer.toneMappingExposure = 1.0; // pass 2: additive sun at exposure 1
         // pass 2: additive sun + sky fill (hide sky sphere: it is not "lit")
         const skyVisible = state.sky ? state.sky.visible : false;
         if (state.sky) state.sky.visible = false;
@@ -304,9 +360,9 @@
         renderer.autoClear = true;
       }
 
-      window.__frame = (t, p) => {
+      window.__frame = (t, p, shot = 0) => {
         setTimeOfDay(t);
-        setCamera(p);
+        setCamera(p, shot);
         renderFrame();
       };
       window.__render = renderFrame; // spike debug hook

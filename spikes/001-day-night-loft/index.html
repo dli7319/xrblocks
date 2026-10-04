@@ -50,7 +50,14 @@
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.0;
       renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      // PCF (not PCFSoft) + radius: PCFSoft ignores shadow.radius; the plain PCF
+      // kernel with a radius gives a real penumbra that absorbs the shadow map's
+      // texel flips at thin window jambs (the hard-edged patch blinked there)
+      renderer.shadowMap.type = THREE.PCFShadowMap;
+      // one shadow-map render per frame (in pass 1, with the full caster set):
+      // letting both passes refresh it made the map flip between two caster
+      // sets and the floor patches jumped
+      renderer.shadowMap.autoUpdate = false;
       document.body.appendChild(renderer.domElement);
 
       const scene = new THREE.Scene();
@@ -66,14 +73,15 @@
       const sun = new THREE.DirectionalLight(0xffffff, 3);
       sun.castShadow = true;
       sun.shadow.mapSize.set(4096, 4096);
-      sun.shadow.camera.near = 1;
-      sun.shadow.camera.far = 80;
-      sun.shadow.camera.left = -9;
-      sun.shadow.camera.right = 9;
-      sun.shadow.camera.top = 9;
-      sun.shadow.camera.bottom = -9;
-      sun.shadow.bias = -0.0002;
-      sun.shadow.normalBias = 0.03;
+      sun.shadow.camera.near = 20;
+      sun.shadow.camera.far = 60;
+      sun.shadow.camera.left = -11;
+      sun.shadow.camera.right = 11;
+      sun.shadow.camera.top = 11;
+      sun.shadow.camera.bottom = -11;
+      sun.shadow.bias = -0.0005;
+      sun.shadow.normalBias = 0.08;
+      sun.shadow.radius = 30;
       const sunTarget = new THREE.Object3D();
       sunTarget.position.set(0, 1.5, 0.5);
       scene.add(sunTarget);
@@ -235,7 +243,6 @@
         skyMix: null, // uniform for sky blend
         baseExposure: 1.36,
         blendMeshes: [], // {mesh, mapDay, mapNight, uvScale}
-        nightBits: [], // static night-only geometry, fades in with mixU
         noSunMeshes: [], // outdoor meshes excluded from the additive sun pass
         sky: null, // sky sphere (its blend is the skyMix uniform)
         ready: false,
@@ -258,9 +265,11 @@
           const sh = b.mat.userData.shader;
           if (sh) sh.uniforms.mixU.value = mixU;
         }
-        // sun arc: aligned with the day bake's baked patch at t=0, then moves
+        // sun arc: aligned with the day bake's baked patch at t=0, then moves.
+        // Additive strength tracks mixU: the real sun REPLACES the baked sun
+        // exactly as the day bake fades out - never doubles it (that was the
+        // over-bright middle).
         const dayness = 1 - smoothstep(0.58, 0.8, t);
-        const sunOn = smoothstep(0.03, 0.2, t);
         const elevation = THREE.MathUtils.degToRad(
           50 - 48 * smoothstep(0.0, 0.8, t)
         );
@@ -271,7 +280,7 @@
           Math.sin(elevation) * r,
           Math.cos(elevation) * Math.sin(azimuth) * r
         );
-        sun.intensity = 2.0 * sunOn * dayness;
+        sun.intensity = 0.85 * mixU * dayness;
         const warmth = smoothstep(0.35, 0.8, t);
         sun.color.setRGB(1, 1 - 0.35 * warmth, 1 - 0.72 * warmth);
         // bounce: low directional flood from the sun's azimuth, transition only
@@ -281,12 +290,10 @@
           Math.sin(bElev) * r,
           Math.cos(bElev) * Math.sin(azimuth) * r
         );
-        bounce.intensity =
-          0.9 * smoothstep(0.15, 0.4, t) * (1 - smoothstep(0.55, 0.82, t));
+        bounce.intensity = 0.55 * mixU * (1 - smoothstep(0.55, 0.82, t));
         bounce.color.setRGB(1, 0.97 - 0.12 * warmth, 0.9 - 0.3 * warmth);
         // faint corner lift during the dark half only (endpoints stay pure)
-        skyFill.intensity =
-          0.05 * smoothstep(0.02, 0.15, t) * (1 - smoothstep(0.5, 0.85, t));
+        skyFill.intensity = 0.05 * mixU * (1 - smoothstep(0.5, 0.85, t));
         skyFill.color.setRGB(
           0.55 - 0.4 * warmth,
           0.66 - 0.5 * warmth,
@@ -308,11 +315,6 @@
         if (state.rug) {
           state.rug.material.opacity = 1 - smoothstep(0.3, 0.65, t);
           state.rug.visible = state.rug.material.opacity > 0.01;
-        }
-        // night-only floor bits fade in with the night mix
-        for (const m of state.nightBits) {
-          m.material.opacity = mixU;
-          m.visible = mixU > 0.01;
         }
       }
 
@@ -549,6 +551,12 @@
             mesh.geometry.computeVertexNormals();
             mesh.material = d.mesh.material.clone();
             mesh.material.transparent = true;
+            // the floor surface undulates through the rug's thickness (both
+            // sit at y~0.01-0.1) - bias the rug toward the camera so it cannot
+            // z-fight the floor while fading
+            mesh.material.polygonOffset = true;
+            mesh.material.polygonOffsetFactor = -2;
+            mesh.material.polygonOffsetUnits = -2;
             root.add(mesh);
             state.rug = mesh;
           });
@@ -605,13 +613,8 @@
                 shade.material = n.mesh.material.clone();
                 const topY = blind.topY;
                 if (topY < 0.5) {
-                  // stray night-only floor bits: static, but night-state
-                  // geometry - fade in with the night mix
-                  shade.material.transparent = true;
-                  shade.material.opacity = 0;
-                  shade.visible = false;
-                  root.add(shade);
-                  state.nightBits.push(shade);
+                  // stray night-only floor bits: redundant surface over the
+                  // blend floor - drop entirely (it z-fought the floor)
                   continue;
                 }
                 shade.material.transparent = true;

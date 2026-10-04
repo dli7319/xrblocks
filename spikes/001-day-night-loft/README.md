@@ -70,6 +70,10 @@ Drive with `window.__frame(t, p)` (`t` = 0..1 day→night, `p` = camera drift).
   (housing + fabric + weight bar) merged into the room shells, a day-only rug,
   and several moved props. Any plan must handle "state geometry", not only
   textures.
+- Blind groups must each roll about **their own** housing top: one shared pivot
+  makes blinds on lower windows start as slivers near the ceiling and "fall"
+  through the room (caught on video review). Cluster the shade triangles per
+  window (x/z plane) and animate each group separately.
 - The GLBs ship without normals (unlit export); `computeVertexNormals()` is
   sufficient for the sun pass on architectural geometry.
 - Only the sky sphere has `COLOR_0` (a vertex-color gradient) — no AO bake hiding

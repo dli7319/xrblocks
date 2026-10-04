@@ -54,6 +54,7 @@
       document.body.appendChild(renderer.domElement);
 
       const scene = new THREE.Scene();
+      window.__scene = scene; // spike debug hook
       const camera = new THREE.PerspectiveCamera(
         55,
         window.innerWidth / window.innerHeight,
@@ -163,12 +164,68 @@
         return {shadeGeo: make(shade), wallGeo: make(wall)};
       }
 
+      // Split a shade geometry into per-window blind groups (clustered in the
+      // x/z plane) so each blind rolls about its OWN housing top, not one
+      // shared edge (windows sit at different heights on different walls).
+      function clusterBlinds(shadeGeo) {
+        const pos = shadeGeo.getAttribute('position');
+        const uv = shadeGeo.getAttribute('uv');
+        const triCount = pos.count / 3;
+        const cents = [];
+        for (let i = 0; i < triCount; i++) {
+          cents.push([
+            (pos.getX(i * 3) + pos.getX(i * 3 + 1) + pos.getX(i * 3 + 2)) / 3,
+            (pos.getY(i * 3) + pos.getY(i * 3 + 1) + pos.getY(i * 3 + 2)) / 3,
+            (pos.getZ(i * 3) + pos.getZ(i * 3 + 1) + pos.getZ(i * 3 + 2)) / 3,
+          ]);
+        }
+        const parent = [...Array(triCount).keys()];
+        const find = (a) => (parent[a] === a ? a : (parent[a] = find(parent[a])));
+        const R = 0.6;
+        for (let i = 0; i < triCount; i++)
+          for (let j = i + 1; j < triCount; j++) {
+            const dx = cents[i][0] - cents[j][0];
+            const dz = cents[i][2] - cents[j][2];
+            if (dx * dx + dz * dz < R * R) parent[find(i)] = find(j);
+          }
+        const groups = new Map();
+        for (let i = 0; i < triCount; i++) {
+          const r = find(i);
+          if (!groups.has(r)) groups.set(r, []);
+          groups.get(r).push(i);
+        }
+        const out = [];
+        for (const tris of groups.values()) {
+          const bucket = {pos: [], uv: []};
+          let topY = -1e9;
+          for (const t of tris) {
+            for (let k = 0; k < 3; k++) {
+              const i = t * 3 + k;
+              bucket.pos.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+              if (uv) bucket.uv.push(uv.getX(i), uv.getY(i));
+              topY = Math.max(topY, pos.getY(i));
+            }
+          }
+          const g = new THREE.BufferGeometry();
+          g.setAttribute(
+            'position',
+            new THREE.Float32BufferAttribute(bucket.pos, 3)
+          );
+          if (bucket.uv.length)
+            g.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uv, 2));
+          g.computeVertexNormals();
+          out.push({geo: g, topY});
+        }
+        return out;
+      }
+
       const state = {
         shadeGroups: [], // {mesh, topY}
         rug: null,
         skyMix: null, // uniform for sky blend
         ready: false,
       };
+      window.__state = state; // spike debug hook
 
       // ---- time-of-day controller ----
       const smoothstep = (a, b, x) => {
@@ -204,8 +261,8 @@
         );
         // sky texture blend (day view -> night view)
         if (state.skyMix) state.skyMix.value = smoothstep(0.45, 0.8, t);
-        // rolling blinds: hardware fades in, then rolls DOWN
-        const hardware = smoothstep(0.42, 0.52, t);
+        // rolling blinds: hardware fades in just as the roll starts
+        const hardware = smoothstep(0.47, 0.56, t);
         const roll = smoothstep(0.5, 0.82, t);
         for (const s of state.shadeGroups) {
           s.mesh.visible = hardware > 0.01;
@@ -252,6 +309,7 @@
         setCamera(p);
         renderFrame();
       };
+      window.__render = renderFrame; // spike debug hook
 
       // ---- load both GLBs ----
       const loader = new GLTFLoader();
@@ -335,22 +393,28 @@
             wall.material = n.mesh.material.clone();
             root.add(wall);
             if (shadeGeo.getAttribute('position').count > 0) {
-              const shade = n.mesh.clone();
-              shade.geometry = shadeGeo;
-              shade.material = n.mesh.material.clone();
-              shade.material.transparent = true;
-              shade.geometry.computeBoundingBox();
-              const topY = shade.geometry.boundingBox.max.y;
-              // scale about the housing top edge when rolling
-              shade.geometry.translate(0, -topY, 0);
-              shade.position.y = topY;
-              root.add(shade);
-              state.shadeGroups.push({mesh: shade, topY});
-              shadeReport.push({
-                from: n.mesh.material.name,
-                tris: shadeGeo.getAttribute('position').count / 3,
-                topY: +topY.toFixed(2),
-              });
+              for (const blind of clusterBlinds(shadeGeo)) {
+                const shade = n.mesh.clone();
+                shade.geometry = blind.geo;
+                shade.material = n.mesh.material.clone();
+                const topY = blind.topY;
+                if (topY < 0.5) {
+                  // stray night-only floor bits: static, not window blinds
+                  root.add(shade);
+                  continue;
+                }
+                shade.material.transparent = true;
+                // scale about this blind's own housing top edge
+                shade.geometry.translate(0, -topY, 0);
+                shade.position.y = topY;
+                root.add(shade);
+                state.shadeGroups.push({mesh: shade, topY});
+                shadeReport.push({
+                  from: n.mesh.material.name,
+                  tris: blind.geo.getAttribute('position').count / 3,
+                  topY: +topY.toFixed(2),
+                });
+              }
             }
           }
           // walls/others keep shadows; shades cast too

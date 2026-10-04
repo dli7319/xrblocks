@@ -382,12 +382,38 @@
         renderer.autoClear = true;
       }
 
-      window.__frame = (t, p, shot = 0) => {
+      const frameAt = (t, p, shot = 0) => {
         setTimeOfDay(t);
         setCamera(p, shot);
         renderFrame();
       };
+      // manual drive (recordings) suspends the autoplay loop below
+      window.__frame = (t, p, shot = 0) => {
+        window.__autoplay = false;
+        frameAt(t, p, shot);
+      };
       window.__render = renderFrame; // spike debug hook
+      window.__play = () => {
+        window.__autoplay = true;
+      };
+
+      // autoplay for humans: day -> night -> day ping-pong while the camera
+      // slowly cycles through the 5 shots
+      window.__autoplay = true;
+      const playT0 = performance.now();
+      const SHOT_SECONDS = 10;
+      const DAY_SECONDS = 22;
+      const tick = (now) => {
+        requestAnimationFrame(tick);
+        if (window.__autoplay === false || window.__ready !== true) return;
+        const el = (now - playT0) / 1000;
+        const u = (el % (DAY_SECONDS * 2)) / DAY_SECONDS;
+        const t = u <= 1 ? u : 2 - u;
+        const shot = Math.floor(el / SHOT_SECONDS) % SHOTS.length;
+        const p = (el % SHOT_SECONDS) / SHOT_SECONDS;
+        frameAt(t, p, shot);
+      };
+      requestAnimationFrame(tick);
 
       // ---- load both GLBs ----
       const loader = new GLTFLoader();
@@ -578,7 +604,7 @@
               d.mesh.material.map,
               n.mesh.material.map,
               delta,
-              {key: d.mesh.material.name}
+              {name: d.mesh.material.name}
             );
             const body = d.mesh.clone();
             body.geometry = d.mesh.geometry.clone();

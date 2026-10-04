@@ -1,0 +1,122 @@
+<!doctype html>
+<!--
+  Daytime Loft REFERENCE recording page (spike companion).
+
+  Renders the raw baked Daytime Loft GLB exactly as-is (unlit baked materials,
+  no lights, no additive sun pass, ACES exposure 1.0) with the same 5 camera
+  paths as index.html, for side-by-side quality comparison.
+
+  Hooks: window.__ready, window.__frame(p, shot), window.__info
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Daytime Loft - reference</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from 'three';
+      import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+
+      const ASSETS =
+        'https://cdn.jsdelivr.net/gh/xrblocks/assets@5582bd1b2d1a4e19f7ee7093b63a5ee328e974ac/simulator/scenes/';
+      const DAY_GLB = ASSETS + 'XREmulatorsceneV5.glb';
+
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        preserveDrawingBuffer: true,
+      });
+      renderer.setPixelRatio(1);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(
+        55,
+        window.innerWidth / window.innerHeight,
+        0.05,
+        200
+      );
+
+      // ---- camera paths (identical to index.html SHOTS) ----
+      const SHOTS = {
+        0: (p) => {
+          const a = THREE.MathUtils.degToRad(-8 + 26 * p);
+          return {
+            pos: [-0.4 + 1.6 * p + 0.4 * Math.sin(a), 1.62, 1.9 + 0.5 * Math.sin(a * 0.7)],
+            look: [3.2, 1.05, -1.6],
+          };
+        },
+        1: (p) => ({
+          pos: [3.7 - 0.5 * p, 1.55, -3.3 + 0.7 * p],
+          look: [-1.6, 1.15, 1.6],
+        }),
+        2: (p) => ({
+          pos: [0.3 + 0.6 * p, 1.28, 3.3 - 0.5 * p],
+          look: [3.9, 0.8, -1.4],
+        }),
+        3: (p) => {
+          const a = THREE.MathUtils.degToRad(105 + 55 * p);
+          return {
+            pos: [1.7 + 2.7 * Math.sin(a), 1.5, -1.0 + 2.7 * Math.cos(a)],
+            look: [1.7, 0.95, -1.2],
+          };
+        },
+        4: (p) => ({
+          pos: [-0.7 + 2.6 * p, 1.62, 1.5 - 1.1 * p],
+          look: [4.1, 1.35, -1.7],
+        }),
+      };
+
+      function setCamera(p, shot = 0) {
+        const s = (SHOTS[shot] || SHOTS[0])(p);
+        camera.position.set(...s.pos);
+        camera.lookAt(...s.look);
+      }
+
+      window.__frame = (p, shot = 0) => {
+        setCamera(p, shot);
+        renderer.render(scene, camera);
+      };
+
+      // ---- load the raw day bake ----
+      const loader = new GLTFLoader();
+      loader.load(
+        DAY_GLB,
+        (gltf) => {
+          scene.add(gltf.scene);
+          window.__info = {meshes: (() => {
+            let n = 0;
+            gltf.scene.traverse((o) => o.isMesh && n++);
+            return n;
+          })()};
+          window.__ready = true;
+        },
+        undefined,
+        (e) => {
+          window.__loadError = String(e);
+        }
+      );
+    </script>
+  </body>
+</html>

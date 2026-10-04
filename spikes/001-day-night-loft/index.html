@@ -101,9 +101,14 @@
       const skyFill = new THREE.HemisphereLight(0x87b5ff, 0x3a2f28, 0.6);
       scene.add(skyFill);
 
-      // additive sun/sky-fill material for the second pass
-      const sunMat = new THREE.MeshLambertMaterial({
+      // additive sun/sky-fill material for the second pass. Phong (not
+      // Lambert): Lambert shades per-vertex, so the GLBs' large triangles
+      // showed triangle-shaped gradients on cloth ("I can see the triangles");
+      // Phong with no specular is the same flat diffuse but per-fragment.
+      const sunMat = new THREE.MeshPhongMaterial({
         color: 0xffffff,
+        specular: 0x000000,
+        shininess: 0,
         blending: THREE.AdditiveBlending,
         transparent: true,
         depthWrite: false,
@@ -112,6 +117,39 @@
       // ---- helpers ----
       const qkey = (v) =>
         [v.x, v.y, v.z].map((x) => Math.round(x * 200)).join(',');
+
+      // GLB meshes are non-indexed triangle soup with no normals, so
+      // computeVertexNormals gives flat per-face normals and curved cloth
+      // visibly facets under the real-time sun. Average normals across
+      // vertices sharing a position (independent of UV splits) for smooth
+      // shading; the unlit bake base never reads normals, so the endpoints
+      // stay pixel-faithful.
+      function smoothNormalsByPosition(geo) {
+        geo.computeVertexNormals();
+        const pos = geo.getAttribute('position');
+        const nor = geo.getAttribute('normal');
+        const key = (i) =>
+          Math.round(pos.getX(i) * 2000) +
+          ',' +
+          Math.round(pos.getY(i) * 2000) +
+          ',' +
+          Math.round(pos.getZ(i) * 2000);
+        const acc = new Map();
+        for (let i = 0; i < pos.count; i++) {
+          const k = key(i);
+          let a = acc.get(k);
+          if (!a) acc.set(k, (a = [0, 0, 0]));
+          a[0] += nor.getX(i);
+          a[1] += nor.getY(i);
+          a[2] += nor.getZ(i);
+        }
+        for (let i = 0; i < pos.count; i++) {
+          const a = acc.get(key(i));
+          const l = Math.hypot(a[0], a[1], a[2]) || 1;
+          nor.setXYZ(i, a[0] / l, a[1] / l, a[2] / l);
+        }
+        nor.needsUpdate = true;
+      }
 
       function collectMeshes(root) {
         root.updateMatrixWorld(true);
@@ -176,7 +214,7 @@
           );
           if (bucket.uv.length)
             g.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uv, 2));
-          g.computeVertexNormals();
+          smoothNormalsByPosition(g);
           return g;
         };
         return {shadeGeo: make(shade), wallGeo: make(wall)};
@@ -231,7 +269,7 @@
           );
           if (bucket.uv.length)
             g.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uv, 2));
-          g.computeVertexNormals();
+          smoothNormalsByPosition(g);
           out.push({geo: g, topY});
         }
         return out;
@@ -292,15 +330,22 @@
         );
         bounce.intensity = 0.55 * mixU * (1 - smoothstep(0.55, 0.82, t));
         bounce.color.setRGB(1, 0.97 - 0.12 * warmth, 0.9 - 0.3 * warmth);
-        // faint corner lift during the dark half only (endpoints stay pure)
-        skyFill.intensity = 0.05 * mixU * (1 - smoothstep(0.5, 0.85, t));
+        // faint corner lift during the dark half only, plus a night lift:
+        // the Evening Loft bake is genuinely dark (p50 ~20 at exposure 1, half
+        // the frame under level 32), so the last third of the cycle gets a
+        // deliberate exposure lift + a faint warm fill. t=1 deviates from the
+        // raw bake on purpose - at 1.0 exposure it is pixel-faithful.
+        const nightLift = smoothstep(0.62, 0.92, t);
+        skyFill.intensity =
+          0.05 * mixU * (1 - smoothstep(0.5, 0.85, t)) + 0.06 * nightLift;
         skyFill.color.setRGB(
           0.55 - 0.4 * warmth,
           0.66 - 0.5 * warmth,
           0.88 - 0.56 * warmth
         );
-        // endpoints render the reference bakes at exposure 1
-        state.baseExposure = 1.0;
+        // endpoints render the reference bake at exposure 1; the night end
+        // gets lifted (see nightLift above)
+        state.baseExposure = 1.0 + 0.5 * nightLift;
         // sky texture blend follows the same mix
         if (state.skyMix) state.skyMix.value = mixU;
         // rolling blinds: hardware fades in just as the roll starts
@@ -683,7 +728,7 @@
             if (used.has(i)) return;
             const mesh = d.mesh.clone();
             mesh.geometry = d.mesh.geometry.clone();
-            mesh.geometry.computeVertexNormals();
+            smoothNormalsByPosition(mesh.geometry);
             mesh.material = d.mesh.material.clone();
             mesh.material.transparent = true;
             // the floor surface undulates through the rug's thickness (both
@@ -717,6 +762,7 @@
             );
             const body = d.mesh.clone();
             body.geometry = d.mesh.geometry.clone();
+            smoothNormalsByPosition(body.geometry);
             body.material = mat;
             root.add(body);
             if (/outside|sky/i.test(d.mesh.material.name))

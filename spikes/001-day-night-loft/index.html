@@ -382,38 +382,147 @@
         renderer.autoClear = true;
       }
 
+      let hudEl = null;
       const frameAt = (t, p, shot = 0) => {
         setTimeOfDay(t);
         setCamera(p, shot);
         renderFrame();
       };
-      // manual drive (recordings) suspends the autoplay loop below
+      // manual drive (recordings) suspends the autoplay loop and hides the HUD
       window.__frame = (t, p, shot = 0) => {
         window.__autoplay = false;
+        if (hudEl) hudEl.style.display = 'none';
         frameAt(t, p, shot);
       };
       window.__render = renderFrame; // spike debug hook
       window.__play = () => {
         window.__autoplay = true;
+        if (hudEl) hudEl.style.display = '';
       };
 
       // autoplay for humans: day -> night -> day ping-pong while the camera
-      // slowly cycles through the 5 shots
+      // slowly cycles through the 5 shots. The HUD lets you pick a shot and
+      // scrub the time of day.
       window.__autoplay = true;
-      const playT0 = performance.now();
+      const hud = {
+        t: 0,
+        dir: 1,
+        timePlay: true,
+        autoShot: true,
+        shot: 0,
+      };
+      window.__hud = hud;
+      const NUM_SHOTS = Object.keys(SHOTS).length;
       const SHOT_SECONDS = 10;
       const DAY_SECONDS = 22;
+      let lastNow = performance.now();
       const tick = (now) => {
         requestAnimationFrame(tick);
         if (window.__autoplay === false || window.__ready !== true) return;
-        const el = (now - playT0) / 1000;
-        const u = (el % (DAY_SECONDS * 2)) / DAY_SECONDS;
-        const t = u <= 1 ? u : 2 - u;
-        const shot = Math.floor(el / SHOT_SECONDS) % SHOTS.length;
+        const dt = Math.min(0.1, (now - lastNow) / 1000);
+        lastNow = now;
+        if (hud.timePlay) {
+          hud.t += (dt / DAY_SECONDS) * hud.dir;
+          if (hud.t > 1) {
+            hud.t = 1;
+            hud.dir = -1;
+          } else if (hud.t < 0) {
+            hud.t = 0;
+            hud.dir = 1;
+          }
+        }
+        const el = now / 1000;
+        const shot = hud.autoShot
+          ? Math.floor(el / SHOT_SECONDS) % NUM_SHOTS
+          : hud.shot;
         const p = (el % SHOT_SECONDS) / SHOT_SECONDS;
-        frameAt(t, p, shot);
+        frameAt(hud.t, p, shot);
       };
       requestAnimationFrame(tick);
+
+      // ---- HUD: camera picker + time-of-day scrubber ----
+      {
+        const panel = document.createElement('div');
+        panel.style.cssText =
+          'position:fixed;left:16px;bottom:16px;z-index:10;display:flex;' +
+          'flex-direction:column;gap:10px;background:rgba(12,14,18,0.78);' +
+          'backdrop-filter:blur(8px);padding:12px 14px;border-radius:12px;' +
+          'font:13px/1.4 system-ui,sans-serif;color:#e8eaed;user-select:none;';
+        const btnCss =
+          'border:none;border-radius:8px;padding:6px 11px;cursor:pointer;' +
+          'font:inherit;color:#e8eaed;background:#2a2f3a;';
+        const activeCss = 'background:#4a90d9;color:#fff;';
+
+        // row 1: camera
+        const rowCam = document.createElement('div');
+        rowCam.style.cssText = 'display:flex;gap:6px;align-items:center;';
+        const camLabel = document.createElement('span');
+        camLabel.textContent = 'Camera';
+        camLabel.style.cssText = 'opacity:0.7;margin-right:4px;';
+        rowCam.appendChild(camLabel);
+        const camButtons = [];
+        const mkCam = (name, auto, idx) => {
+          const b = document.createElement('button');
+          b.textContent = name;
+          b.style.cssText = btnCss;
+          b.onclick = () => {
+            hud.autoShot = auto;
+            hud.shot = idx;
+            syncCam();
+          };
+          camButtons.push(b);
+          rowCam.appendChild(b);
+        };
+        mkCam('Auto', true, 0);
+        for (let i = 0; i < NUM_SHOTS; i++) mkCam(String(i + 1), false, i);
+        const syncCam = () =>
+          camButtons.forEach(
+            (b, i) =>
+              (b.style.cssText =
+                btnCss +
+                ((i === 0 ? hud.autoShot : !hud.autoShot && hud.shot === i - 1)
+                  ? activeCss
+                  : ''))
+          );
+        syncCam();
+
+        // row 2: time of day
+        const rowTime = document.createElement('div');
+        rowTime.style.cssText = 'display:flex;gap:8px;align-items:center;';
+        const playBtn = document.createElement('button');
+        playBtn.textContent = '⏸';
+        playBtn.style.cssText = btnCss;
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = '0';
+        slider.max = '1000';
+        slider.value = '0';
+        slider.style.cssText = 'width:180px;accent-color:#4a90d9;';
+        const phase = document.createElement('span');
+        phase.style.cssText = 'opacity:0.7;min-width:86px;';
+        const syncTime = () => {
+          playBtn.textContent = hud.timePlay ? '⏸' : '▶';
+          if (document.activeElement !== slider)
+            slider.value = String(Math.round(hud.t * 1000));
+          phase.textContent =
+            hud.t < 0.33 ? 'Day' : hud.t < 0.66 ? 'Dusk' : 'Night';
+        };
+        playBtn.onclick = () => {
+          hud.timePlay = !hud.timePlay;
+          syncTime();
+        };
+        slider.oninput = () => {
+          hud.timePlay = false;
+          hud.t = Number(slider.value) / 1000;
+          syncTime();
+        };
+        setInterval(syncTime, 120);
+        rowTime.append(playBtn, slider, phase);
+
+        panel.append(rowCam, rowTime);
+        document.body.appendChild(panel);
+        hudEl = panel;
+      }
 
       // ---- load both GLBs ----
       const loader = new GLTFLoader();

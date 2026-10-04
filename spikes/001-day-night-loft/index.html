@@ -234,6 +234,10 @@
         rug: null,
         skyMix: null, // uniform for sky blend
         baseExposure: 1.36,
+        blendMeshes: [], // {mesh, mapDay, mapNight, uvScale}
+        nightBits: [], // static night-only geometry, fades in with mixU
+        noSunMeshes: [], // outdoor meshes excluded from the additive sun pass
+        sky: null, // sky sphere (its blend is the skyMix uniform)
         ready: false,
       };
       window.__state = state; // spike debug hook
@@ -245,46 +249,53 @@
       };
 
       function setTimeOfDay(t) {
-        // sun arc: high warm-white noon -> low amber -> below horizon
-        const dayness = 1 - smoothstep(0.55, 0.82, t);
-        const elevation =
-          THREE.MathUtils.degToRad(55 - 52 * smoothstep(0.0, 0.8, t));
-        const azimuth = THREE.MathUtils.degToRad(-45 + 85 * t);
+        // HYBRID: baked day/night bakes cross-fade as the base (mixU), and a
+        // real-time shadow-mapped sun carries the moving directional light on
+        // top. Additive terms are ZERO at both endpoints so t=0 renders the
+        // reference Daytime Loft bake and t=1 the Evening Loft bake as-is.
+        const mixU = smoothstep(0.3, 0.72, t); // base: day bake -> night bake
+        for (const b of state.blendMeshes) {
+          const sh = b.mat.userData.shader;
+          if (sh) sh.uniforms.mixU.value = mixU;
+        }
+        // sun arc: aligned with the day bake's baked patch at t=0, then moves
+        const dayness = 1 - smoothstep(0.58, 0.8, t);
+        const sunOn = smoothstep(0.03, 0.2, t);
+        const elevation = THREE.MathUtils.degToRad(
+          50 - 48 * smoothstep(0.0, 0.8, t)
+        );
+        const azimuth = THREE.MathUtils.degToRad(-50 + 95 * t);
         const r = 30;
         sun.position.set(
           Math.cos(elevation) * Math.cos(azimuth) * r,
           Math.sin(elevation) * r,
           Math.cos(elevation) * Math.sin(azimuth) * r
         );
-        // punchier sun, shaped bounce, minimal flat fill -> contrast + daylight
-        sun.intensity = 4.6 * dayness;
+        sun.intensity = 2.0 * sunOn * dayness;
         const warmth = smoothstep(0.35, 0.8, t);
-        sun.color.setRGB(
-          1,
-          1 - 0.35 * warmth,
-          1 - 0.72 * warmth
-        );
-        // bounce: low directional light flooding in from the sun's azimuth
+        sun.color.setRGB(1, 1 - 0.35 * warmth, 1 - 0.72 * warmth);
+        // bounce: low directional flood from the sun's azimuth, transition only
         const bElev = THREE.MathUtils.degToRad(20);
         bounce.position.set(
           Math.cos(bElev) * Math.cos(azimuth) * r,
           Math.sin(bElev) * r,
           Math.cos(bElev) * Math.sin(azimuth) * r
         );
-        bounce.intensity = 1.15 * dayness;
+        bounce.intensity =
+          0.9 * smoothstep(0.15, 0.4, t) * (1 - smoothstep(0.55, 0.82, t));
         bounce.color.setRGB(1, 0.97 - 0.12 * warmth, 0.9 - 0.3 * warmth);
-        // sky fill: barely-there corner lift (a flat fill washes the bake)
-        skyFill.intensity = 0.05 * (1 - 0.6 * smoothstep(0.3, 0.9, t));
+        // faint corner lift during the dark half only (endpoints stay pure)
+        skyFill.intensity =
+          0.05 * smoothstep(0.02, 0.15, t) * (1 - smoothstep(0.5, 0.85, t));
         skyFill.color.setRGB(
           0.55 - 0.4 * warmth,
           0.66 - 0.5 * warmth,
           0.88 - 0.56 * warmth
         );
-        // day brightness comes from BASE EXPOSURE (a multiply keeps contrast),
-        // applied to pass 1 only; the additive sun pass renders at exposure 1
-        state.baseExposure = 1.08 + 0.42 * (1 - smoothstep(0.5, 0.95, t));
-        // sky texture blend (day view -> night view)
-        if (state.skyMix) state.skyMix.value = smoothstep(0.45, 0.8, t);
+        // endpoints render the reference bakes at exposure 1
+        state.baseExposure = 1.0;
+        // sky texture blend follows the same mix
+        if (state.skyMix) state.skyMix.value = mixU;
         // rolling blinds: hardware fades in just as the roll starts
         const hardware = smoothstep(0.47, 0.56, t);
         const roll = smoothstep(0.5, 0.82, t);
@@ -293,10 +304,15 @@
           s.mesh.material.opacity = hardware;
           s.mesh.scale.y = 0.04 + 0.96 * roll;
         }
-        // day-only rug fades out
+        // day-only rug fades out before the night half
         if (state.rug) {
-          state.rug.material.opacity = 1 - smoothstep(0.25, 0.55, t);
+          state.rug.material.opacity = 1 - smoothstep(0.3, 0.65, t);
           state.rug.visible = state.rug.material.opacity > 0.01;
+        }
+        // night-only floor bits fade in with the night mix
+        for (const m of state.nightBits) {
+          m.material.opacity = mixU;
+          m.visible = mixU > 0.01;
         }
       }
 
@@ -352,11 +368,15 @@
         // pass 2: additive sun + sky fill (hide sky sphere: it is not "lit")
         const skyVisible = state.sky ? state.sky.visible : false;
         if (state.sky) state.sky.visible = false;
+        for (const m of state.noSunMeshes) m.visible = false; // outdoor: baked
         const rugVis = state.rug ? state.rug.visible : false;
+        if (state.rug) state.rug.visible = false; // fading rug: no additive draw
         scene.overrideMaterial = sunMat;
         renderer.render(scene, camera);
         scene.overrideMaterial = null;
         if (state.sky) state.sky.visible = skyVisible;
+        for (const m of state.noSunMeshes) m.visible = true;
+        if (state.rug) state.rug.visible = rugVis;
         renderer.autoClear = true;
       }
 
@@ -383,6 +403,112 @@
           o.rotation.set(0, 0, 0);
           o.scale.set(1, 1, 1);
         });
+      }
+
+      // ---- day/night texture blend (the base "GI layer") ----
+      // Two bakes of the same room: base = mapDay at day, mapNight at night,
+      // cross-faded by the global mixU. Endpoints stay pixel-faithful to the
+      // reference GLBs; the moving sun lives in the additive pass on top.
+      function buildBlendMaterial(mapDay, mapNight, delta, extra = {}) {
+        const m = new THREE.MeshBasicMaterial({map: mapDay, ...extra});
+        m.onBeforeCompile = (shader) => {
+          shader.uniforms.mapNight = {value: mapNight};
+          shader.uniforms.mixU = {value: 0};
+          shader.uniforms.nightUvDelta = {
+            value: new THREE.Vector2(delta[0], delta[1]),
+          };
+          shader.fragmentShader = shader.fragmentShader
+            .replace(
+              '#include <common>',
+              '#include <common>\nuniform sampler2D mapNight;\nuniform float mixU;\nuniform vec2 nightUvDelta;'
+            )
+            .replace(
+              '#include <map_fragment>',
+              `{
+                vec4 texDay = texture2D( map, vMapUv );
+                vec4 texNight = texture2D( mapNight, vMapUv + nightUvDelta );
+                vec4 sampledDiffuseColor = mix( texDay, texNight, mixU );
+                diffuseColor *= sampledDiffuseColor;
+              }`
+            );
+          m.userData.shader = shader;
+        };
+        m.customProgramCacheKey = () => 'blendmap';
+        return m;
+      }
+
+      // Uniform UV mapping ("plane18"-style GLB export): uv = pos[plane] *
+      // scale + offset. Recover scale/offset from the day mesh's geometry/UV
+      // bounds and verify against the night mesh's UVs.
+      function uvMapping(d, n) {
+        const dbb = new THREE.Box3().setFromBufferAttribute(
+          d.mesh.geometry.getAttribute('position')
+        );
+        const nb = new THREE.Box3().setFromBufferAttribute(
+          n.mesh.geometry.getAttribute('position')
+        );
+        const uvBounds = (attr) => {
+          const b = [1e9, 1e9, -1e9, -1e9];
+          for (let i = 0; i < attr.count; i++) {
+            b[0] = Math.min(b[0], attr.getX(i));
+            b[1] = Math.min(b[1], attr.getY(i));
+            b[2] = Math.max(b[2], attr.getX(i));
+            b[3] = Math.max(b[3], attr.getY(i));
+          }
+          return b;
+        };
+        const duv = uvBounds(d.mesh.geometry.getAttribute('uv'));
+        // choose the plane (x=0,y=1,z=2) whose day/night position spans match
+        let best = null;
+        for (const [a, b] of [
+          [0, 1],
+          [0, 2],
+          [1, 2],
+        ]) {
+          const err =
+            Math.abs(
+              dbb.max.getComponent(a) -
+                dbb.min.getComponent(a) -
+                (nb.max.getComponent(a) - nb.min.getComponent(a))
+            ) +
+            Math.abs(
+              dbb.max.getComponent(b) -
+                dbb.min.getComponent(b) -
+                (nb.max.getComponent(b) - nb.min.getComponent(b))
+            );
+          if (!best || err < best.err) best = {a, b, err};
+        }
+        const {a, b} = best;
+        const spanA = dbb.max.getComponent(a) - dbb.min.getComponent(a) || 1;
+        const spanB = dbb.max.getComponent(b) - dbb.min.getComponent(b) || 1;
+        const scale = [(duv[2] - duv[0]) / spanA, (duv[3] - duv[1]) / spanB];
+        const offset = [
+          duv[0] - dbb.min.getComponent(a) * scale[0],
+          duv[1] - dbb.min.getComponent(b) * scale[1],
+        ];
+        return {
+          scale,
+          offset,
+          plane: [a, b],
+          uvBB: [duv[0], duv[1], duv[2] - duv[0], duv[3] - duv[1]],
+        };
+      }
+
+      // Re-project a mesh's UVs onto the day mapping (night bakes can have
+      // shifted UV origins; projecting both onto one mapping keeps the blend
+      // registered).
+      function applyUvMapping(geo, map) {
+        const pos = geo.getAttribute('position');
+        const uv = geo.getAttribute('uv');
+        const [a, b] = map.plane;
+        for (let i = 0; i < pos.count; i++) {
+          uv.setXY(
+            i,
+            pos.getComponent(i, a) * map.scale[0] + map.offset[0],
+            pos.getComponent(i, b) * map.scale[1] + map.offset[1]
+          );
+        }
+        uv.needsUpdate = true;
       }
 
       Promise.all([load(NIGHT_GLB), load(DAY_GLB)]).then(
@@ -428,7 +554,39 @@
           });
 
           const shadeReport = [];
+          const blendReport = [];
           for (const {n, d} of pairs) {
+            // MAIN BODY: day geometry + day/night blended texture. The day bake
+            // carries no shade tris, so its geometry is exactly the wall/prop
+            // body; the night texture is sampled at (uv + delta) to undo the
+            // night bake's shifted UV origin.
+            const dayMap = uvMapping(d, n);
+            const nightMap = uvMapping(n, d);
+            const delta = [
+              nightMap.offset[0] - dayMap.offset[0],
+              nightMap.offset[1] - dayMap.offset[1],
+            ];
+            const mat = buildBlendMaterial(
+              d.mesh.material.map,
+              n.mesh.material.map,
+              delta,
+              {key: d.mesh.material.name}
+            );
+            const body = d.mesh.clone();
+            body.geometry = d.mesh.geometry.clone();
+            body.material = mat;
+            root.add(body);
+            if (/outside|sky/i.test(d.mesh.material.name))
+              state.noSunMeshes.push(body); // outdoor stays baked
+            state.blendMeshes.push({mat, delta});
+            blendReport.push({
+              name: d.mesh.material.name,
+              delta: delta.map((x) => +x.toFixed(4)),
+              scaleMismatch: +Math.abs(
+                dayMap.scale[0] - nightMap.scale[0]
+              ).toFixed(5),
+            });
+
             // night-only verts = the state geometry (shades). Only the room
             // shells carry window shades; other diffs (moved props, lamp
             // re-tessellation) snap to the night state.
@@ -438,16 +596,8 @@
             const extra = isRoomShell
               ? new Set([...n.verts].filter((v) => !d.verts.has(v)))
               : new Set();
-            if (extra.size < 12) {
-              // no meaningful state geometry: keep the night mesh as-is
-              root.add(n.mesh);
-              continue;
-            }
-            const {shadeGeo, wallGeo} = splitMesh(n, extra);
-            const wall = n.mesh.clone();
-            wall.geometry = wallGeo;
-            wall.material = n.mesh.material.clone();
-            root.add(wall);
+            if (extra.size < 12) continue;
+            const {shadeGeo} = splitMesh(n, extra);
             if (shadeGeo.getAttribute('position').count > 0) {
               for (const blind of clusterBlinds(shadeGeo)) {
                 const shade = n.mesh.clone();
@@ -455,8 +605,13 @@
                 shade.material = n.mesh.material.clone();
                 const topY = blind.topY;
                 if (topY < 0.5) {
-                  // stray night-only floor bits: static, not window blinds
+                  // stray night-only floor bits: static, but night-state
+                  // geometry - fade in with the night mix
+                  shade.material.transparent = true;
+                  shade.material.opacity = 0;
+                  shade.visible = false;
                   root.add(shade);
+                  state.nightBits.push(shade);
                   continue;
                 }
                 shade.material.transparent = true;
@@ -517,6 +672,7 @@
           window.__info = {
             pairs: pairs.length,
             shades: shadeReport,
+            blends: blendReport,
             rug: state.rug ? state.rug.material.name : null,
           };
           setTimeOfDay(0);

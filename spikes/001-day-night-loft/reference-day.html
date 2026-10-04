@@ -46,7 +46,7 @@
       renderer.setPixelRatio(1);
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMapping = THREE.NoToneMapping;
       renderer.toneMappingExposure = 1.0;
       document.body.appendChild(renderer.domElement);
 

@@ -46,7 +46,7 @@
       renderer.setPixelRatio(1);
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMapping = THREE.NoToneMapping;
       renderer.toneMappingExposure = 1.0;
       document.body.appendChild(renderer.domElement);
 
@@ -96,6 +96,11 @@
 
       window.__frame = (p, shot = 0) => {
         setCamera(p, shot);
+        renderer.render(scene, camera);
+      };
+      window.__frameFree = (pos, look) => {
+        camera.position.set(pos[0], pos[1], pos[2]);
+        camera.lookAt(look[0], look[1], look[2]);
         renderer.render(scene, camera);
       };
 

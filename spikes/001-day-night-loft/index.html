@@ -47,8 +47,10 @@
         preserveDrawingBuffer: true,
       });
       renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.0;
+      // No tone mapping: the Simulator renders these unlit bakes with three's
+      // default. ACES crushed the dark end (texture level 9 -> ~2; 5-34% of
+      // night frames near-black vs 1.1% in a plain GLB viewer).
+      renderer.toneMapping = THREE.NoToneMapping;
       renderer.shadowMap.enabled = true;
       // PCF (not PCFSoft) + radius: PCFSoft ignores shadow.radius; the plain PCF
       // kernel with a radius gives a real penumbra that absorbs the shadow map's
@@ -199,7 +201,10 @@
           const i1 = index ? index.getX(t * 3 + 1) : t * 3 + 1;
           const i2 = index ? index.getX(t * 3 + 2) : t * 3 + 2;
           const n = isExtra[i0] + isExtra[i1] + isExtra[i2];
-          const bucket = n >= 2 ? shade : wall;
+          // >=1: boundary triangles (housing edge sharing a vert with the wall)
+          // are night-state geometry too - at >=2 they fell into the wall bucket
+          // which nothing renders, leaving a gap above every roller shade
+          const bucket = n >= 1 ? shade : wall;
           for (const i of [i0, i1, i2]) {
             world.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
             bucket.pos.push(world.x, world.y, world.z);
@@ -318,7 +323,7 @@
           Math.sin(elevation) * r,
           Math.cos(elevation) * Math.sin(azimuth) * r
         );
-        sun.intensity = 0.85 * mixU * dayness;
+        sun.intensity = 0.35 * mixU * dayness;
         const warmth = smoothstep(0.35, 0.8, t);
         sun.color.setRGB(1, 1 - 0.35 * warmth, 1 - 0.72 * warmth);
         // bounce: low directional flood from the sun's azimuth, transition only
@@ -328,24 +333,19 @@
           Math.sin(bElev) * r,
           Math.cos(bElev) * Math.sin(azimuth) * r
         );
-        bounce.intensity = 0.55 * mixU * (1 - smoothstep(0.55, 0.82, t));
+        bounce.intensity = 0.25 * mixU * (1 - smoothstep(0.55, 0.82, t));
         bounce.color.setRGB(1, 0.97 - 0.12 * warmth, 0.9 - 0.3 * warmth);
-        // faint corner lift during the dark half only, plus a night lift:
-        // the Evening Loft bake is genuinely dark (p50 ~20 at exposure 1, half
-        // the frame under level 32), so the last third of the cycle gets a
-        // deliberate exposure lift + a faint warm fill. t=1 deviates from the
-        // raw bake on purpose - at 1.0 exposure it is pixel-faithful.
-        const nightLift = smoothstep(0.62, 0.92, t);
-        skyFill.intensity =
-          0.05 * mixU * (1 - smoothstep(0.5, 0.85, t)) + 0.06 * nightLift;
+        // faint corner lift during the dark half only (endpoints stay pure -
+        // with NoToneMapping the night endpoint is exactly the bake, which
+        // reads as a visible dark-brown interior, not crushed black)
+        skyFill.intensity = 0.05 * mixU * (1 - smoothstep(0.5, 0.85, t));
         skyFill.color.setRGB(
           0.55 - 0.4 * warmth,
           0.66 - 0.5 * warmth,
           0.88 - 0.56 * warmth
         );
-        // endpoints render the reference bake at exposure 1; the night end
-        // gets lifted (see nightLift above)
-        state.baseExposure = 1.0 + 0.5 * nightLift;
+        // exposure is a no-op under NoToneMapping (kept for easy A/B)
+        state.baseExposure = 1.0;
         // sky texture blend follows the same mix
         if (state.skyMix) state.skyMix.value = mixU;
         // rolling blinds: hardware fades in just as the roll starts
@@ -440,6 +440,14 @@
         frameAt(t, p, shot);
       };
       window.__render = renderFrame; // spike debug hook
+      window.__frameFree = (t, pos, look) => {
+        window.__autoplay = false;
+        if (hudEl) hudEl.style.display = 'none';
+        setTimeOfDay(t);
+        camera.position.set(pos[0], pos[1], pos[2]);
+        camera.lookAt(look[0], look[1], look[2]);
+        renderFrame();
+      };
       window.__play = () => {
         window.__autoplay = true;
         if (hudEl) hudEl.style.display = '';
@@ -750,10 +758,13 @@
             // night bake's shifted UV origin.
             const dayMap = uvMapping(d, n);
             const nightMap = uvMapping(n, d);
-            const delta = [
-              nightMap.offset[0] - dayMap.offset[0],
-              nightMap.offset[1] - dayMap.offset[1],
-            ];
+            // The fitted offsets are contaminated: the night meshes carry extra
+            // shade/housing tris, which skew the position-bounds fit (the worst
+            // case, 'Bake home office', read a bogus 0.0156 shift and visibly
+            // misregistered its wall texture - zeroing it cut the closeup error
+            // 3x in an A/B against the raw GLB). Day and night bakes share UVs
+            // for 19/22 meshes exactly; sample both at the same uv.
+            const delta = [0, 0];
             const mat = buildBlendMaterial(
               d.mesh.material.map,
               n.mesh.material.map,

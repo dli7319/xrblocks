@@ -35,6 +35,10 @@ export class HitRegistry {
 
   constructor(camera?: THREE.Camera) {
     if (camera) this.raycaster.camera = camera;
+    // Spike (spike/draw-call-floor): batched UI sources live on layer 5 so the
+    // camera skips them (layers 1/2 are XR eye layers); raycasting must still
+    // see them.
+    this.raycaster.layers.enable(5);
     this.raycaster.params.Line = {threshold: POINT_AND_LINE_THRESHOLD_METERS};
     this.raycaster.params.Points = {threshold: POINT_AND_LINE_THRESHOLD_METERS};
   }

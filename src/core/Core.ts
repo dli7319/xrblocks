@@ -19,6 +19,7 @@ import {Input} from '../input/Input';
 import {Interaction} from '../interaction/Interaction';
 import {ReticlePresenter} from '../interaction/ReticlePresenter';
 import {UIRenderer} from '../ui/internal/UIRenderer';
+import {SpikeBatcher} from '../ui/internal/SpikeBatcher';
 import {isUIElement} from '../ui/UIElement';
 import {Lighting} from '../lighting/Lighting';
 import {Physics} from '../physics/Physics';
@@ -28,6 +29,7 @@ import {CoreSound} from '../sound/CoreSound';
 import {SoundOptions} from '../sound/SoundOptions';
 import {callInitWithDependencyInjection} from '../utils/DependencyInjection';
 import {loadingSpinnerManager} from '../utils/LoadingSpinnerManager';
+import {getUrlParamBool} from '../utils/utils';
 import {World} from '../world/World';
 import {WorldOptions} from '../world/WorldOptions';
 import {MeshDetectionOptions} from '../world/mesh/MeshDetectionOptions';
@@ -180,6 +182,8 @@ export class Core {
   private manualStepTime = 0;
   private _renderer?: WebGLOrWebGPURenderer;
   options!: Options;
+  /** Spike (spike/draw-call-floor): ?spikeBatch=1 draw-call batcher. */
+  private spikeBatcher?: SpikeBatcher;
   deviceCamera?: XRDeviceCamera;
   depth = new Depth();
   lighting?: Lighting;
@@ -876,7 +880,16 @@ export class Core {
     this.interaction.update(this.input.getFrame(), deltaSeconds);
     this.uiRenderer.present();
 
+    // Spike (spike/draw-call-floor): batch UI draw calls when enabled. Runs
+    // right after uikit's present() (its final layout write of the frame) and
+    // before the render, so batches reflect exactly what this frame draws.
+    if (getUrlParamBool('spikeBatch')) {
+      this.spikeBatcher ??= new SpikeBatcher(this.scene, this.camera);
+      this.spikeBatcher.update();
+    }
+
     this.renderSimulatorAndScene();
+
     if (this.renderer instanceof THREE.WebGLRenderer) {
       this.screenshotSynthesizer.onAfterRender(
         this.renderer,

@@ -1,0 +1,70 @@
+<!doctype html>
+<!--
+  Transport probe: two app iframes (host + client) in one page, driven through
+  the ?debug=1 hooks. Run with ?room=NAME and inspect window.probe() results.
+  Used for debugging the PeerJS map/presence path; not part of the demo UI.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>spatial-colocation transport probe</title>
+    <style>
+      body {
+        margin: 0;
+        display: flex;
+        gap: 4px;
+        background: #111;
+      }
+      iframe {
+        width: 50vw;
+        height: 100vh;
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <iframe id="host"></iframe>
+    <iframe id="client"></iframe>
+    <script>
+      const room = new URLSearchParams(location.search).get('room') || 'probe';
+      const base =
+        'index.html?synthetic=1&debug=1&room=' + encodeURIComponent(room);
+      // Wipe stored maps first: the probe must prove the NETWORK path, not the
+      // IndexedDB fallback.
+      const del = indexedDB.deleteDatabase('spatial-colocation-demo');
+      del.onsuccess =
+        del.onerror =
+        del.onblocked =
+          () => {
+            document.getElementById('host').src = base + '&mode=build';
+            document.getElementById('client').src = base + '&mode=relocalize';
+          };
+
+      // Inspect/drive both frames from the harness.
+      window.probe = () => {
+        const out = {};
+        for (const id of ['host', 'client']) {
+          const w = document.getElementById(id).contentWindow;
+          const s = w.__scoloc;
+          out[id] = s
+            ? {
+                isHost: s.net.isHost,
+                peerId: s.net.peerId,
+                peerCount: s.net.peerCount,
+                mode: s.state.mode,
+                hasMap: s.state.hasMap,
+                mapLandmarks: s.state.map ? s.state.map.landmarks.length : 0,
+                poses: [...s.state.poses.keys()],
+                log: w.document.querySelector('#log').textContent.slice(-400),
+              }
+            : 'not booted';
+        }
+        return out;
+      };
+      window.askMap = () =>
+        document
+          .getElementById('client')
+          .contentWindow.__scoloc.requestMapSoon();
+    </script>
+  </body>
+</html>

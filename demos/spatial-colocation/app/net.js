@@ -9,14 +9,23 @@
  * Wire format over every DataConnection (binaryType 'arraybuffer'):
  *   0x01 + UTF-8 JSON   control/pose messages
  *   0x02 + u32be headerLen + UTF-8 JSON header + raw bytes   serialized map blob
+ *   0x03 + u32be headerLen + UTF-8 JSON header + raw bytes   map blob CHUNK
+ *     (chunk headers carry {transferId, index, total}; maps above 128 KiB are
+ *      split into 60 KiB chunks because Chrome drops SCTP messages >~1 MiB)
  * Headers carry {type, to?} — `to` routes a frame through the host to one peer; absent
  * means broadcast. Control message types: hello, roster, map-request, map-data, pose, bye.
  */
 
 const TYPE_JSON = 0x01;
 const TYPE_MAP = 0x02;
+const TYPE_MAP_CHUNK = 0x03;
 const HOST_SUFFIX = 'host';
 const MAX_BACKOFF_MS = 8000;
+// Chrome's SCTP data-channel message cap is ~1 MiB and drops larger messages
+// silently, so maps above the threshold travel as 60 KiB chunks.
+const MAP_CHUNK_BYTES = 60 * 1024;
+const MAP_CHUNK_THRESHOLD = 128 * 1024;
+const MAP_TRANSFER_TTL_MS = 60000;
 
 function encodeJson(msg) {
   const payload = new TextEncoder().encode(JSON.stringify(msg));
@@ -26,10 +35,10 @@ function encodeJson(msg) {
   return out;
 }
 
-function encodeMap(header, bytes) {
+export function encodeMap(header, bytes, type = TYPE_MAP) {
   const h = new TextEncoder().encode(JSON.stringify(header));
   const out = new Uint8Array(1 + 4 + h.length + bytes.length);
-  out[0] = TYPE_MAP;
+  out[0] = type;
   new DataView(out.buffer).setUint32(1, h.length, false);
   out.set(h, 5);
   out.set(bytes, 5 + h.length);
@@ -64,7 +73,7 @@ export function decodeFrame(data) {
       return null;
     }
   }
-  if (u8[0] === TYPE_MAP) {
+  if (u8[0] === TYPE_MAP || u8[0] === TYPE_MAP_CHUNK) {
     if (u8.length < 5) return null;
     const hlen = new DataView(
       u8.buffer,
@@ -78,7 +87,11 @@ export function decodeFrame(data) {
     } catch (err) {
       return null;
     }
-    return {kind: 'map', header, bytes: u8.slice(5 + hlen)};
+    return {
+      kind: u8[0] === TYPE_MAP ? 'map' : 'map-chunk',
+      header,
+      bytes: u8.slice(5 + hlen),
+    };
   }
   return null;
 }
@@ -89,6 +102,63 @@ function slug(s) {
       .replace(/[^a-zA-Z0-9_-]/g, '')
       .slice(0, 12) || 'dev'
   );
+}
+
+/**
+ * Reassemble map transfers from complete (0x02) and chunked (0x03) frames.
+ * Returns `(frame, msg) => void`; completed transfers call `onComplete({from,
+ * name, bytes})`. Pure and stateful-per-instance — unit-tested directly.
+ */
+export function createMapAssembler(onComplete) {
+  const transfers = new Map(); // transferId -> {from, name, parts, received, total, ts}
+  const completed = new Map(); // transferId -> completion ts (drops late duplicates)
+  return function pushMapFrame(frame, msg) {
+    if (frame.kind === 'map') {
+      onComplete({from: msg.from, name: msg.name, bytes: frame.bytes});
+      return;
+    }
+    const id = msg.transferId;
+    if (!id) return;
+    const now = Date.now();
+    if (completed.has(id)) return;
+    let t = transfers.get(id);
+    if (!t) {
+      t = {
+        from: msg.from,
+        name: msg.name,
+        parts: [],
+        received: 0,
+        total: msg.total || 0,
+        ts: now,
+      };
+      transfers.set(id, t);
+      for (const [tid, other] of transfers) {
+        if (now - other.ts > MAP_TRANSFER_TTL_MS) transfers.delete(tid);
+      }
+      for (const [tid, ts] of completed) {
+        if (now - ts > MAP_TRANSFER_TTL_MS) completed.delete(tid);
+      }
+    }
+    t.ts = now;
+    if (!t.parts[msg.index]) {
+      t.parts[msg.index] = frame.bytes;
+      t.received += 1;
+    }
+    if (t.total && t.received >= t.total) {
+      transfers.delete(id);
+      completed.set(id, now);
+      let totalLen = 0;
+      for (const p of t.parts) totalLen += p ? p.length : 0;
+      const out = new Uint8Array(totalLen);
+      let off = 0;
+      for (const p of t.parts) {
+        if (!p) continue;
+        out.set(p, off);
+        off += p.length;
+      }
+      onComplete({from: t.from, name: t.name, bytes: out});
+    }
+  };
 }
 
 /**
@@ -141,6 +211,9 @@ export function createNet({room, label, hasMap = false} = {}) {
     }
     emit('peers', list);
   }
+
+  /** Complete (0x02) or reassemble (0x03 chunk) a map transfer, then emit it. */
+  const handleMapFrame = createMapAssembler((m) => emit('map-data', m));
 
   function teardownPeer() {
     gen++;
@@ -260,10 +333,10 @@ export function createNet({room, label, hasMap = false} = {}) {
       return;
     }
     if (
-      frame.kind === 'map' &&
+      (frame.kind === 'map' || frame.kind === 'map-chunk') &&
       (!msg.to || msg.to === hostPeerId || msg.to === myId)
     ) {
-      emit('map-data', {from: msg.from, name: msg.name, bytes: frame.bytes});
+      handleMapFrame(frame, msg);
     } else if (msg.type === 'map-request') {
       emit('map-request', msg);
     } else if (msg.type === 'pose') {
@@ -279,6 +352,10 @@ export function createNet({room, label, hasMap = false} = {}) {
     if (!frame) return;
     const msg = frame.header || {};
     if (msg.to && msg.to !== myId) return;
+    if (frame.kind === 'map' || frame.kind === 'map-chunk') {
+      handleMapFrame(frame, msg);
+      return;
+    }
     switch (msg.type) {
       case 'hello':
         if (msg.peerId && msg.peerId !== hostPeerId) {
@@ -464,11 +541,32 @@ export function createNet({room, label, hasMap = false} = {}) {
     sendMap(bytes, name, toPeerId) {
       const header = {type: 'map-data', from: myId, name: name || 'map'};
       if (toPeerId) header.to = toPeerId;
-      const buf = encodeMap(header, bytes);
-      if (isHost) {
-        hostRelay(null, header, null, buf);
-      } else if (hostConn && hostConn.open) {
-        hostConn.send(buf);
+      const send = (buf) => {
+        if (isHost) {
+          hostRelay(null, header, null, buf);
+        } else if (hostConn && hostConn.open) {
+          hostConn.send(buf);
+        }
+      };
+      if (bytes.length <= MAP_CHUNK_THRESHOLD) {
+        send(encodeMap(header, bytes));
+        return;
+      }
+      // Chunked: one SCTP message per 60 KiB slice, reassembled by the receiver.
+      const transferId = `${myId}-${Date.now().toString(36)}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      const total = Math.ceil(bytes.length / MAP_CHUNK_BYTES);
+      for (let i = 0; i < total; i++) {
+        const start = i * MAP_CHUNK_BYTES;
+        const end = Math.min(start + MAP_CHUNK_BYTES, bytes.length);
+        send(
+          encodeMap(
+            {...header, type: 'map-chunk', transferId, index: i, total},
+            bytes.subarray(start, end),
+            TYPE_MAP_CHUNK
+          )
+        );
       }
     },
     setHasMap(v) {

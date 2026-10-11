@@ -1,0 +1,67 @@
+<!doctype html>
+<!--
+  Transport probe for the XR Blocks sim entry: two sim.html iframes (host +
+  client) in one page, driven through the ?debug=1 hooks. Both frames stay
+  visible so neither is throttled/frozen. Run with ?room=NAME and inspect
+  window.probe(). Not part of the demo UI.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>spatial-colocation sim transport probe</title>
+    <style>
+      body {
+        margin: 0;
+        display: flex;
+        gap: 4px;
+        background: #111;
+      }
+      iframe {
+        width: 50vw;
+        height: 100vh;
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <iframe id="host"></iframe>
+    <iframe id="client"></iframe>
+    <script>
+      const room =
+        new URLSearchParams(location.search).get('room') || 'simprobe';
+      const base =
+        'sim.html?autoSweep=1&debug=1&room=' + encodeURIComponent(room);
+      // Wipe stored maps so the probe proves the NETWORK path, not IndexedDB.
+      const del = indexedDB.deleteDatabase('spatial-colocation-demo');
+      del.onsuccess =
+        del.onerror =
+        del.onblocked =
+          () => {
+            document.getElementById('host').src = base + '&mode=build';
+            document.getElementById('client').src = base + '&mode=relocalize';
+          };
+
+      window.probe = () => {
+        const out = {};
+        for (const id of ['host', 'client']) {
+          const w = document.getElementById(id).contentWindow;
+          const s = w.__scoloc;
+          out[id] = s
+            ? {
+                isHost: s.net.isHost,
+                peerId: s.net.peerId,
+                mode: s.state.mode,
+                hasMap: s.state.hasMap,
+                mapLandmarks: s.state.map ? s.state.map.landmarks.length : 0,
+                lastReloc: s.state.lastReloc,
+                cube: s.state.cube,
+                poses: [...s.state.poses.keys()],
+                log: w.document.querySelector('#log').textContent.slice(-360),
+              }
+            : 'not booted';
+        }
+        return out;
+      };
+    </script>
+  </body>
+</html>

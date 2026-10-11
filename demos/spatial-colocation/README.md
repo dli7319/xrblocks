@@ -58,6 +58,26 @@ Two-tab smoke test:
 `?debug=1` and exposes `window.probe()` / `window.askMap()` — useful for verifying the
 PeerJS map + presence path end to end from one tab.
 
+## XR Blocks simulator testbed
+
+`sim.html` is the same pipeline rebuilt on the XR Blocks SDK so the **desktop simulator** is a
+stability testbed: head poses come from the SDK camera (simulator virtual user), the ORB feed
+is the SDK scene's own rendered pixels (so feed and poses describe one consistent world), and a
+textured feature room guarantees ORB features. Same URL params as `index.html`, plus:
+
+| Param          | Effect                                                                      |
+| -------------- | --------------------------------------------------------------------------- |
+| `?autoSweep=1` | Scripted virtual-head sweep (SimulatorUser journey): 0.5 m circle, 30 s lap |
+| `?features=0`  | Disable the textured feature room                                           |
+
+The stability cube auto-places 1 m ahead of the camera and is world-locked; with `?autoSweep=1`
+its `mapPos` stays exactly `(0, 0, -1)` — any deviation while tracking is pure drift.
+`sim-transport.html?room=NAME` runs both sides as visible iframes (same probe pattern).
+
+Note: large maps (>128 KiB) travel in 60 KiB chunks — Chrome silently drops single WebRTC data
+messages above ~1 MiB. Known limitation: two heavy sim instances in ONE headless browser can
+stall the PeerJS handshake (renderer starvation); separate devices/windows are unaffected.
+
 ## URL parameters
 
 | Param                           | Effect                                                           |

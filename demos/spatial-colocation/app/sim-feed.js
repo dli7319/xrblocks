@@ -1,26 +1,32 @@
 // app/sim-feed.js
 /**
- * ORB feed sourced from the XR Blocks SDK's own rendered scene.
+ * ORB feed sourced from the XR Blocks SDK's device camera stream.
  *
- * `createSceneFeed()` renders `scene` from `camera` into an offscreen
- * `THREE.WebGLRenderTarget` on demand (the caller ticks it at <= 10 Hz) and
- * reads the pixels back as a top-left-origin RGBA frame — the same contract as
- * `app/capture.js`'s camera/synthetic sources, so the 4-phase pipeline in
- * `app/sim-main.js` sees pixels and head poses that describe the SAME world.
+ * `createCameraFeed()` samples the `XRDeviceCamera` video element
+ * (`VideoStream.video`, fed in the desktop simulator by `SimulatorCamera` via
+ * `XRDeviceCamera.registerSimulatorCamera` and on devices by the real camera)
+ * into a small canvas at the caller's tick rate (<= 10 Hz) and returns
+ * top-left-origin RGBA pixels — the same `{data, width, height}` contract as
+ * `app/capture.js`, so the 4-phase pipeline in `app/sim-main.js` sees real
+ * camera pixels.
  *
- * Degradation: a renderer without a synchronous `readRenderTargetPixels`
- * (WebGPU) cannot feed ORB from GPU pixels, so the feed falls back to
- * `app/capture.js`'s `startSynthetic()` (and its synthetic head-pose
- * trajectory) and reports `kind: 'synthetic'` with a clear console warning —
- * the page degrades to the old testbed instead of breaking.
+ * Degradation: if the camera video never becomes ready (no camera source at
+ * all, or `readyState < 2` past `CAMERA_READY_TIMEOUT_MS`), the feed falls
+ * back to `app/capture.js`'s `startSynthetic()` (and its synthetic head-pose
+ * trajectory), reports `kind: 'synthetic'`, and logs a clear warning — the
+ * page degrades to the old testbed instead of breaking.
  */
-
-import * as THREE from 'three';
 
 import {startSynthetic} from './capture.js';
 
 /** ORB feed width the pipeline expects (frames are downscaled to <= 640 px). */
 export const FEED_WIDTH = 640;
+
+/**
+ * How long to wait for the first camera frame before falling back to the
+ * synthetic feed (ms).
+ */
+export const CAMERA_READY_TIMEOUT_MS = 15000;
 
 /** Number of pixels of tolerance before the intrinsics self-check complains. */
 const INTRINSICS_TOLERANCE_PX = 0.5;
@@ -134,8 +140,9 @@ export function matrixToNested(m) {
  * direction every `SWEEP_YAW_PERIOD_S` seconds and pitch nods
  * +/-`SWEEP_PITCH_DEG` every `SWEEP_PITCH_PERIOD_S` seconds. Height bobs
  * `SWEEP_BOB_M` every 12 s. The head faces outward from the circle center, so
- * the feature room (2-6 m out) stays in view and parallax grows steadily —
- * exactly the motion that reveals (in)stability of the world-locked cube.
+ * the surrounding simulator environment stays in view and parallax grows
+ * steadily — exactly the motion that reveals (in)stability of the world-locked
+ * cube.
  *
  * @param {number} tSec seconds since the sweep started
  * @returns {{position: number[], yaw: number, pitch: number}} pose to apply
@@ -170,95 +177,98 @@ export const SWEEP_YAW_PERIOD_S = 15;
 export const SWEEP_PITCH_DEG = 5;
 export const SWEEP_PITCH_PERIOD_S = 9;
 
-// ---- scene feed --------------------------------------------------------------
+// ---- camera feed -------------------------------------------------------------
 
 /**
- * Create an ORB feed that reads the SDK's own rendered pixels.
+ * Create an ORB feed from the SDK's device camera stream.
  *
  * @param {object} options
- * @param {object} options.renderer XB renderer (`xb.core.renderer`)
- * @param {object} options.scene XB scene (`xb.core.scene`)
- * @param {object} options.camera XB camera (`xb.core.camera`) — the head
- * @param {number} [options.width] feed width in pixels (height follows aspect)
- * @returns {{getFrame: Function, kind: string, getHeadPose: Function, stop: Function}}
- *   `getFrame()` renders on demand and returns a reused
- *   `{data: Uint8ClampedArray, width, height}` RGBA buffer (top-left origin);
- *   `getHeadPose()` is null for scene feeds (the caller reads the XB camera)
+ * @param {object} [options.deviceCamera] XB `XRDeviceCamera`
+ *   (`xb.core.deviceCamera`, created by `options.enableCamera()`); in the
+ *   simulator its video is fed by `SimulatorCamera`, on devices by the real
+ *   camera.
+ * @param {number} [options.width] max feed width in pixels (height follows the
+ *   video aspect; frames are never upscaled past the source)
+ * @returns {{getFrame: Function, kind: string, getHeadPose: Function,
+ *   stop: Function}} `getFrame()` draws the video into a small canvas and
+ *   returns `{data: Uint8ClampedArray, width, height}` (top-left origin RGBA),
+ *   or `null` while the video is not ready yet; `kind` is `'camera'` and
+ *   becomes `'synthetic'` after the never-ready fallback kicks in;
+ *   `getHeadPose()` is null for camera feeds (the caller reads the XB camera)
  *   and the synthetic trajectory pose for the degraded feed.
  */
-export function createSceneFeed({
-  renderer,
-  scene,
-  camera,
-  width = FEED_WIDTH,
-} = {}) {
-  if (!renderer || !scene || !camera) {
-    throw new Error('createSceneFeed: renderer, scene and camera are required');
-  }
+export function createCameraFeed({deviceCamera, width = FEED_WIDTH} = {}) {
+  const startedAt = performance.now();
+  let fallback = null;
+  let canvas = null;
+  let ctx = null;
+  let frameW = 0;
+  let frameH = 0;
 
-  if (typeof renderer.readRenderTargetPixels !== 'function') {
+  const startFallback = (reason) => {
+    if (fallback) return fallback;
     console.warn(
-      '[sim-feed] renderer has no synchronous readRenderTargetPixels (WebGPU?) — ' +
-        'falling back to the app/capture.js synthetic feed AND synthetic head ' +
-        'poses; the page degrades to the old testbed.'
+      `[sim-feed] ${reason} — falling back to the app/capture.js synthetic ` +
+        `feed AND synthetic head poses; the page degrades to the old testbed.`
     );
     const height = Math.max(1, Math.round((width * 3) / 4));
-    const synth = startSynthetic({width, height});
-    return {
-      kind: 'synthetic',
-      getFrame: () => synth.getFrame(),
-      getHeadPose: () => synth.getHeadPose(),
-      stop: () => synth.stop(),
-    };
+    fallback = startSynthetic({width, height});
+    return fallback;
+  };
+
+  if (!deviceCamera) {
+    // No camera source can ever produce frames — fall back immediately.
+    startFallback('no XRDeviceCamera configured (options.enableCamera()?)');
   }
 
-  const aspect = camera.aspect > 0 ? camera.aspect : 4 / 3;
-  const height = Math.max(1, Math.round(width / aspect));
-  const target = new THREE.WebGLRenderTarget(width, height, {
-    depthBuffer: true,
-    stencilBuffer: false,
-  });
-  const pixels = new Uint8Array(width * height * 4);
-  const frame = new Uint8ClampedArray(width * height * 4);
-  let verified = false;
-
   return {
-    kind: 'scene',
+    get kind() {
+      return fallback ? 'synthetic' : 'camera';
+    },
     getFrame() {
-      const previous = renderer.getRenderTarget();
-      renderer.setRenderTarget(target);
-      renderer.render(scene, camera);
-      renderer.readRenderTargetPixels(target, 0, 0, width, height, pixels);
-      renderer.setRenderTarget(previous ?? null);
-      if (!verified) {
-        // Verify the intrinsics signs on real render data: the projection
-        // matrix decides where geometry lands, so K must agree with it.
-        verified = true;
-        const check = verifyIntrinsicsAgainstProjection(
-          camera.projectionMatrix,
-          width,
-          height
-        );
-        if (!check.ok) {
-          console.warn(
-            `[sim-feed] intrinsics disagree with the projection matrix by ` +
-              `${check.maxErrPx.toFixed(2)} px — check intrinsicsFromProjection()`
-          );
+      if (fallback) return fallback.getFrame();
+      const video = deviceCamera ? deviceCamera.video : null;
+      const ready = !!(
+        video &&
+        video.readyState >= 2 &&
+        video.videoWidth > 0 &&
+        video.videoHeight > 0
+      );
+      if (!ready) {
+        if (performance.now() - startedAt > CAMERA_READY_TIMEOUT_MS) {
+          startFallback('device camera video never became ready');
+          return fallback.getFrame();
         }
+        return null;
       }
-      // readRenderTargetPixels returns rows bottom-up; flip to OpenCV order.
-      const rowBytes = width * 4;
-      for (let row = 0; row < height; row++) {
-        const src = (height - 1 - row) * rowBytes;
-        frame.set(pixels.subarray(src, src + rowBytes), row * rowBytes);
+      // Small canvas, aspect from the video, never above the requested width.
+      const outW = Math.min(width, video.videoWidth);
+      const outH = Math.max(
+        1,
+        Math.round((outW * video.videoHeight) / video.videoWidth)
+      );
+      if (!canvas || frameW !== outW || frameH !== outH) {
+        canvas = document.createElement('canvas');
+        canvas.width = outW;
+        canvas.height = outH;
+        ctx = canvas.getContext('2d', {willReadFrequently: true});
+        frameW = outW;
+        frameH = outH;
       }
-      return {data: frame, width, height};
+      ctx.drawImage(video, 0, 0, outW, outH);
+      const img = ctx.getImageData(0, 0, outW, outH);
+      return {data: img.data, width: img.width, height: img.height};
     },
     getHeadPose() {
-      return null;
+      return fallback ? fallback.getHeadPose() : null;
     },
     stop() {
-      target.dispose();
+      if (fallback) {
+        fallback.stop();
+        fallback = null;
+      }
+      canvas = null;
+      ctx = null;
     },
   };
 }

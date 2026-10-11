@@ -9,9 +9,15 @@
  * - head poses come from the XB camera (`xb.core.camera` world matrix; the
  *   simulator virtual user on desktop, WebXR on device) — camera IS the head,
  *   so `T_head_camera` is identity;
- * - the ORB feed comes from the SDK's own rendered scene pixels
- *   (`app/sim-feed.js`), so pixels and head poses describe the SAME world —
- *   that is what makes this a stability testbed;
+ * - the ORB feed comes from the SDK's device camera stream
+ *   (`app/sim-feed.js` -> `XRDeviceCamera.video`, fed in the simulator by
+ *   `SimulatorCamera` and on devices by the real camera), so the pipeline runs
+ *   on the pixels a real deployment would see;
+ * - ALL UI lives in a world-anchored `xb.UICard` (XR Blocks UI framework) —
+ *   DOM is invisible inside a WebXR session, so the status/stats/buttons/
+ *   devices/log card renders in both the desktop simulator and immersive
+ *   sessions. Every log line is additionally mirrored into a hidden DOM `#log`
+ *   element for `sim-transport.html`'s probe() and operators;
  * - a world-locked stability cube (0.25 m, orange emissive) is placed 1 m in
  *   front of the camera and must stay glued to the world as the virtual head
  *   moves — its apparent stability IS the measurement;
@@ -21,7 +27,7 @@
  * builder's head frame at the first keyframe (`setMapOrigin`).
  *
  * URL params: `?room=NAME&mode=build|relocalize|live&label=NAME&debug=1`,
- * `?autoSweep=1`, `?features=0`, `?fov=DEG`, `?xrAutomation=1`.
+ * `?autoSweep=1`, `?fov=DEG`, `?xrAutomation=1`.
  *
  * `?autoSweep=1` moves the virtual head with the sanctioned simulator
  * "journey" mechanism (`Simulator.simulatorUser.loadJourney` + a
@@ -68,15 +74,13 @@ import {
 } from '../lib/relocalize.js';
 import {createNet} from './net.js';
 import * as store from './store.js';
-import {UI} from './ui.js';
 import {
-  createSceneFeed,
+  createCameraFeed,
   matrixToNested,
   intrinsicsFromProjection,
   autoSweepPoseAt,
   FEED_WIDTH,
 } from './sim-feed.js';
-import {addFeatureRoom, disposeFeatureRoom} from './sim-feature-room.js';
 
 // Local timing constants — copied exactly from app/main.js (raw demo).
 const PROCESS_INTERVAL_MS = 100; // feature extraction <= 10 Hz
@@ -86,6 +90,11 @@ const MAP_FALLBACK_MS = 3500;
 const MAP_RETRY_MS = 5000;
 const DEVICE_RENDER_INTERVAL_MS = 200;
 const SWEEP_JOURNEY_WAIT_MS = 5000;
+
+// UI update cadences.
+const STATS_TEXT_INTERVAL_MS = 200; // stats text <= 5 Hz
+const LOG_TAIL_LINES = 6;
+const DOM_LOG_MAX_NODES = 200;
 
 // Stability cube.
 const CUBE_SIZE_M = 0.25;
@@ -97,6 +106,13 @@ const IDENTITY = [
   [0, 0, 1, 0],
   [0, 0, 0, 1],
 ];
+
+const MODE_TITLES = {
+  idle: 'Idle',
+  build: 'Build',
+  relocalize: 'Relocalize',
+  live: 'Live',
+};
 
 function randId(n) {
   return Math.random()
@@ -151,6 +167,232 @@ function applySweepPose(camera, tSec) {
   camera.updateMatrixWorld(true);
 }
 
+// ---- in-session UI (XR Blocks UI framework) ---------------------------------
+
+/**
+ * The sim's single main `UICard`, built with the XR Blocks UI components so it
+ * renders in-world in the desktop simulator AND inside immersive WebXR
+ * sessions (DOM panels would be invisible there). Layout: status line, stats
+ * row (`kf · lm · matches · fps · inliers`, text updated at <= 5 Hz), mode +
+ * action buttons, per-device presence lines, and a 6-line log tail. The card
+ * is world-anchored ~1 m ahead at ~1.45 m with `manipulation: true` so users
+ * can move it. Every log line is also mirrored into the hidden DOM `#log`
+ * element kept for `sim-transport.html`'s probe() and operators.
+ */
+class SimCardUI {
+  constructor({room, label, onMode, onPlaceCube, onSaveMap, onLoadMap}) {
+    this.mode = 'idle';
+    this.badge = '';
+    this.stats = {
+      keyframes: 0,
+      landmarks: 0,
+      matches: 0,
+      fps: 0,
+      inliers: null,
+    };
+    this.lastStatsWrite = 0;
+    this.logLines = [];
+    this.domLog = document.getElementById('log');
+
+    this.statusText = new xb.UIText({
+      text: MODE_TITLES.idle,
+      style: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        width: '100%',
+        whiteSpace: 'pre-line',
+      },
+    });
+    this.statsText = new xb.UIText({
+      text: this.formatStats(),
+      style: {fontSize: 15, opacity: 0.85, width: '100%'},
+    });
+    this.netText = new xb.UIText({
+      text: 'net: …',
+      style: {fontSize: 13, opacity: 0.7, width: '100%'},
+    });
+    this.devicesText = new xb.UIText({
+      text: 'none yet',
+      style: {
+        fontSize: 14,
+        width: '100%',
+        whiteSpace: 'pre-line',
+        lineHeight: 1.35,
+      },
+    });
+    this.logText = new xb.UIText({
+      text: '',
+      style: {
+        fontSize: 12,
+        opacity: 0.7,
+        width: '100%',
+        whiteSpace: 'pre-line',
+        lineHeight: 1.3,
+      },
+    });
+
+    const modeButton = (title, mode) =>
+      new xb.UIButton({
+        label: title,
+        style: {flexGrow: 1},
+        onClick: () => onMode(mode),
+      });
+
+    this.card = new xb.UICard({
+      size: {width: 0.62, height: 'auto'},
+      manipulation: true,
+      edge: true,
+      style: {flexDirection: 'column', gap: 10, padding: 18},
+      children: [
+        new xb.UIText({
+          text: 'Spatial Colocation · sim',
+          style: {
+            fontSize: 26,
+            fontWeight: 'bold',
+            textAlign: 'center',
+            width: '100%',
+          },
+        }),
+        new xb.UIText({
+          text: `${room} · ${label}`,
+          style: {
+            fontSize: 13,
+            opacity: 0.7,
+            textAlign: 'center',
+            width: '100%',
+          },
+        }),
+        this.statusText,
+        this.statsText,
+        new xb.UIPanel({
+          style: {width: '100%', flexDirection: 'row', gap: 8},
+          children: [
+            modeButton('Build', 'build'),
+            modeButton('Relocalize', 'relocalize'),
+            modeButton('Live', 'live'),
+          ],
+        }),
+        new xb.UIPanel({
+          style: {width: '100%', flexDirection: 'row', gap: 8},
+          children: [
+            new xb.UIButton({
+              label: 'Place cube @1m',
+              style: {flexGrow: 1},
+              onClick: onPlaceCube,
+            }),
+            new xb.UIButton({
+              label: 'Save map',
+              style: {flexGrow: 1},
+              onClick: onSaveMap,
+            }),
+            new xb.UIButton({
+              label: 'Load map',
+              style: {flexGrow: 1},
+              onClick: onLoadMap,
+            }),
+          ],
+        }),
+        this.netText,
+        new xb.UIText({
+          text: 'Devices relocalized to this map',
+          style: {fontSize: 13, opacity: 0.7, width: '100%'},
+        }),
+        this.devicesText,
+        new xb.UIText({
+          text: 'Log',
+          style: {fontSize: 13, opacity: 0.7, width: '100%'},
+        }),
+        this.logText,
+      ],
+    });
+  }
+
+  /** Compose the status line: mode + badge text. */
+  refreshStatus() {
+    const title = MODE_TITLES[this.mode] || this.mode;
+    this.statusText.text = this.badge ? `${title}: ${this.badge}` : title;
+  }
+
+  setMode(mode) {
+    this.mode = mode;
+    this.refreshStatus();
+  }
+
+  setBadge(badge) {
+    this.badge = badge;
+    this.refreshStatus();
+  }
+
+  /** Merge stats and rewrite the stats text at <= 5 Hz. */
+  setStats(delta) {
+    Object.assign(this.stats, delta);
+    const now = performance.now();
+    if (now - this.lastStatsWrite < STATS_TEXT_INTERVAL_MS) return;
+    this.lastStatsWrite = now;
+    this.statsText.text = this.formatStats();
+  }
+
+  formatStats() {
+    const s = this.stats;
+    return (
+      `kf ${s.keyframes} · lm ${s.landmarks} · matches ${s.matches} · ` +
+      `fps ${s.fps} · inliers ${s.inliers ?? '—'}`
+    );
+  }
+
+  /** One line per device ('Dev-xxxx (you) ✓ N inliers'); empty → 'none yet'. */
+  setDevices(list) {
+    this.devicesText.text = list.length
+      ? list
+          .map(
+            (d) =>
+              `${d.label || d.peerId}${d.self ? ' (you)' : ''} ✓ ${d.inliers} inliers`
+          )
+          .join('\n')
+      : 'none yet';
+  }
+
+  setNet({status, detail, isHost, peerCount}) {
+    this.netInfo = {status, detail, isHost, peerCount};
+    this.refreshNetText();
+  }
+
+  /** Feed source (camera vs synthetic fallback) + runtime surface. */
+  setFeed(kind, surface) {
+    const source = kind === 'camera' ? 'device camera' : 'synthetic fallback';
+    this.feedInfo = `source: ${source} · xr: ${surface}`;
+    this.refreshNetText();
+  }
+
+  refreshNetText() {
+    const n = this.netInfo;
+    let netPart = 'net: …';
+    if (n) {
+      const role = n.isHost ? ' · host' : '';
+      const peers =
+        typeof n.peerCount === 'number' ? ` · ${n.peerCount} peers` : '';
+      netPart = `net: ${n.status}${role}${peers}${n.detail ? ` · ${n.detail}` : ''}`;
+    }
+    this.netText.text = this.feedInfo
+      ? `${netPart} · ${this.feedInfo}`
+      : netPart;
+  }
+
+  /** Log a line to the card tail (last LOG_TAIL_LINES) and mirror it to DOM. */
+  log(line, level = '') {
+    const text = level ? `${level}: ${line}` : line;
+    this.logLines.push(text);
+    while (this.logLines.length > LOG_TAIL_LINES) this.logLines.shift();
+    this.logText.text = this.logLines.join('\n');
+    if (this.domLog) {
+      this.domLog.appendChild(document.createTextNode(`${text}\n`));
+      while (this.domLog.childNodes.length > DOM_LOG_MAX_NODES) {
+        this.domLog.removeChild(this.domLog.firstChild);
+      }
+    }
+  }
+}
+
 // ---- URL params --------------------------------------------------------------
 
 const params = new URLSearchParams(location.search);
@@ -162,7 +404,6 @@ const startMode = params.get('mode');
 const label = (params.get('label') || `Sim-${randId(4)}`).slice(0, 24);
 const wantDebug = params.has('debug');
 const wantAutoSweep = params.get('autoSweep') === '1';
-const wantFeatures = params.get('features') !== '0';
 const fovOverride = params.get('fov') ? parseFloat(params.get('fov')) : null;
 const wantAutomation = params.get('xrAutomation') === '1';
 
@@ -174,10 +415,12 @@ class SimMain extends xb.Script {
   constructor() {
     super();
     this.engineCamera = null;
+    this.deviceCamera = null;
     this.feed = null;
     this.net = null;
     this.ui = null;
     this.cv = null;
+    this.storedMaps = [];
     this.helpers = {
       cv: null,
       estimateEssential,
@@ -185,7 +428,6 @@ class SimMain extends xb.Script {
       matchDescriptors,
       MIN_PARALLAX_DEG,
     };
-    this.featureRoom = null;
     this.cube = null;
     this.avatarGroup = null;
     this.avatars = new Map(); // peerId -> {group, label, lastSeen}
@@ -196,6 +438,7 @@ class SimMain extends xb.Script {
       mode: 'idle',
       K: null,
       KFrameW: 0,
+      KSource: null,
       map: null,
       mapName: null,
       hasMap: false,
@@ -231,9 +474,17 @@ class SimMain extends xb.Script {
     sun.position.set(3, 6, 4);
     this.add(sun);
 
-    if (wantFeatures) {
-      this.featureRoom = addFeatureRoom(xb.scene, {seed: 1});
-    }
+    // In-session UI card: world-anchored ~1 m ahead at ~1.45 m, movable.
+    this.ui = new SimCardUI({
+      room,
+      label,
+      onMode: (mode) => this.setMode(mode),
+      onPlaceCube: () => this.placeCube(),
+      onSaveMap: () => this.saveMapNow(),
+      onLoadMap: () => this.loadLatestMap(),
+    });
+    this.ui.card.position.set(0, 1.45, -1.1);
+    this.add(this.ui.card);
 
     // World-locked stability cube: placed once (first valid head pose) and on
     // demand; it NEVER follows the camera afterwards.
@@ -263,8 +514,8 @@ class SimMain extends xb.Script {
   }
 
   /**
-   * Post-engine boot (called after `await xb.init()` resolves): renderer-
-   * dependent feed creation, OpenCV, networking, UI state.
+   * Post-engine boot (called after `await xb.init()` resolves): device-camera
+   * feed creation, OpenCV, networking, UI state.
    */
   async postInit() {
     this.engineCamera = xb.core.camera;
@@ -273,41 +524,25 @@ class SimMain extends xb.Script {
       this.engineCamera.updateProjectionMatrix();
     }
 
-    this.ui = new UI({
-      onMode: (mode) => this.setMode(mode),
-      onSaveMap: () => this.saveMapNow(),
-      onLoadMap: (name) => this.loadMapByName(name),
-    });
-    document.getElementById('room-label').textContent = `${room} · ${label}`;
-    document
-      .getElementById('btn-place-cube')
-      ?.addEventListener('click', () => this.placeCube());
-    this.ui.setXr(
-      xb.core.simulatorRunning || xb.core.simulator ? 'simulator' : 'device',
-      'ok'
-    );
-
-    this.feed = createSceneFeed({
-      renderer: xb.core.renderer,
-      scene: xb.core.scene,
-      camera: this.engineCamera,
+    // The ORB feed is the SDK device-camera stream: in the simulator it is fed
+    // by SimulatorCamera (XRDeviceCamera.simulatorCamera), on devices by the
+    // real camera.
+    this.deviceCamera = xb.core.deviceCamera ?? null;
+    this.feed = createCameraFeed({
+      deviceCamera: this.deviceCamera,
       width: FEED_WIDTH,
     });
     this.state.feedKind = this.feed.kind;
     this.ui.log(
-      this.feed.kind === 'scene'
-        ? 'ORB feed: SDK scene render (pixels + head poses describe the same world)'
-        : 'ORB feed: synthetic fallback (renderer has no sync pixel readback)',
-      this.feed.kind === 'scene' ? '' : 'warn'
+      this.feed.kind === 'camera'
+        ? 'ORB feed: XR Blocks device camera (XRDeviceCamera video stream)'
+        : 'ORB feed: synthetic fallback (no device camera)',
+      this.feed.kind === 'camera' ? '' : 'warn'
     );
-    const pill = document.getElementById('pill-source');
-    if (pill) {
-      pill.textContent =
-        this.feed.kind === 'scene'
-          ? 'source: scene render'
-          : 'source: synthetic';
-      pill.className = `pill ${this.feed.kind === 'scene' ? 'ok' : 'warn'}`;
-    }
+    this.ui.setFeed(
+      this.feed.kind,
+      xb.core.simulatorRunning || xb.core.simulator ? 'simulator' : 'device'
+    );
 
     this.net = createNet({room, label, hasMap: false});
     this.wireNet();
@@ -334,15 +569,12 @@ class SimMain extends xb.Script {
     this.helpers.cv = this.cv;
 
     this.ui.log(
-      `room=${room} label=${label} features=${wantFeatures ? 1 : 0} ` +
-        `autoSweep=${wantAutoSweep ? 1 : 0}`
+      `room=${room} label=${label} autoSweep=${wantAutoSweep ? 1 : 0}`
     );
     if (['build', 'relocalize', 'live'].includes(startMode)) {
       this.setMode(startMode);
     } else {
-      this.ui.log(
-        'pick a mode: Build (map) · Relocalize (consume a map) · Live (presence)'
-      );
+      this.ui.setBadge('pick a mode: Build · Relocalize · Live');
     }
     await this.refreshMapList();
     window.addEventListener('beforeunload', this.onUnload);
@@ -429,14 +661,14 @@ class SimMain extends xb.Script {
     this.state.mode = mode;
     this.ui.setMode(mode);
     if (mode === 'build') {
-      this.ui.setBadge('build: sweep slowly across textured surfaces');
+      this.ui.setBadge('mapping…');
       this.ui.log('Build: ORB -> keyframes -> triangulated landmark map');
     } else if (mode === 'relocalize') {
       this.acquireMapForReloc();
       this.ui.log('Relocalize: PnP against the stored map');
     } else if (mode === 'live') {
       if (!this.state.map) {
-        this.ui.setBadge('live: no map yet — Relocalize first');
+        this.ui.setBadge('no map yet — Relocalize first');
         this.ui.log(
           'Live without a map: broadcast starts after relocalization',
           'warn'
@@ -444,8 +676,8 @@ class SimMain extends xb.Script {
       } else {
         this.ui.setBadge(
           this.state.T_map_head
-            ? 'live: broadcasting head pose'
-            : 'live: waiting for a pose'
+            ? 'broadcasting head pose'
+            : 'waiting for a pose'
         );
         this.ui.log('Live: broadcasting presence at 10 Hz');
       }
@@ -576,6 +808,7 @@ class SimMain extends xb.Script {
 
   ensureIntrinsics(frame) {
     if (this.state.K && this.state.KFrameW === frame.width) return this.state.K;
+    let source;
     if (this.feed && this.feed.kind === 'synthetic') {
       // Synthetic fallback renders with the raw demo's 60 deg camera.
       this.state.K = estimateIntrinsics(
@@ -583,14 +816,38 @@ class SimMain extends xb.Script {
         frame.height,
         DEFAULT_FOV_DEG
       );
+      source = 'synthetic feed (estimateIntrinsics, 60 deg)';
     } else {
-      this.state.K = intrinsicsFromProjection(
-        this.engineCamera.projectionMatrix,
-        frame.width,
-        frame.height
-      );
+      try {
+        // Camera-provided parameters: the device-camera clip matrix — in the
+        // simulator the SimulatorCamera center-crop frustum
+        // (CameraUtils.getDeviceCameraClipFromView), on devices the
+        // CameraParameterUtils device profiles. This matches the pixels the
+        // camera stream actually delivers.
+        const clip = xb.getDeviceCameraClipFromView(
+          this.engineCamera,
+          this.deviceCamera,
+          xb.detectDeviceCameraTarget()
+        );
+        this.state.K = intrinsicsFromProjection(
+          clip,
+          frame.width,
+          frame.height
+        );
+        source =
+          'device-camera clip matrix (CameraUtils.getDeviceCameraClipFromView)';
+      } catch (err) {
+        this.state.K = intrinsicsFromProjection(
+          this.engineCamera.projectionMatrix,
+          frame.width,
+          frame.height
+        );
+        source = `render-camera projectionMatrix (fallback: ${err.message})`;
+      }
     }
     this.state.KFrameW = frame.width;
+    this.state.KSource = source;
+    this.ui.log(`intrinsics: ${source}`);
     return this.state.K;
   }
 
@@ -954,9 +1211,11 @@ class SimMain extends xb.Script {
       this.ui.log('nothing to save yet', 'warn');
       return;
     }
-    const name =
-      this.ui.mapName ||
-      `${room}-${label}-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}`;
+    // Auto-generated name (the card has no custom-name input).
+    const name = `${room}-${label}-${new Date()
+      .toISOString()
+      .slice(11, 19)
+      .replace(/:/g, '')}`;
     try {
       const bytes = serializeMap(state.map);
       await store.saveMap(name, bytes);
@@ -993,10 +1252,30 @@ class SimMain extends xb.Script {
     }
   }
 
+  /** "Load map" button: load the newest stored map (auto-generated names). */
+  async loadLatestMap() {
+    try {
+      const maps = await store.listMaps();
+      if (!maps.length) {
+        this.ui.log('no stored maps yet — build and save one first', 'warn');
+        return;
+      }
+      await this.loadMapByName(maps[0].name);
+      if (maps.length > 1) {
+        this.ui.log(
+          `${maps.length} maps stored — loaded newest "${maps[0].name}"`
+        );
+      }
+    } catch (err) {
+      this.ui.log(`load failed: ${err.message}`, 'error');
+    }
+  }
+
   async refreshMapList() {
     try {
-      this.ui.setMapList(await store.listMaps());
+      this.storedMaps = await store.listMaps();
     } catch (err) {
+      this.storedMaps = [];
       this.ui.log(`IndexedDB unavailable: ${err.message}`, 'warn');
     }
   }
@@ -1024,7 +1303,7 @@ class SimMain extends xb.Script {
         if (ok) this.ui.setBadge(`map: ${maps[0].name} (from storage)`);
       }
       if (state.map || state.mode !== 'relocalize') return;
-      this.ui.setBadge('waiting for a map from the room…');
+      this.ui.setBadge('waiting for map…');
       this.ui.log('no map in room or storage yet — retrying the room', 'warn');
       if (!this.mapRetryTimer) {
         this.mapRetryTimer = window.setInterval(() => {
@@ -1050,6 +1329,7 @@ class SimMain extends xb.Script {
     if (!this.cv || !this.feed || !this.net) return;
     if (now - this.state.lastProcess < PROCESS_INTERVAL_MS) return;
     this.state.lastProcess = now;
+    this.state.feedKind = this.feed.kind;
     const frame = this.feed.getFrame();
     if (!frame) return;
     try {
@@ -1115,8 +1395,10 @@ class SimMain extends xb.Script {
       this.avatarGroup.removeFromParent();
       this.avatarGroup = null;
     }
-    disposeFeatureRoom(this.featureRoom);
-    this.featureRoom = null;
+    if (this.ui && this.ui.card) {
+      this.ui.card.removeFromParent();
+    }
+    this.ui = null;
   }
 }
 
@@ -1126,6 +1408,9 @@ const main = new SimMain();
 xb.add(main);
 
 const options = new xb.Options();
+options.canvas = document.getElementById('xb-canvas');
+// ORB feed = the SDK device camera (simulator camera in the simulator).
+options.enableCamera();
 if (wantAutomation) {
   // The Options constructor auto-triggers on ?xrAutomation=1 too; call it
   // explicitly so the intent (and the automation preset) is unambiguous.
@@ -1140,10 +1425,11 @@ if (wantAutomation) {
     console.error('[sim-main] init failed', err);
     const log = document.getElementById('log');
     if (log) {
-      const line = document.createElement('span');
-      line.className = 'error';
-      line.textContent = `init failed: ${err && err.message ? err.message : err}\n`;
-      log.appendChild(line);
+      log.appendChild(
+        document.createTextNode(
+          `init failed: ${err && err.message ? err.message : err}\n`
+        )
+      );
     }
   }
 })();

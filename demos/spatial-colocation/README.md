@@ -61,14 +61,15 @@ PeerJS map + presence path end to end from one tab.
 ## XR Blocks simulator testbed
 
 `sim.html` is the same pipeline rebuilt on the XR Blocks SDK so the **desktop simulator** is a
-stability testbed: head poses come from the SDK camera (simulator virtual user), the ORB feed
-is the SDK scene's own rendered pixels (so feed and poses describe one consistent world), and a
-textured feature room guarantees ORB features. Same URL params as `index.html`, plus:
+stability testbed: head poses come from the SDK camera (simulator virtual user), the ORB feed is
+the **XR Blocks Simulator Camera** (the SDK's `XRDeviceCamera` video stream, which the simulator
+feeds from its rendered scene and devices feed from the real camera), and all UI is built with
+the XR Blocks UI framework (`UICard`/`UIText`/`UIButton`) so it renders inside the WebXR session.
+Same URL params as `index.html`, plus:
 
 | Param          | Effect                                                                      |
 | -------------- | --------------------------------------------------------------------------- |
 | `?autoSweep=1` | Scripted virtual-head sweep (SimulatorUser journey): 0.5 m circle, 30 s lap |
-| `?features=0`  | Disable the textured feature room                                           |
 
 The stability cube auto-places 1 m ahead of the camera and is world-locked; with `?autoSweep=1`
 its `mapPos` stays exactly `(0, 0, -1)` — any deviation while tracking is pure drift.

@@ -79,16 +79,25 @@ Note: large maps (>128 KiB) travel in 60 KiB chunks — Chrome silently drops si
 messages above ~1 MiB. Known limitation: two heavy sim instances in ONE headless browser can
 stall the PeerJS handshake (renderer starvation); separate devices/windows are unaffected.
 
+### Camera feed delay on real devices
+
+Device camera feeds lag the clock (capture + ISP + transport — up to ~1 s). Frames carry
+media-clock capture timestamps and are paired with the head pose of their **capture instant**
+(via a 60 Hz pose history), so mapping and calibration never mix a frame with a later pose. If a
+browser's media clock tracks arrival rather than capture, a constant bias remains: watch
+`state.frameAgeMs` (`?debug=1`) and the `calib:` line, and compensate with `?frameLagMs=N`.
+
 ## URL parameters
 
-| Param                           | Effect                                                           |
-| ------------------------------- | ---------------------------------------------------------------- |
-| `?room=NAME`                    | Room to join (default: random 6-char id, shown in the header)    |
-| `?mode=build\|relocalize\|live` | Start mode (default: picker tabs)                                |
-| `?synthetic=1`                  | Procedural camera replacement (also the no-camera fallback)      |
-| `?fov=DEG`                      | Vertical/horizontal FOV used for intrinsics (default 60)         |
-| `?label=NAME`                   | Device label shown to peers (default: `Dev-xxxx`)                |
-| `?debug=1`                      | Expose `window.__scoloc` ({state, net, …}) for in-page debugging |
+| Param                           | Effect                                                                                   |
+| ------------------------------- | ---------------------------------------------------------------------------------------- |
+| `?room=NAME`                    | Room to join (default: random 6-char id, shown in the header)                            |
+| `?mode=build\|relocalize\|live` | Start mode (default: picker tabs)                                                        |
+| `?synthetic=1`                  | Procedural camera replacement (also the no-camera fallback)                              |
+| `?fov=DEG`                      | Vertical/horizontal FOV used for intrinsics (default 60)                                 |
+| `?label=NAME`                   | Device label shown to peers (default: `Dev-xxxx`)                                        |
+| `?debug=1`                      | Expose `window.__scoloc` ({state, net, …}) for in-page debugging                         |
+| `?frameLagMs=N`                 | Shift frame timestamps back N ms before pose pairing (real-device feed lag compensation) |
 
 ## UI / modes
 

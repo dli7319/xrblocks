@@ -138,6 +138,12 @@ const fovDeg = params.get('fov')
   ? parseFloat(params.get('fov')) || DEFAULT_FOV_DEG
   : DEFAULT_FOV_DEG;
 const label = (params.get('label') || `Dev-${randId(4)}`).slice(0, 24);
+// Real-device camera feeds lag the clock by up to ~1 s (capture + ISP +
+// transport). Frames carry media-clock timestamps and are paired with the pose
+// of their capture instant; if a browser's media clock tracks ARRIVAL rather
+// than capture, a constant bias remains — measure it via state.frameAgeMs and
+// the calib line, then compensate here (?frameLagMs=N shifts frame times back).
+const frameLagMs = Math.max(0, Number(params.get('frameLagMs')) || 0);
 
 const state = {
   mode: 'idle',
@@ -508,8 +514,9 @@ function currentHeadPose(kps, matchesList, frame) {
 function frameAlignedPose(frame) {
   if (!frame) return null;
   if (frame.T_ref_head) return frame.T_ref_head;
-  if (frame.tMs && state.poseHistory)
-    return state.poseHistory.sample(frame.tMs);
+  if (frame.tMs && state.poseHistory) {
+    return state.poseHistory.sample(frame.tMs - frameLagMs);
+  }
   return null;
 }
 
@@ -898,6 +905,10 @@ function processFrame(frame, now) {
     }
   }
   state.matches = matchesList.length;
+  // Observed frame age (capture-estimate -> processing): a persistent large
+  // value on a real device means the media clock tracks arrival, not capture —
+  // compensate with ?frameLagMs.
+  if (frame.tMs) state.frameAgeMs = now - frame.tMs;
 
   const headPose = currentHeadPose(keypoints, matchesList, frame);
   state.poseHistory.push(frame.tMs || now, headPose);

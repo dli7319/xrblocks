@@ -414,6 +414,9 @@ const wantDebug = params.has('debug');
 const wantAutoSweep = params.get('autoSweep') === '1';
 const fovOverride = params.get('fov') ? parseFloat(params.get('fov')) : null;
 const wantAutomation = params.get('xrAutomation') === '1';
+// Real-device camera feeds lag the clock by up to ~1 s; ?frameLagMs=N shifts
+// frame timestamps back N ms before pose pairing (see README).
+const frameLagMs = Math.max(0, Number(params.get('frameLagMs')) || 0);
 // `?kSource=online` (default): the ONLINE self-calibration estimate drives
 // state.K / state.T_head_camera once constrained. `?kSource=provided` pins the
 // SDK-derived K and identity T for A/B comparison.
@@ -1353,7 +1356,7 @@ class SimMain extends xb.Script {
   frameAlignedPose(frame) {
     if (!frame) return null;
     if (frame.T_ref_head) return frame.T_ref_head;
-    if (frame.tMs) return this.poseHistory.sample(frame.tMs);
+    if (frame.tMs) return this.poseHistory.sample(frame.tMs - frameLagMs);
     return null;
   }
 
@@ -1374,6 +1377,10 @@ class SimMain extends xb.Script {
       }
     }
     state.matches = matchesList.length;
+    // Observed frame age (capture-estimate -> processing): a persistent large
+    // value on a real device means the media clock tracks arrival, not capture —
+    // compensate with ?frameLagMs.
+    if (frame.tMs) state.frameAgeMs = now - frame.tMs;
 
     const headPose = this.frameAlignedPose(frame) || this.currentHeadPose();
     this.poseHistory.push(frame.tMs || now, headPose);

@@ -10,6 +10,7 @@
  * Worker A modules are imported exactly per the implementation spec (../lib/*.js).
  */
 import {loadCv} from '../lib/cv-runtime.js';
+import {PoseHistory} from '../lib/posehistory.js';
 import {
   extractOrb,
   estimateIntrinsics,
@@ -37,6 +38,7 @@ import {
   MIN_RELOC_INLIERS,
 } from '../lib/relocalize.js';
 import {estimateHandEyeRotation} from '../lib/calibration.js';
+import {OnlineCalibrator, KFromCalibrator} from '../lib/selfcalib.js';
 import {startCamera, startSynthetic, startXRIfNeeded} from './capture.js';
 import {createNet} from './net.js';
 import * as store from './store.js';
@@ -57,11 +59,32 @@ const MAP_FALLBACK_MS = 3500;
 const MAP_RETRY_MS = 5000;
 const MIN_MATCHES_FOR_POSE = 12;
 const CALIB_MIN_SAMPLES = 30;
+const CALIB_STEP_INTERVAL_MS = 2000; // online self-calibration LM solve cadence
+const CALIB_PAIR_MIN_ROT_DEG = 1.2; // long-baseline pairing: real epipolar leverage
+const CALIB_PAIR_MIN_TRANS_M = 0.02;
+const CALIB_MAX_RMS_PX = 8; // adoption plausibility gate
 
 const IDENTITY = [
   [1, 0, 0, 0],
   [0, 1, 0, 0],
   [0, 0, 1, 0],
+  [0, 0, 0, 1],
+];
+
+// Convention adapter for the online calibrator: `app/capture.js`'s synthetic
+// `getHeadPose()` and the SfM pose chain express the camera frame OpenCV-style
+// (x right, y down, z forward — see `cameraAxes` in capture.js), while
+// SELF_CALIB_SPEC pins the calibrator to the three/WebXR convention (forward
+// -Z, y up). For those sources the true `T_head_camera` therefore carries this
+// fixed frame flip; composing it into the calibrator PRIOR keeps a local
+// optimizer in the right basin (priors are initialization only) and makes the
+// adopted extrinsics pipeline-correct (`T_ref_cam = T_ref_head · T_head_camera`
+// then lands in three-convention for the cube projection / triangulation).
+// XR head poses are already three-convention and use the prior as-is.
+const CV_CAM_FLIP = [
+  [1, 0, 0, 0],
+  [0, -1, 0, 0],
+  [0, 0, -1, 0],
   [0, 0, 0, 1],
 ];
 
@@ -140,6 +163,16 @@ const state = {
   relocRef: null, // {T_map_head, T_ref_head} — propagate pose between relocalizations
   lastReloc: null, // {inliers, ts}
   matches: 0,
+  calibrator: null, // OnlineCalibrator (lib/selfcalib.js) — online K + extrinsics
+  calibFrameW: 0,
+  calibKey: null, // frame width + pose-convention key for calibrator creation
+  calibPriorF: 0, // prior focal (plausibility gate for adoption)
+  headPoseCvFrame: null, // true when head poses use the OpenCV-style cam frame
+  prevHeadPose: null,
+  calibRef: null, // long-baseline pairing reference {kps, desc, headPose}
+  poseHistory: new PoseHistory(),
+  lastCalibStep: 0,
+  calibConvergedLogged: false,
   poses: new Map(), // peerId -> {label, T_map_head, inliers, ts}
   cube: {placed: false, autoPlaced: false, mapPos: null},
   lastBroadcast: 0,
@@ -339,6 +372,15 @@ async function startSource(kind) {
   state.prevKps = null;
   state.prevDesc = null;
   state.sfm = null;
+  // New source/camera setup -> a fresh online calibrator (priors re-derived
+  // from the next ensureIntrinsics/estimateIntrinsics guess).
+  state.calibrator = null;
+  state.calibFrameW = 0;
+  state.calibKey = null;
+  state.prevHeadPose = null;
+  state.calibRef = null;
+  state.lastCalibStep = 0;
+  state.calibConvergedLogged = false;
 }
 
 // ---- head pose ---------------------------------------------------------------
@@ -420,8 +462,13 @@ function tryCalibrate() {
   try {
     const res = estimateHandEyeRotation(state.calib.head, state.calib.cam);
     if (res && res.R_head_camera) {
-      state.RHeadCam = res.R_head_camera;
-      if (!state.extrinsicsManual) rebuildHeadCamera();
+      // The ONLINE estimate (selfcalib) drives T_head_camera once constrained;
+      // the one-shot hand-eye rotation only fills in before that.
+      const online = state.calibrator && state.calibrator.quality.constrained;
+      if (!online) {
+        state.RHeadCam = res.R_head_camera;
+        if (!state.extrinsicsManual) rebuildHeadCamera();
+      }
       ui.setExtrinsicsStatus(
         `calibrated ✓ ${res.samples ?? state.calib.head.length} samples`,
         'ok'
@@ -435,18 +482,35 @@ function tryCalibrate() {
   }
 }
 
-function currentHeadPose(kps, matchesList) {
+function currentHeadPose(kps, matchesList, frame) {
   const sfmPose = chainSfmPose(kps, matchesList); // also feeds calibration camera increments
+  // Prefer the pose at the FRAME's capture instant (exact for synthetic
+  // sources, history-sampled for video): mixing a frame with a later pose
+  // motion-smears every geometric constraint (mapping, calibration).
+  const aligned = frameAlignedPose(frame);
   if (state.xr && state.xr.active) {
     const T = state.xr.getHeadPose();
     if (T) {
-      collectCalibration(T, state.lastEssR);
-      return T;
+      state.headPoseCvFrame = false; // WebXR: three/WebXR convention
+      collectCalibration(aligned || T, state.lastEssR);
+      return aligned || T;
     }
   }
-  if (state.source && state.source.kind === 'synthetic')
-    return state.source.getHeadPose();
-  return sfmPose; // camera-only fallback: head pose ≈ camera pose (T_head_camera identity-ish)
+  if (state.source && state.source.kind === 'synthetic') {
+    state.headPoseCvFrame = true; // capture.js synthetic: OpenCV-style cam frame
+    return aligned || state.source.getHeadPose();
+  }
+  state.headPoseCvFrame = true; // SfM chain: OpenCV-style cam frame
+  return aligned || sfmPose; // camera-only fallback: head pose ≈ camera pose (T_head_camera identity-ish)
+}
+
+/** Pose at the frame's capture instant, or null when unavailable. */
+function frameAlignedPose(frame) {
+  if (!frame) return null;
+  if (frame.T_ref_head) return frame.T_ref_head;
+  if (frame.tMs && state.poseHistory)
+    return state.poseHistory.sample(frame.tMs);
+  return null;
 }
 
 function rebuildHeadCamera() {
@@ -468,6 +532,11 @@ function applyExtrinsics({tx, ty, tz}) {
   state.tHeadCamManual = [tx || 0, ty || 0, tz || 0];
   state.extrinsicsManual = true;
   rebuildHeadCamera();
+  // The manual value becomes the calibrator PRIOR (and locks the lever arm in
+  // adoptOnlineCalibration); the online estimate re-converges from data.
+  if (state.calibrator) state.calibrator.reset(state.K, state.T_head_camera);
+  state.lastCalibStep = 0;
+  state.calibConvergedLogged = false;
   ui.setExtrinsicsStatus(
     `manual offset [${tx || 0}, ${ty || 0}, ${tz || 0}] m`,
     'ok'
@@ -483,6 +552,164 @@ function ensureIntrinsics(frame) {
     state.KFrameW = frame.width;
   }
   return state.K;
+}
+
+// ---- online self-calibration (lib/selfcalib.js) -----------------------------
+
+/**
+ * (Re)create the online calibrator on source toggles, frame-dimension changes
+ * and pose-convention flips. Prior K = the estimateIntrinsics guess, prior T =
+ * the manual/hand-eye override (with the CV_CAM_FLIP frame flip for OpenCV-
+ * style pose sources) — BOTH initialization only; once `quality.constrained`
+ * the online estimate drives state.K / state.T_head_camera.
+ */
+function ensureCalibrator(frame) {
+  const key = `${frame.width}|${state.headPoseCvFrame ? 'cv' : 'three'}`;
+  if (state.calibrator && state.calibKey === key) return state.calibrator;
+  const priorT = state.headPoseCvFrame
+    ? matMul(CV_CAM_FLIP, state.T_head_camera)
+    : state.T_head_camera;
+  state.calibrator = new OnlineCalibrator({
+    width: frame.width,
+    height: frame.height,
+    priorK: state.K,
+    priorTHeadCamera: priorT,
+  });
+  state.calibKey = key;
+  state.calibFrameW = frame.width;
+  state.calibPriorF = state.K ? state.K[0][0] : 0;
+  state.lastCalibStep = 0;
+  state.calibConvergedLogged = false;
+  // Old tracks cannot pair across a dimension/convention change.
+  state.prevKps = null;
+  state.prevDesc = null;
+  state.prevHeadPose = null;
+  return state.calibrator;
+}
+
+/**
+ * Feed one LONG-BASELINE pair (reference -> current). Consecutive frames on
+ * slow feeds move only ~0.2 deg / 5 mm, which is noise-dominated for
+ * self-calibration — the fit drifts along near-null directions. Pairing against
+ * a reference >= CALIB_PAIR_MIN_ROT_DEG / CALIB_PAIR_MIN_TRANS_M away gives the
+ * epipolar constraints real leverage. Head poses from the scale-ambiguous SfM
+ * chain are fine: the constraint is scale-invariant.
+ */
+function feedCalibration(headPose, keypoints, descriptors) {
+  const calib = state.calibrator;
+  if (!calib || !headPose || !descriptors) return;
+  const ref = state.calibRef;
+  if (!ref || !ref.headPose || !ref.desc) {
+    state.calibRef = {kps: keypoints, desc: descriptors, headPose};
+    return;
+  }
+  const pairRot = rotationDegBetween(ref.headPose, headPose);
+  const pairTrans = translationDist(ref.headPose, headPose);
+  if (pairRot < CALIB_PAIR_MIN_ROT_DEG && pairTrans < CALIB_PAIR_MIN_TRANS_M) {
+    return; // keep accumulating motion against the reference
+  }
+  const matches = matchDescriptors(ref.desc, descriptors);
+  if (matches.length) {
+    calib.addPair({
+      T_ref_head_i: ref.headPose,
+      T_ref_head_j: headPose,
+      pts_i: ref.kps,
+      pts_j: keypoints,
+      matches,
+    });
+  }
+  state.calibRef = {kps: keypoints, desc: descriptors, headPose};
+}
+
+/**
+ * Adoption plausibility gate: a constrained-but-diverged estimate (weak or
+ * degenerate motion fits noise along near-null directions) must not corrupt
+ * the pipeline — only estimates near the prior's scale with a sane residual
+ * level are adopted.
+ */
+function calibrationPlausible() {
+  const calib = state.calibrator;
+  if (!calib || !calib.quality.constrained) return false;
+  const k = KFromCalibrator(calib);
+  const q = calib.quality;
+  const rmsPx = (q.rmsEpipolar * (k.fx + k.fy)) / 2;
+  // Tight scale gate (15%): weakly-constrained fits can be internally
+  // consistent yet tens of percent off — those must never reach the pipeline.
+  return (
+    state.calibPriorF > 0 &&
+    Math.abs(k.fx / state.calibPriorF - 1) < 0.15 &&
+    Math.abs(k.fy / state.calibPriorF - 1) < 0.15 &&
+    Math.abs(k.cx - state.K[0][2]) < 0.25 * state.K[0][2] &&
+    Math.abs(k.cy - state.K[1][2]) < 0.25 * state.K[1][2] &&
+    rmsPx < CALIB_MAX_RMS_PX
+  );
+}
+
+/** Compact stats/status line: `calib: fx … fy … (rms …px, … pairs, ✓)`. */
+function calibLine(adopted) {
+  const calib = state.calibrator;
+  if (!calib) return 'calib: gathering…';
+  const q = calib.quality;
+  if (!q.constrained) return `calib: gathering… (${q.pairs} pairs)`;
+  const k = KFromCalibrator(calib);
+  const rmsPx = (q.rmsEpipolar * (k.fx + k.fy)) / 2;
+  const mark = adopted ? '✓' : '✗ implausible';
+  return (
+    `calib: fx ${k.fx.toFixed(1)} fy ${k.fy.toFixed(1)} ` +
+    `(rms ${rmsPx.toFixed(1)}px, ${q.pairs} pairs, ${mark})`
+  );
+}
+
+/** Apply the online estimate to the pipeline when constrained + plausible. */
+function adoptOnlineCalibration() {
+  const calib = state.calibrator;
+  if (!calib || !calibrationPlausible()) return false;
+  const K = calib.K;
+  state.K = [K[0].slice(), K[1].slice(), K[2].slice()];
+  const T = calib.T_head_camera;
+  state.RHeadCam = rot3(T);
+  if (state.extrinsicsManual) {
+    // Manual extrinsics LOCK the lever arm: keep the user's translation.
+    state.T_head_camera = [
+      [T[0][0], T[0][1], T[0][2], state.tHeadCamManual[0]],
+      [T[1][0], T[1][1], T[1][2], state.tHeadCamManual[1]],
+      [T[2][0], T[2][1], T[2][2], state.tHeadCamManual[2]],
+      [0, 0, 0, 1],
+    ];
+  } else {
+    state.T_head_camera = clone4(T);
+  }
+  return true;
+}
+
+/** Run the LM solve every ~2 s of data; adopt + report when constrained. */
+function calibStep(now) {
+  const calib = state.calibrator;
+  if (!calib) return;
+  if (
+    state.lastCalibStep &&
+    now - state.lastCalibStep < CALIB_STEP_INTERVAL_MS
+  ) {
+    return;
+  }
+  state.lastCalibStep = now;
+  try {
+    calib.step();
+  } catch (err) {
+    ui.log(`calib step failed: ${err.message}`, 'warn');
+    return;
+  }
+  const adopted = adoptOnlineCalibration();
+  ui.setExtrinsicsStatus(calibLine(adopted), adopted ? 'ok' : 'warn');
+  if (adopted && !state.calibConvergedLogged) {
+    state.calibConvergedLogged = true;
+    const k = KFromCalibrator(calib);
+    const q = calib.quality;
+    ui.log(
+      `online calibration converged: fx=${k.fx.toFixed(1)} ` +
+        `cy=${k.cy.toFixed(1)} rms=${(q.rmsEpipolar * k.fx).toFixed(2)}px`
+    );
+  }
 }
 
 function keyframeGate(now, T) {
@@ -656,6 +883,7 @@ function renderDevices(now) {
 
 function processFrame(frame, now) {
   ensureIntrinsics(frame);
+  ensureCalibrator(frame);
   const {keypoints, descriptors} = extractOrb(state.cv, frame, {
     maxFeatures: MAX_FEATURES,
   });
@@ -671,7 +899,13 @@ function processFrame(frame, now) {
   }
   state.matches = matchesList.length;
 
-  const headPose = currentHeadPose(keypoints, matchesList);
+  const headPose = currentHeadPose(keypoints, matchesList, frame);
+  state.poseHistory.push(frame.tMs || now, headPose);
+  // Online self-calibration consumes LONG-BASELINE pairs (reference frame ->
+  // current) built from the same ORB features the pipeline already extracts.
+  feedCalibration(headPose, keypoints, descriptors);
+  calibStep(now);
+  state.prevHeadPose = headPose;
   state.prevKps = keypoints;
   state.prevDesc = descriptors;
 
@@ -736,6 +970,12 @@ function processFrame(frame, now) {
 
 function frameLoop(now) {
   requestAnimationFrame(frameLoop);
+  // Dense (60 Hz) XR pose history so video frames can be paired with the pose
+  // of their capture instant even with capture latency.
+  if (state.xr && state.xr.active) {
+    const T = state.xr.getHeadPose();
+    if (T) state.poseHistory.push(now, T);
+  }
   if (!state.cv || !state.source) return;
   if (now - state.lastProcess < PROCESS_INTERVAL_MS) return;
   state.lastProcess = now;
@@ -932,6 +1172,10 @@ async function init() {
       placeCube,
       requestMapSoon,
       refreshMapList,
+      // Online self-calibration handle: __scoloc.calib.K vs the prior K.
+      get calib() {
+        return state.calibrator;
+      },
     };
   }
   requestAnimationFrame(frameLoop);

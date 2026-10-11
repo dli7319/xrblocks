@@ -71,7 +71,9 @@ function buildSyntheticScene() {
   return patches;
 }
 
-/** Slow, smooth virtual head trajectory. Periodic => any tab start time sees the room. */
+/** Slow, smooth virtual head trajectory. Periodic => any tab start time sees the room.
+ * Includes roll: without rotation about the optical axis the focal anisotropy
+ * (fy vs fx) is nearly unobservable and self-calibration drifts. */
 function syntheticPoseAt(t) {
   return {
     x: 0.3 * Math.sin(t * 0.17),
@@ -79,6 +81,7 @@ function syntheticPoseAt(t) {
     z: 0.18 * Math.sin(t * 0.13 + 2.1),
     yaw: 0.12 * Math.sin(t * 0.29),
     pitch: 0.05 * Math.sin(t * 0.21 + 1.3),
+    roll: 0.09 * Math.sin(t * 0.23 + 0.7),
   };
 }
 
@@ -95,15 +98,24 @@ function cross3(a, b) {
   ];
 }
 
-/** Camera axes for yaw/pitch (radians): forward f (+z OpenCV-style in cam frame), right r, down v. */
-function cameraAxes(yaw, pitch) {
+/** Camera axes for yaw/pitch/roll (radians): forward f (+z OpenCV-style in cam
+ * frame), right r, down v. Roll rotates r/v about the optical axis. */
+function cameraAxes(yaw, pitch, roll = 0) {
   const f = norm3([
     Math.sin(yaw) * Math.cos(pitch),
     Math.sin(pitch),
     -Math.cos(yaw) * Math.cos(pitch),
   ]);
-  const r = norm3([-f[2], 0, f[0]]); // cross(f, worldUp) with worldUp = (0,1,0)
-  const v = cross3(f, r); // points down in a y-up world
+  let r = norm3([-f[2], 0, f[0]]); // cross(f, worldUp) with worldUp = (0,1,0)
+  let v = cross3(f, r); // points down in a y-up world
+  if (roll) {
+    const c = Math.cos(roll);
+    const s = Math.sin(roll);
+    const r2 = [r[0] * c + v[0] * s, r[1] * c + v[1] * s, r[2] * c + v[2] * s];
+    const v2 = [v[0] * c - r[0] * s, v[1] * c - r[1] * s, v[2] * c - r[2] * s];
+    r = r2;
+    v = v2;
+  }
   return {r, v, f};
 }
 
@@ -128,12 +140,30 @@ export function startSynthetic({
   const t0 = performance.now();
   let raf = 0;
   let running = true;
+  // Exact frame/pose pairing: the pose the scene was drawn under, recorded at
+  // paint time. Frames carry it so downstream geometry (mapping, calibration)
+  // never mixes a frame with a pose from a different instant.
+  let lastDrawTMs = 0;
+  let lastDrawPose = null;
+
+  function poseMatrixAt(t) {
+    const p = syntheticPoseAt(t);
+    const {r, v, f} = cameraAxes(p.yaw, p.pitch, p.roll);
+    return [
+      [r[0], v[0], f[0], p.x],
+      [r[1], v[1], f[1], p.y],
+      [r[2], v[2], f[2], p.z],
+      [0, 0, 0, 1],
+    ];
+  }
 
   function draw() {
     if (!running) return;
     const t = (performance.now() - t0) / 1000;
     const p = syntheticPoseAt(t);
-    const {r, v, f} = cameraAxes(p.yaw, p.pitch);
+    const {r, v, f} = cameraAxes(p.yaw, p.pitch, p.roll);
+    lastDrawTMs = t0 + t * 1000;
+    lastDrawPose = poseMatrixAt(t);
     ctx.fillStyle = '#0b0d10'; // featureless background: only patches make ORB features
     ctx.fillRect(0, 0, width, height);
     const items = [];
@@ -174,18 +204,16 @@ export function startSynthetic({
     getFrame() {
       if (!running) return null;
       const img = ctx.getImageData(0, 0, width, height);
-      return {data: img.data, width, height};
+      return {
+        data: img.data,
+        width,
+        height,
+        tMs: lastDrawTMs,
+        T_ref_head: lastDrawPose,
+      };
     },
     getHeadPose() {
-      const t = (performance.now() - t0) / 1000;
-      const p = syntheticPoseAt(t);
-      const {r, v, f} = cameraAxes(p.yaw, p.pitch);
-      return [
-        [r[0], v[0], f[0], p.x],
-        [r[1], v[1], f[1], p.y],
-        [r[2], v[2], f[2], p.z],
-        [0, 0, 0, 1],
-      ];
+      return poseMatrixAt((performance.now() - t0) / 1000);
     },
     stop() {
       running = false;
@@ -215,10 +243,18 @@ export async function startCamera({width = 640} = {}) {
   const ctx = canvas.getContext('2d', {willReadFrequently: true});
   let raf = 0;
   let running = true;
+  // Wall-clock epoch for the video's media clock: frame wall time ≈ epoch +
+  // video.currentTime*1000. Frames carry that timestamp so callers can pair
+  // them with the pose from the matching instant (see lib/posehistory.js).
+  let videoEpoch = 0;
+  let lastDrawTMs = 0;
 
   function draw() {
     if (!running) return;
     if (video.videoWidth > 0) {
+      if (!videoEpoch)
+        videoEpoch = performance.now() - video.currentTime * 1000;
+      lastDrawTMs = videoEpoch + video.currentTime * 1000;
       const w = Math.min(width, video.videoWidth);
       const h = Math.max(
         1,
@@ -241,7 +277,12 @@ export async function startCamera({width = 640} = {}) {
     getFrame() {
       if (!running || canvas.width === 0 || canvas.height === 0) return null;
       const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      return {data: img.data, width: canvas.width, height: canvas.height};
+      return {
+        data: img.data,
+        width: canvas.width,
+        height: canvas.height,
+        tMs: lastDrawTMs || performance.now(),
+      };
     },
     getHeadPose() {
       return null; // desktop / no-XR: caller falls back to SfM-derived head poses

@@ -42,6 +42,7 @@ import * as THREE from 'three';
 import * as xb from 'xrblocks';
 
 import {loadCv} from '../lib/cv-runtime.js';
+import {PoseHistory} from '../lib/posehistory.js';
 import {
   extractOrb,
   estimateIntrinsics,
@@ -72,6 +73,7 @@ import {
   headPoseFromCameraPose,
   MIN_RELOC_INLIERS,
 } from '../lib/relocalize.js';
+import {OnlineCalibrator, KFromCalibrator} from '../lib/selfcalib.js';
 import {createNet} from './net.js';
 import * as store from './store.js';
 import {
@@ -85,6 +87,10 @@ import {
 // Local timing constants — copied exactly from app/main.js (raw demo).
 const PROCESS_INTERVAL_MS = 100; // feature extraction <= 10 Hz
 const RELOC_MIN_INTERVAL_MS = 250; // PnP search <= 4 Hz
+const CALIB_STEP_INTERVAL_MS = 2000; // online self-calibration LM solve cadence
+const CALIB_PAIR_MIN_ROT_DEG = 1.2; // long-baseline pairing: real epipolar leverage
+const CALIB_PAIR_MIN_TRANS_M = 0.02;
+const CALIB_MAX_RMS_PX = 8; // adoption plausibility gate
 const POSE_TTL_MS = 4000;
 const MAP_FALLBACK_MS = 3500;
 const MAP_RETRY_MS = 5000;
@@ -189,6 +195,7 @@ class SimCardUI {
       matches: 0,
       fps: 0,
       inliers: null,
+      calib: null, // one-line online self-calibration status
     };
     this.lastStatsWrite = 0;
     this.logLines = [];
@@ -334,10 +341,11 @@ class SimCardUI {
 
   formatStats() {
     const s = this.stats;
-    return (
+    const row =
       `kf ${s.keyframes} · lm ${s.landmarks} · matches ${s.matches} · ` +
-      `fps ${s.fps} · inliers ${s.inliers ?? '—'}`
-    );
+      `fps ${s.fps} · inliers ${s.inliers ?? '—'}`;
+    // One appended calib line (online self-calibration status).
+    return s.calib ? `${row}\n${s.calib}` : row;
   }
 
   /** One line per device ('Dev-xxxx (you) ✓ N inliers'); empty → 'none yet'. */
@@ -406,6 +414,12 @@ const wantDebug = params.has('debug');
 const wantAutoSweep = params.get('autoSweep') === '1';
 const fovOverride = params.get('fov') ? parseFloat(params.get('fov')) : null;
 const wantAutomation = params.get('xrAutomation') === '1';
+// `?kSource=online` (default): the ONLINE self-calibration estimate drives
+// state.K / state.T_head_camera once constrained. `?kSource=provided` pins the
+// SDK-derived K and identity T for A/B comparison.
+const kSourceName =
+  params.get('kSource') === 'provided' ? 'provided' : 'online';
+const kSourceOnline = kSourceName === 'online';
 
 // ---- the owning Script -------------------------------------------------------
 
@@ -433,6 +447,8 @@ class SimMain extends xb.Script {
     this.avatars = new Map(); // peerId -> {group, label, lastSeen}
     this.mapRetryTimer = 0;
     this.sweep = {t0: 0, journeyActive: false, timer: 0};
+    this.poseHistory = new PoseHistory();
+    this.calibRef = null; // long-baseline pairing reference {kps, desc, headPose}
     this.onUnload = () => this.dispose();
     this.state = {
       mode: 'idle',
@@ -452,6 +468,12 @@ class SimMain extends xb.Script {
       relocRef: null, // {T_map_head, T_ref_head} — propagate between relocs
       lastReloc: null, // {inliers, ts}
       matches: 0,
+      calibrator: null, // OnlineCalibrator (lib/selfcalib.js) — online K + extrinsics
+      calibFrameW: 0,
+      calibPriorF: 0, // prior focal (plausibility gate for adoption)
+      prevHeadPose: null,
+      lastCalibStep: 0,
+      calibConvergedLogged: false,
       poses: new Map(), // peerId -> {label, T_map_head, inliers, ts}
       lastBroadcast: 0,
       lastMapReq: 0,
@@ -583,6 +605,12 @@ class SimMain extends xb.Script {
     this.ui.log(
       `room=${room} label=${label} autoSweep=${wantAutoSweep ? 1 : 0}`
     );
+    // K/T source: online self-calibration (default) vs pinned SDK-derived.
+    this.ui.log(
+      kSourceOnline
+        ? 'kSource: online — self-calibration drives K + T_head_camera once constrained'
+        : 'kSource: provided — SDK-derived K + identity T pinned (A/B comparison)'
+    );
     if (['build', 'relocalize', 'live'].includes(startMode)) {
       this.setMode(startMode);
     } else {
@@ -596,11 +624,17 @@ class SimMain extends xb.Script {
       this.ui.log('autoSweep: scripted virtual-head sweep active (30 s loop)');
     }
     if (wantDebug) {
+      const self = this;
       window.__scoloc = {
         state: this.state,
         net: this.net,
         placeCube: () => this.placeCube(),
         xb,
+        // Ground-truth hook for the integrator: compare __scoloc.calib.K with
+        // the SDK-derived (provided) K in the simulator.
+        get calib() {
+          return self.state.calibrator;
+        },
       };
     }
   }
@@ -861,6 +895,149 @@ class SimMain extends xb.Script {
     this.state.KSource = source;
     this.ui.log(`intrinsics: ${source}`);
     return this.state.K;
+  }
+
+  // ---- online self-calibration (lib/selfcalib.js) -----------------------------
+
+  /**
+   * (Re)create the online calibrator on frame-dimension changes. Prior K =
+   * the SDK-derived (or synthetic-feed) intrinsics, prior T = the current
+   * T_head_camera — BOTH initialization only; once `quality.constrained` and
+   * `?kSource=online` (default) the online estimate drives state.K /
+   * state.T_head_camera. `?kSource=provided` pins the SDK-derived values.
+   */
+  ensureCalibrator(frame) {
+    const state = this.state;
+    if (state.calibrator && state.calibFrameW === frame.width) {
+      return state.calibrator;
+    }
+    state.calibrator = new OnlineCalibrator({
+      width: frame.width,
+      height: frame.height,
+      priorK: state.K,
+      priorTHeadCamera: state.T_head_camera,
+    });
+    state.calibFrameW = frame.width;
+    state.calibPriorF = state.K ? state.K[0][0] : 0;
+    state.lastCalibStep = 0;
+    state.calibConvergedLogged = false;
+    // Old tracks cannot pair across a dimension change.
+    state.prevKps = null;
+    state.prevDesc = null;
+    state.prevHeadPose = null;
+    return state.calibrator;
+  }
+
+  /**
+   * Feed one LONG-BASELINE pair (reference -> current) into the calibrator.
+   * Consecutive frames on slow feeds move too little for self-calibration —
+   * noise dominates the epipolar constraints and the fit drifts along
+   * near-null directions. Pair only once the reference is >= 1.2 deg / 2 cm
+   * away (accumulating motion against a fixed reference meanwhile).
+   */
+  feedCalibration(headPose, keypoints, descriptors) {
+    const state = this.state;
+    const calib = state.calibrator;
+    if (!calib || !headPose || !descriptors) return;
+    const ref = this.calibRef;
+    if (!ref || !ref.headPose || !ref.desc) {
+      this.calibRef = {kps: keypoints, desc: descriptors, headPose};
+      return;
+    }
+    const pairRot = rotationDegBetween(ref.headPose, headPose);
+    const pairTrans = translationDist(ref.headPose, headPose);
+    if (
+      pairRot < CALIB_PAIR_MIN_ROT_DEG &&
+      pairTrans < CALIB_PAIR_MIN_TRANS_M
+    ) {
+      return; // keep accumulating motion against the reference
+    }
+    const matches = matchDescriptors(ref.desc, descriptors);
+    if (matches.length) {
+      calib.addPair({
+        T_ref_head_i: ref.headPose,
+        T_ref_head_j: headPose,
+        pts_i: ref.kps,
+        pts_j: keypoints,
+        matches,
+      });
+    }
+    this.calibRef = {kps: keypoints, desc: descriptors, headPose};
+  }
+
+  /**
+   * Adoption plausibility gate: a constrained-but-diverged estimate (weak or
+   * degenerate motion fits noise along near-null directions) must not corrupt
+   * the pipeline — only estimates near the prior's scale with a sane residual
+   * level are adopted.
+   */
+  calibrationPlausible() {
+    const state = this.state;
+    const calib = state.calibrator;
+    if (!calib || !calib.quality.constrained) return false;
+    const k = KFromCalibrator(calib);
+    const q = calib.quality;
+    const rmsPx = (q.rmsEpipolar * (k.fx + k.fy)) / 2;
+    return (
+      state.calibPriorF > 0 &&
+      Math.abs(k.fx / state.calibPriorF - 1) < 0.5 &&
+      Math.abs(k.fy / state.calibPriorF - 1) < 0.5 &&
+      rmsPx < CALIB_MAX_RMS_PX
+    );
+  }
+
+  /** Compact stats line: `calib ✓ fx … · rms …px · … pairs` / `calib gathering…`. */
+  calibLine(adopted) {
+    const calib = this.state.calibrator;
+    if (!calib) return 'calib gathering…';
+    const q = calib.quality;
+    if (!q.constrained) return `calib gathering… · ${q.pairs} pairs`;
+    const k = KFromCalibrator(calib);
+    const rmsPx = (q.rmsEpipolar * (k.fx + k.fy)) / 2;
+    const mark = adopted ? '✓' : '✗ implausible';
+    return `calib ${mark} fx ${k.fx.toFixed(1)} · rms ${rmsPx.toFixed(1)}px · ${q.pairs} pairs`;
+  }
+
+  /** Apply the online estimate to the pipeline (kSource=online only). */
+  adoptOnlineCalibration() {
+    const state = this.state;
+    const calib = state.calibrator;
+    if (!calib || !kSourceOnline || !this.calibrationPlausible()) return false;
+    const K = calib.K;
+    state.K = [K[0].slice(), K[1].slice(), K[2].slice()];
+    state.T_head_camera = calib.T_head_camera.map((row) => row.slice());
+    return true;
+  }
+
+  /** Run the LM solve every ~2 s of data; adopt + report when constrained. */
+  calibStep(now) {
+    const state = this.state;
+    const calib = state.calibrator;
+    if (!calib) return;
+    if (
+      state.lastCalibStep &&
+      now - state.lastCalibStep < CALIB_STEP_INTERVAL_MS
+    ) {
+      return;
+    }
+    state.lastCalibStep = now;
+    try {
+      calib.step();
+    } catch (err) {
+      this.ui.log(`calib step failed: ${err.message}`, 'warn');
+      return;
+    }
+    const adopted = this.adoptOnlineCalibration();
+    this.ui.setStats({calib: this.calibLine(adopted)});
+    if (adopted && !state.calibConvergedLogged) {
+      state.calibConvergedLogged = true;
+      const k = KFromCalibrator(calib);
+      const q = calib.quality;
+      this.ui.log(
+        `online calibration converged: fx=${k.fx.toFixed(1)} ` +
+          `cy=${k.cy.toFixed(1)} rms=${(q.rmsEpipolar * k.fx).toFixed(2)}px`
+      );
+    }
   }
 
   keyframeGate(now, T) {
@@ -1172,9 +1349,18 @@ class SimMain extends xb.Script {
     return avatar;
   }
 
+  /** Pose at the frame's capture instant (history-sampled for video frames). */
+  frameAlignedPose(frame) {
+    if (!frame) return null;
+    if (frame.T_ref_head) return frame.T_ref_head;
+    if (frame.tMs) return this.poseHistory.sample(frame.tMs);
+    return null;
+  }
+
   processFrame(frame, now) {
     const state = this.state;
     this.ensureIntrinsics(frame);
+    this.ensureCalibrator(frame);
     const {keypoints, descriptors} = extractOrb(this.cv, frame, {
       maxFeatures: MAX_FEATURES,
     });
@@ -1189,8 +1375,14 @@ class SimMain extends xb.Script {
     }
     state.matches = matchesList.length;
 
-    const headPose = this.currentHeadPose();
+    const headPose = this.frameAlignedPose(frame) || this.currentHeadPose();
+    this.poseHistory.push(frame.tMs || now, headPose);
     state.headPose = headPose;
+    // Online self-calibration consumes the SAME per-frame matches + head-pose
+    // track the pipeline already computes (prev frame -> current frame).
+    this.feedCalibration(headPose, keypoints, descriptors);
+    this.calibStep(now);
+    state.prevHeadPose = headPose;
     state.prevKps = keypoints;
     state.prevDesc = descriptors;
 
@@ -1420,6 +1612,12 @@ class SimMain extends xb.Script {
   update() {
     const now = performance.now();
     if (document.hidden) return; // background tab: keep the event loop free
+    // Dense pose history (60 Hz) for frame/pose pairing — video frames lag the
+    // clock, so each frame must use the pose of its capture instant.
+    if (this.engineCamera) {
+      this.engineCamera.updateMatrixWorld(true);
+      this.poseHistory.push(now, matrixToNested(this.engineCamera.matrixWorld));
+    }
     if (wantAutoSweep && !this.sweep.journeyActive && this.engineCamera) {
       applySweepPose(this.engineCamera, (now - this.sweep.t0) / 1000);
     }

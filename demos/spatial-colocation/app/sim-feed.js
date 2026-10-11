@@ -201,6 +201,7 @@ export function createCameraFeed({deviceCamera, width = FEED_WIDTH} = {}) {
   const startedAt = performance.now();
   let fallback = null;
   let canvas = null;
+  let videoEpoch = 0; // wall-clock epoch of the video's media clock
   let ctx = null;
   let frameW = 0;
   let frameH = 0;
@@ -257,7 +258,17 @@ export function createCameraFeed({deviceCamera, width = FEED_WIDTH} = {}) {
       }
       ctx.drawImage(video, 0, 0, outW, outH);
       const img = ctx.getImageData(0, 0, outW, outH);
-      return {data: img.data, width: img.width, height: img.height};
+      // Wall-clock time of the drawn frame via the video's media clock, so the
+      // caller can pair it with the pose of the capture instant (video frames
+      // lag the clock by capture + element latency).
+      if (!videoEpoch)
+        videoEpoch = performance.now() - video.currentTime * 1000;
+      return {
+        data: img.data,
+        width: img.width,
+        height: img.height,
+        tMs: videoEpoch + video.currentTime * 1000,
+      };
     },
     getHeadPose() {
       return fallback ? fallback.getHeadPose() : null;

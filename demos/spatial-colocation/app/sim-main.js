@@ -511,6 +511,18 @@ class SimMain extends xb.Script {
     this.avatarGroup = new THREE.Group();
     this.avatarGroup.name = 'Colocation Avatars';
     xb.scene.add(this.avatarGroup);
+
+    // Triangulated map landmarks as a 3D point cloud. ORB detections are 2D,
+    // but every map landmark holds a 3D map-frame position (that is what PnP
+    // relocalization consumes). The cloud lives in MAP frame; the group carries
+    // the paired map->ref transform, so while tracking holds the points stay
+    // glued to the world exactly like the stability cube.
+    this.landmarkGroup = new THREE.Group();
+    this.landmarkGroup.name = 'Map Landmarks';
+    this.landmarkGroup.matrixAutoUpdate = false;
+    xb.scene.add(this.landmarkGroup);
+    this.landmarkPoints = null;
+    this.landmarkCount = -1;
   }
 
   /**
@@ -920,6 +932,89 @@ class SimMain extends xb.Script {
     }
   }
 
+  /**
+   * Rebuild the 3D landmark cloud when the map grows or changes (cheap count
+   * check; rebuilds happen at keyframe/adopt rate). Points are map-frame.
+   */
+  updateLandmarkPoints() {
+    const map = this.state.map;
+    const count =
+      map && Array.isArray(map.landmarks) ? map.landmarks.length : 0;
+    if (count === this.landmarkCount) return;
+    this.landmarkCount = count;
+    if (this.landmarkPoints) {
+      this.landmarkGroup.remove(this.landmarkPoints);
+      this.landmarkPoints.geometry.dispose();
+      this.landmarkPoints.material.dispose();
+      this.landmarkPoints = null;
+    }
+    if (!count) return;
+    const positions = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const lm = map.landmarks[i];
+      positions[3 * i] = lm.position[0];
+      positions[3 * i + 1] = lm.position[1];
+      positions[3 * i + 2] = lm.position[2];
+      const [r, g, b] = this.descriptorColor(lm.descriptor);
+      colors[3 * i] = r;
+      colors[3 * i + 1] = g;
+      colors[3 * i + 2] = b;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    this.landmarkPoints = new THREE.Points(
+      geometry,
+      new THREE.PointsMaterial({
+        size: 0.012,
+        vertexColors: true,
+        sizeAttenuation: true,
+      })
+    );
+    this.landmarkPoints.name = 'ORB Landmarks';
+    this.landmarkGroup.add(this.landmarkPoints);
+  }
+
+  /** Deterministic bright color from a 32-byte ORB descriptor. */
+  descriptorColor(desc) {
+    let h = 0;
+    const d = desc || [];
+    for (let i = 0; i < d.length; i++) h = (h * 31 + d[i]) >>> 0;
+    const c = new THREE.Color().setHSL((h % 360) / 360, 0.65, 0.6);
+    return [c.r, c.g, c.b];
+  }
+
+  /** Pose the cloud group with the paired map->ref transform (hidden untracked). */
+  updateLandmarkGroupPose() {
+    const T_map_ref = this.state.T_map_ref;
+    if (!T_map_ref) {
+      this.landmarkGroup.visible = false;
+      return;
+    }
+    this.landmarkGroup.visible = true;
+    const T_ref_map = invertRigid(T_map_ref);
+    this.landmarkGroup.matrix.set(
+      T_ref_map[0][0],
+      T_ref_map[0][1],
+      T_ref_map[0][2],
+      T_ref_map[0][3],
+      T_ref_map[1][0],
+      T_ref_map[1][1],
+      T_ref_map[1][2],
+      T_ref_map[1][3],
+      T_ref_map[2][0],
+      T_ref_map[2][1],
+      T_ref_map[2][2],
+      T_ref_map[2][3],
+      0,
+      0,
+      0,
+      1
+    );
+    this.landmarkGroup.matrixWorldNeedsUpdate = true;
+  }
+
   liveRelocalize() {
     const state = this.state;
     if (!state.map) return null;
@@ -1111,6 +1206,8 @@ class SimMain extends xb.Script {
       this.liveStep(now, headPose);
     }
     this.updateCubeMapPos();
+    this.updateLandmarkPoints();
+    this.updateLandmarkGroupPose();
 
     // Presence and the device roster run in EVERY mode: builders broadcast as
     // soon as they have a map-frame pose.

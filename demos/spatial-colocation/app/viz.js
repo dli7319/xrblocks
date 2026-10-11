@@ -98,6 +98,11 @@ export class Viz {
     this.origin.visible = false;
     this.mapRoot.add(this.origin);
 
+    // World-locked stability cube (map frame) — see setCube().
+    this.cube = this.buildStabilityCube();
+    this.cube.visible = false;
+    this.mapRoot.add(this.cube);
+
     this._onResize = () => this.resize();
     this.resizeObserver = new ResizeObserver(this._onResize);
     this.resizeObserver.observe(container);
@@ -232,6 +237,63 @@ export class Viz {
 
   setOriginVisible(v) {
     this.origin.visible = !!v;
+  }
+
+  /**
+   * Stability cube: placed once N meters ahead of the camera and then NEVER
+   * moved — it is world-locked in the map frame, so its apparent drift against
+   * the point cloud / feed is the tracking-stability measurement.
+   */
+  buildStabilityCube() {
+    const group = new THREE.Group();
+    const size = 0.25;
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(size, size, size),
+      new THREE.MeshStandardMaterial({
+        color: 0xff8c1a,
+        emissive: 0x994400,
+        metalness: 0.1,
+        roughness: 0.6,
+      })
+    );
+    group.add(mesh);
+    group.add(
+      new THREE.LineSegments(
+        new THREE.EdgesGeometry(mesh.geometry),
+        new THREE.LineBasicMaterial({color: 0xffd9a0})
+      )
+    );
+    return group;
+  }
+
+  /** Place the stability cube at a map-frame position (null hides it). */
+  setCube(mapPosition) {
+    if (!mapPosition) {
+      this.cube.visible = false;
+      return;
+    }
+    this.cube.position.set(mapPosition[0], mapPosition[1], mapPosition[2]);
+    this.cube.visible = true;
+  }
+
+  /**
+   * Projected stability marker on the feed overlay: the cube's image position.
+   * If tracking is stable, this square stays glued to the same spot of the
+   * scene while the camera moves.
+   */
+  drawCubeMarker(u, v, sizePx) {
+    const ctx = this.overlayCtx;
+    if (!ctx) return;
+    const s = Math.max(8, sizePx);
+    // Last drawn marker position, for geometric self-verification (?debug=1).
+    this._lastCubeMarker = {u, v, s};
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#ff8c1a';
+    ctx.strokeRect(u - s / 2, v - s / 2, s, s);
+    ctx.beginPath();
+    ctx.arc(u, v, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffd9a0';
+    ctx.fill();
   }
 
   setXrActive(active) {

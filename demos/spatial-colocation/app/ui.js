@@ -36,6 +36,7 @@ export class UI {
       btnSource: this.$('btn-source'),
       btnXr: this.$('btn-xr'),
       btnSave: this.$('btn-save'),
+      btnCube: this.$('btn-cube'),
       btnLoad: this.$('btn-load'),
       extrStatus: this.$('extr-status'),
     };
@@ -51,6 +52,7 @@ export class UI {
     );
     this.el.btnXr?.addEventListener('click', () => this.cb.onXrEnable?.());
     this.el.btnSave?.addEventListener('click', () => this.cb.onSaveMap?.());
+    this.el.btnCube?.addEventListener('click', () => this.cb.onPlaceCube?.());
     this.el.btnLoad?.addEventListener('click', () => {
       const name = this.el.mapSelect?.value;
       if (name) this.cb.onLoadMap?.(name);

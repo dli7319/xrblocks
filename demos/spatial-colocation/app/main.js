@@ -141,6 +141,7 @@ const state = {
   lastReloc: null, // {inliers, ts}
   matches: 0,
   poses: new Map(), // peerId -> {label, T_map_head, inliers, ts}
+  cube: {placed: false, autoPlaced: false, mapPos: null},
   lastBroadcast: 0,
   lastMapReq: 0,
   mapRetryTimer: null,
@@ -163,6 +164,7 @@ const helpers = {
 
 const ui = new UI({
   onMode: (mode) => setMode(mode),
+  onPlaceCube: () => placeCube(),
   onSourceToggle: () =>
     startSource(state.source?.kind === 'synthetic' ? 'camera' : 'synthetic'),
   onXrEnable: async () => {
@@ -598,6 +600,32 @@ function liveStep(now, headPose) {
   }
 }
 
+/** Apply a 4x4 pose to a 3D point. */
+function applyPoint(T, p) {
+  return [
+    T[0][0] * p[0] + T[0][1] * p[1] + T[0][2] * p[2] + T[0][3],
+    T[1][0] * p[0] + T[1][1] * p[1] + T[1][2] * p[2] + T[1][3],
+    T[2][0] * p[0] + T[2][1] * p[1] + T[2][2] * p[2] + T[2][3],
+  ];
+}
+
+/**
+ * Place (or re-place) the world-locked stability cube 1 m ahead of the camera.
+ * The cube is written ONCE into the map frame and never moved afterwards: if
+ * tracking is stable it stays glued to the world while the camera moves.
+ */
+function placeCube() {
+  const ahead = [0, 0, -1];
+  const mapPos = state.T_map_head ? applyPoint(state.T_map_head, ahead) : ahead;
+  state.cube = {placed: true, autoPlaced: true, mapPos};
+  viz.setCube(mapPos);
+  ui.log(
+    `stability cube placed 1.0 m ahead (map frame: ${mapPos
+      .map((v) => v.toFixed(2))
+      .join(', ')})`
+  );
+}
+
 function renderDevices(now) {
   const list = [];
   if (state.T_map_head) {
@@ -651,6 +679,27 @@ function processFrame(frame, now) {
     buildStep(now, headPose, keypoints, descriptors, frame);
   else if (state.mode === 'relocalize') relocStep(headPose);
   else if (state.mode === 'live') liveStep(now, headPose);
+
+  // Stability cube: auto-place once tracking is established, then project its
+  // map-fixed position onto the feed every frame. The projected square must
+  // stay glued to one spot of the scene — visible drift = tracking drift.
+  if (!state.cube.autoPlaced && state.T_map_head) placeCube();
+  if (state.cube.placed && state.T_map_head) {
+    const T_map_cam = matMul(state.T_map_head, state.T_head_camera);
+    const pCam = applyPoint(invertRigid(T_map_cam), state.cube.mapPos);
+    // Head poses use the three/WebXR camera convention (forward = −Z, y up),
+    // while K is a pinhole matrix (forward = +Z, y down). Convert at this
+    // boundary: depth = −z, X_cv = x, Y_cv = −y.
+    const depth = -pCam[2];
+    if (depth > 0.15) {
+      const u = (state.K[0][0] * pCam[0]) / depth + state.K[0][2];
+      const v = (-state.K[1][1] * pCam[1]) / depth + state.K[1][2];
+      const sizePx = (state.K[0][0] * 0.25) / depth;
+      if (u > -60 && v > -60 && u < frame.width + 60 && v < frame.height + 60) {
+        viz.drawCubeMarker(u, v, sizePx);
+      }
+    }
+  }
 
   // Presence and the device roster run in EVERY mode: a phone that is still
   // building or searching for the map must still see (and be seen by) the rest
@@ -710,6 +759,9 @@ function adoptMap(m, name) {
   state.T_map_head = null;
   state.relocRef = null;
   state.lastReloc = null;
+  // The old cube pose lived in the previous map frame — re-place once tracked.
+  state.cube = {placed: false, autoPlaced: false, mapPos: null};
+  viz.setCube(null);
   viz.setLandmarks(m.landmarks);
   viz.setOriginVisible(false);
   viz.setDevices([]);
@@ -873,7 +925,14 @@ async function init() {
   await refreshMapList();
   if (new URLSearchParams(location.search).has('debug')) {
     // In-page inspection/drive hook for debugging transports on real devices.
-    window.__scoloc = {state, net, requestMapSoon, refreshMapList};
+    window.__scoloc = {
+      state,
+      net,
+      viz,
+      placeCube,
+      requestMapSoon,
+      refreshMapList,
+    };
   }
   requestAnimationFrame(frameLoop);
 }

@@ -1074,10 +1074,11 @@ class SimMain extends xb.Script {
       this.landmarkPoints = new THREE.Points(
         geometry,
         new THREE.PointsMaterial({
-          // Constant 4px dots: world-size sprites exploded into huge squares
-          // whenever a point passed close to the camera. PLAIN material on
+          // Constant 16px dots: world-size sprites exploded into huge squares
+          // whenever a point passed close to the camera, and 4px dots proved
+          // invisible in practice (gone even in recordings). PLAIN material on
           // purpose — map+alphaTest rendered invisible in the WebGPU path.
-          size: 4,
+          size: 16,
           sizeAttenuation: false,
           vertexColors: true,
         })
@@ -1110,7 +1111,7 @@ class SimMain extends xb.Script {
     let h = 0;
     const d = desc || [];
     for (let i = 0; i < d.length; i++) h = (h * 31 + d[i]) >>> 0;
-    const c = new THREE.Color().setHSL((h % 360) / 360, 0.65, 0.6);
+    const c = new THREE.Color().setHSL((h % 360) / 360, 0.95, 0.62);
     return [c.r, c.g, c.b];
   }
 

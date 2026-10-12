@@ -44,6 +44,12 @@ const GRID_CELL_M = MERGE_RADIUS_M;
 const MAX_TRIANGULATION_PARTNERS = 1;
 /** Minimum matches before attempting triangulation against a partner. */
 const MIN_PARTNER_MATCHES = 4;
+/** Triangulation depth conditioning: rotation-dominant pairs have no depth
+ *  information — their triangulated points collapse toward the cameras (the
+ *  "cluster floating near the origin" failure). Require a real translation
+ *  baseline and a stronger parallax floor than feature matching needs. */
+const MIN_TRIANG_BASELINE_M = 0.06;
+const MIN_TRIANG_PARALLAX_DEG = 3.0;
 /** Landmark distance sanity (m): kills degenerate near-camera and absurd-far
  * triangulations (they render as huge near sprites and poison relocalization). */
 const MIN_LANDMARK_DIST_M = 0.25;
@@ -393,11 +399,26 @@ export function deserializeMap(bytes) {
  * @returns {number} count of newly created landmarks
  */
 function growLandmarks(map, keyframe, match, helpers, cv, minParallax) {
-  const partners = map.keyframes.slice(-MAX_TRIANGULATION_PARTNERS).reverse();
-  if (partners.length === 0) return 0;
-
+  minParallax = Math.max(minParallax, MIN_TRIANG_PARALLAX_DEG);
   const T_cam_new = matMulLocal(keyframe.T_map_head, keyframe.T_head_camera);
   const centerNew = [T_cam_new[0][3], T_cam_new[1][3], T_cam_new[2][3]];
+  // Pick ONE partner: the most recent keyframe with a real translation
+  // baseline (see MIN_TRIANG_BASELINE_M).
+  const partners = [];
+  for (const cand of map.keyframes.slice(-12).reverse()) {
+    const Tp = matMulLocal(cand.T_map_head, cand.T_head_camera);
+    const d = Math.hypot(
+      Tp[0][3] - centerNew[0],
+      Tp[1][3] - centerNew[1],
+      Tp[2][3] - centerNew[2]
+    );
+    if (d >= MIN_TRIANG_BASELINE_M) {
+      partners.push(cand);
+      break;
+    }
+    if (partners.length >= MAX_TRIANGULATION_PARTNERS) break;
+  }
+  if (partners.length === 0) return 0;
   let created = 0;
 
   for (const partner of partners) {

@@ -28,6 +28,20 @@ const CALIB_PAIR_MIN_ROT_DEG = 2.5;
 const CALIB_PAIR_MIN_TRANS_M = 0.04;
 const RELOC_MIN_INTERVAL_MS = 250;
 
+// Convention flip (same as app/main.js's CV_CAM_FLIP): the map pipeline's
+// triangulator (lib/geometry.js) expects OPENCV-convention camera poses
+// (x right, y down, +z forward), while XR/WebXR head poses are three-
+// convention (y up, -z forward). The head->map composition must carry this
+// flip or the reconstruction mirrors through the camera plane (points land
+// around the camera path instead of on the walls). The CALIBRATOR stays on
+// three-convention extrinsics (identity-ish) — only the map path flips.
+const CV_CAM_FLIP = [
+  [1, 0, 0, 0],
+  [0, -1, 0, 0],
+  [0, 0, -1, 0],
+  [0, 0, 0, 1],
+];
+
 let orbLib = null;
 let matchingLib = null;
 let geometryLib = null;
@@ -121,6 +135,10 @@ async function loadLibs() {
 function ensureCv() {
   if (!cvPromise) cvPromise = loadCvInWorker();
   return cvPromise;
+}
+
+function matMulLocal(A, B) {
+  return geometryLib.matMul(A, B);
 }
 
 function helpers() {
@@ -259,7 +277,7 @@ function buildStep(now, headPose, kps, descriptors, meta, events) {
       {
         timestamp: now,
         T_ref_head: headPose,
-        T_head_camera: meta.T_head_camera,
+        T_head_camera: matMulLocal(meta.T_head_camera, CV_CAM_FLIP),
         kps,
         descriptors,
       },
@@ -325,7 +343,7 @@ function relocStep(now, headPose, meta, events) {
     S.lastReloc = {inliers: r.inliers, ts: now};
     const T_map_head = relocalizeLib.headPoseFromCameraPose(
       r.T_map_camera,
-      meta.T_head_camera
+      matMulLocal(meta.T_head_camera, CV_CAM_FLIP)
     );
     const p = pair(T_map_head, headPose);
     result.T_map_head = p.T_map_head;
@@ -354,7 +372,7 @@ function liveStep(now, headPose, meta) {
   if (r) {
     const T_map_head = relocalizeLib.headPoseFromCameraPose(
       r.T_map_camera,
-      meta.T_head_camera
+      matMulLocal(meta.T_head_camera, CV_CAM_FLIP)
     );
     const p = pair(T_map_head, headPose);
     S.relocRef = {T_map_head, T_ref_head: headPose};

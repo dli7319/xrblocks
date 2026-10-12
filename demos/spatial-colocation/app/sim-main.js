@@ -592,16 +592,34 @@ class SimMain extends xb.Script {
       // with a TRANSFERRED ImageData buffer and results arrive as jobs.
       // CLASSIC worker on purpose: opencv.js has no CORS headers, so only
       // importScripts (CORS-exempt) can load it from a worker — see the
-      // worker's docblock. It loads our ESM lib via dynamic import().
+      // worker's docblock. The worker OWNS the whole compute pipeline
+      // (ORB, matching, calibration, mapping, relocalization).
       this.orbWorker = new Worker(new URL('./sim-worker.js', import.meta.url));
-      this.orbWorker.onmessage = (e) => this.onOrbResult(e.data);
+      this.rpcPending = new Map();
+      this.rpcId = 0;
+      this.orbWorker.onmessage = (e) => {
+        const m = e.data;
+        if (!m) return;
+        if (m.type === 'result') {
+          this.onWorkerResult(m);
+        } else if (m.type === 'rpcResult') {
+          const resolve = this.rpcPending.get(m.id);
+          if (resolve) {
+            this.rpcPending.delete(m.id);
+            resolve(m);
+          }
+        } else if (m.type === 'workerError') {
+          this.orbBusy = false;
+          this.ui.log(`worker error: ${m.error}`, 'error');
+        }
+      };
       this.orbWorker.onerror = (e) => {
-        this.ui.log(`ORB worker error: ${e.message || e}`, 'error');
         this.orbBusy = false;
+        this.ui.log(`worker error: ${e.message || e}`, 'error');
       };
       this.orbWorker.onmessageerror = () => {
-        this.ui.log('ORB worker message error', 'error');
         this.orbBusy = false;
+        this.ui.log('worker message error', 'error');
       };
       this.orbBusy = false;
     } catch (err) {
@@ -649,6 +667,8 @@ class SimMain extends xb.Script {
         state: this.state,
         net: this.net,
         placeCube: () => this.placeCube(),
+        // Direct access to the compute worker's RPCs (map serialize/load etc).
+        workerRpc: (type, payload) => this.rpc(type, payload),
         xb,
         // Ground-truth hook for the integrator: compare __scoloc.calib.K with
         // the SDK-derived (provided) K in the simulator.
@@ -687,22 +707,25 @@ class SimMain extends xb.Script {
         ts: performance.now(),
       });
     });
-    net.on('map-request', (msg) => {
+    net.on('map-request', async (msg) => {
       if (!this.state.hasMap || !this.state.map) return;
       try {
-        const bytes = serializeMap(this.state.map);
-        net.sendMap(bytes, this.state.mapName || `${room}-map`, msg.peerId);
-        this.ui.log(`sent map (${bytes.length} B) to ${msg.peerId}`);
+        const r = await this.rpc('serializeMap');
+        if (!r || !r.ok || !r.bytes) return;
+        net.sendMap(r.bytes, this.state.mapName || `${room}-map`, msg.peerId);
+        this.ui.log(`sent map (${r.bytes.length} B) to ${msg.peerId}`);
       } catch (err) {
         this.ui.log(`serialize failed: ${err.message}`, 'error');
       }
     });
-    net.on('map-data', ({from, name, bytes}) => {
+    net.on('map-data', async ({from, name, bytes}) => {
       try {
-        const m = deserializeMap(bytes);
-        this.adoptMap(m, name);
+        const r = await this.rpc('loadMap', {bytes, name});
+        if (!r || !r.ok) throw new Error(r && r.error ? r.error : 'load failed');
+        this.adoptMap(r.mapInfo, name);
+        if (r.landmarks) this.workerLandmarks = r.landmarks;
         this.ui.log(
-          `map "${name}" received from ${from} (${m.landmarks?.length || 0} landmarks)`
+          `map "${name}" received from ${from} (${r.mapInfo.landmarks} landmarks)`
         );
         this.ui.setBadge(`map: ${name}`);
       } catch (err) {
@@ -931,58 +954,28 @@ class SimMain extends xb.Script {
     if (state.calibrator && state.calibFrameW === frame.width) {
       return state.calibrator;
     }
-    state.calibrator = new OnlineCalibrator({
-      width: frame.width,
-      height: frame.height,
-      priorK: state.K,
-      priorTHeadCamera: state.T_head_camera,
-    });
     state.calibFrameW = frame.width;
     state.calibPriorF = state.K ? state.K[0][0] : 0;
-    state.lastCalibStep = 0;
     state.calibConvergedLogged = false;
     // Old tracks cannot pair across a dimension change.
     state.prevKps = null;
     state.prevDesc = null;
     state.prevHeadPose = null;
+    // Shim until the first worker result lands (see onWorkerResult).
+    state.calibrator = {
+      K: state.K.map((row) => row.slice()),
+      T_head_camera: state.T_head_camera.map((row) => row.slice()),
+      quality: {constrained: false, pairs: 0, rmsEpipolar: null},
+      priorK: state.K.map((row) => row.slice()),
+    };
+    // The real calibrator lives in the compute worker.
+    this.rpc('init', {
+      width: frame.width,
+      height: frame.height,
+      K: state.K,
+      T_head_camera: state.T_head_camera,
+    });
     return state.calibrator;
-  }
-
-  /**
-   * Feed one LONG-BASELINE pair (reference -> current) into the calibrator.
-   * Consecutive frames on slow feeds move too little for self-calibration —
-   * noise dominates the epipolar constraints and the fit drifts along
-   * near-null directions. Pair only once the reference is >= 1.2 deg / 2 cm
-   * away (accumulating motion against a fixed reference meanwhile).
-   */
-  feedCalibration(headPose, keypoints, descriptors) {
-    const state = this.state;
-    const calib = state.calibrator;
-    if (!calib || !headPose || !descriptors) return;
-    const ref = this.calibRef;
-    if (!ref || !ref.headPose || !ref.desc) {
-      this.calibRef = {kps: keypoints, desc: descriptors, headPose};
-      return;
-    }
-    const pairRot = rotationDegBetween(ref.headPose, headPose);
-    const pairTrans = translationDist(ref.headPose, headPose);
-    if (
-      pairRot < CALIB_PAIR_MIN_ROT_DEG &&
-      pairTrans < CALIB_PAIR_MIN_TRANS_M
-    ) {
-      return; // keep accumulating motion against the reference
-    }
-    const matches = matchDescriptors(ref.desc, descriptors);
-    if (matches.length) {
-      calib.addPair({
-        T_ref_head_i: ref.headPose,
-        T_ref_head_j: headPose,
-        pts_i: ref.kps,
-        pts_j: keypoints,
-        matches,
-      });
-    }
-    this.calibRef = {kps: keypoints, desc: descriptors, headPose};
   }
 
   /**
@@ -1033,47 +1026,6 @@ class SimMain extends xb.Script {
     return true;
   }
 
-  /** Run the LM solve every ~2 s of data; adopt + report when constrained. */
-  calibStep(now) {
-    const state = this.state;
-    const calib = state.calibrator;
-    if (!calib) return;
-    if (
-      state.lastCalibStep &&
-      now - state.lastCalibStep < CALIB_STEP_INTERVAL_MS
-    ) {
-      return;
-    }
-    state.lastCalibStep = now;
-    try {
-      // 8ms iteration budget: never blocks a frame; converges across calls.
-      calib.step(5);
-    } catch (err) {
-      this.ui.log(`calib step failed: ${err.message}`, 'warn');
-      return;
-    }
-    const adopted = this.adoptOnlineCalibration();
-    this.ui.setStats({calib: this.calibLine(adopted)});
-    if (adopted && !state.calibConvergedLogged) {
-      state.calibConvergedLogged = true;
-      const k = KFromCalibrator(calib);
-      const q = calib.quality;
-      this.ui.log(
-        `online calibration converged: fx=${k.fx.toFixed(1)} ` +
-          `cy=${k.cy.toFixed(1)} rms=${(q.rmsEpipolar * k.fx).toFixed(2)}px`
-      );
-    }
-  }
-
-  keyframeGate(now, T) {
-    if (!this.state.lastKf) return true;
-    if (now - this.state.lastKf.ts < KEYFRAME_MIN_MS) return false;
-    return (
-      translationDist(T, this.state.lastKf.T) >= KEYFRAME_MIN_MOVE_M ||
-      rotationDegBetween(T, this.state.lastKf.T) >= KEYFRAME_MIN_ROT_DEG
-    );
-  }
-
   /**
    * Record our map-frame head pose together with its paired map->ref
    * transform (`T_map_ref = T_map_head · inv(T_ref_head)`). Using the pair is
@@ -1085,63 +1037,15 @@ class SimMain extends xb.Script {
     this.state.T_map_ref = matMul(T_map_head, invertRigid(headPose));
   }
 
-  buildStep(now, headPose, kps, descriptors, frame) {
-    const state = this.state;
-    if (!state.map) {
-      state.map = createMap({
-        width: frame.width,
-        height: frame.height,
-        K: state.K,
-      });
-      state.kf0Pose = null;
-      this.ui.log(`map created (${frame.width}x${frame.height})`);
-    }
-    if (!this.keyframeGate(now, headPose)) return;
-    const fresh = state.map.keyframes.length === 0;
-    if (fresh) setMapOrigin(state.map, headPose);
-    let res;
-    try {
-      res = addKeyframe(
-        state.map,
-        {
-          timestamp: now,
-          T_ref_head: headPose,
-          T_head_camera: state.T_head_camera,
-          kps,
-          descriptors,
-        },
-        this.helpers
-      );
-    } catch (err) {
-      this.ui.log(`addKeyframe error: ${err.message}`, 'error');
-      return;
-    }
-    if (!res || res.newKeyframe === false) return;
-    state.lastKf = {ts: now, T: headPose};
-    if (fresh && !state.kf0Pose) {
-      state.kf0Pose = headPose;
-    } else if (state.kf0Pose) {
-      // Own pose in map frame (map frame = head frame at the first keyframe).
-      this.setMapHead(matMul(invertRigid(state.kf0Pose), headPose), headPose);
-    }
-    if (!state.hasMap) {
-      state.hasMap = true;
-      this.net.setHasMap(true);
-      this.net.announce();
-      this.ui.log(
-        `map is now shareable — ${state.map.landmarks.length} landmarks`
-      );
-    }
-  }
-
   /**
    * Rebuild the 3D landmark cloud when the map grows or changes (cheap count
    * check; rebuilds happen at keyframe/adopt rate). Points are map-frame.
    */
   updateLandmarkPoints() {
-    const map = this.state.map;
-    const count =
-      map && Array.isArray(map.landmarks) ? map.landmarks.length : 0;
+    // Positions + descriptors are streamed from the compute worker whenever
+    // the map changes (the map itself lives in the worker).
+    const lm = this.workerLandmarks;
+    const count = lm ? lm.count : 0;
     if (count === this.landmarkCount) return;
     if (!count) {
       this.landmarkCount = 0;
@@ -1184,13 +1088,11 @@ class SimMain extends xb.Script {
     }
     const pos = this.landmarkPoints.geometry.attributes.position;
     const col = this.landmarkPoints.geometry.attributes.color;
-    const landmarks = map.landmarks;
     for (let i = 0; i < count; i++) {
-      const lm = landmarks[i];
-      pos.array[3 * i] = lm.position[0];
-      pos.array[3 * i + 1] = lm.position[1];
-      pos.array[3 * i + 2] = lm.position[2];
-      const [r, g, b] = this.descriptorColor(lm.descriptor);
+      pos.array[3 * i] = lm.pos[3 * i];
+      pos.array[3 * i + 1] = lm.pos[3 * i + 1];
+      pos.array[3 * i + 2] = lm.pos[3 * i + 2];
+      const [r, g, b] = this.descriptorColor(lm.desc.subarray(32 * i, 32 * i + 32));
       col.array[3 * i] = r;
       col.array[3 * i + 1] = g;
       col.array[3 * i + 2] = b;
@@ -1240,73 +1142,6 @@ class SimMain extends xb.Script {
       1
     );
     this.landmarkGroup.matrixWorldNeedsUpdate = true;
-  }
-
-  liveRelocalize() {
-    const state = this.state;
-    if (!state.map) return null;
-    try {
-      return relocalize(
-        state.map,
-        {kps: state.prevKps, descriptors: state.prevDesc, K: state.K},
-        {cv: this.cv}
-      );
-    } catch (err) {
-      return null;
-    }
-  }
-
-  relocStep(headPose) {
-    // The relocalization solve is heavy on large maps; cap it below frame rate.
-    const now = performance.now();
-    if (now - this.state.lastRelocStep < RELOC_MIN_INTERVAL_MS) return;
-    this.state.lastRelocStep = now;
-    const r = this.liveRelocalize();
-    if (r) {
-      this.state.lastReloc = {inliers: r.inliers, ts: now};
-      const T_map_head = headPoseFromCameraPose(
-        r.T_map_camera,
-        this.state.T_head_camera
-      );
-      this.setMapHead(T_map_head, headPose);
-      this.state.relocRef = {T_map_head, T_ref_head: headPose};
-      this.ui.setStats({inliers: r.inliers});
-      this.ui.setBadge(`relocalized ✓ ${r.inliers} inliers`);
-      this.ui.log(
-        `relocalized ✓ ${r.inliers} inliers (need >= ${MIN_RELOC_INLIERS})`
-      );
-      if (this.state.mode === 'relocalize') this.setMode('live');
-    } else {
-      this.ui.setBadge('no pose yet — keep scanning the mapped area');
-    }
-  }
-
-  liveStep(now, headPose) {
-    const state = this.state;
-    const r = this.liveRelocalize();
-    if (r) {
-      const T_map_head = headPoseFromCameraPose(
-        r.T_map_camera,
-        state.T_head_camera
-      );
-      this.setMapHead(T_map_head, headPose);
-      state.relocRef = {T_map_head, T_ref_head: headPose};
-      state.lastReloc = {inliers: r.inliers, ts: now};
-    } else if (state.relocRef && headPose) {
-      // Propagate between successful relocalizations via the head-pose track.
-      this.setMapHead(
-        matMul(
-          state.relocRef.T_map_head,
-          matMul(invertRigid(state.relocRef.T_ref_head), headPose)
-        ),
-        headPose
-      );
-    }
-    if (state.T_map_head) {
-      this.ui.setStats({
-        inliers: state.lastReloc ? state.lastReloc.inliers : null,
-      });
-    }
   }
 
   /** Presence roster + labeled avatars for relocalized devices. */
@@ -1407,48 +1242,82 @@ class SimMain extends xb.Script {
     return null;
   }
 
-  /** Worker ORB result -> the staggered pipeline jobs (one per engine tick). */
-  onOrbResult(data) {
+  /** Promise RPC against the compute worker ({type, id, ...payload}). */
+  rpc(type, payload = {}) {
+    return new Promise((resolve) => {
+      this.rpcId += 1;
+      const id = this.rpcId;
+      this.rpcPending.set(id, resolve);
+      this.orbWorker.postMessage({type, id, ...payload});
+    });
+  }
+
+  /** Worker pipeline result -> app state, UI events and viz buffers. */
+  onWorkerResult(r) {
     this.orbBusy = false;
     const state = this.state;
-    if (!data || !data.ok) {
-      this.ui.log(`ORB failed: ${data && data.error}`, 'error');
-      return;
+    if (!r) return;
+    if (r.matches) state.matches = r.matches;
+    if (r.calib) {
+      // Debug/UI shim: the real OnlineCalibrator lives in the worker. This
+      // mirrors the fields adoption + stats read (K, T_head_camera, quality,
+      // priorK); window.__scoloc.state.calibrator sees this shim.
+      state.calibrator = r.calib;
     }
-    const {keypoints, descriptors} = data;
-    const {now, headPose, width, height} = data.meta;
-    if (!this.jobs) this.jobs = [];
-    this.jobs.push(() => {
-      // The frame-to-frame match feeds ONLY the UI counter — every 3rd frame.
-      let matchesList = [];
-      this.frameMatchTick = (this.frameMatchTick || 0) + 1;
-      if (state.prevDesc && this.frameMatchTick % 3 === 0) {
-        try {
-          matchesList = matchDescriptors(state.prevDesc, descriptors);
-        } catch (err) {
-          matchesList = [];
-        }
-        state.matches = matchesList.length;
-      }
-      // Online self-calibration consumes the SAME per-frame matches + head-pose
-      // track the pipeline already computes (prev frame -> current frame).
-      this.feedCalibration(headPose, keypoints, descriptors);
-      this.calibStep(now);
-      state.prevHeadPose = headPose;
-      state.prevKps = keypoints;
-      state.prevDesc = descriptors;
-    });
-    this.jobs.push(() => {
-      const frameMeta = {width, height};
-      if (state.mode === 'build') {
-        this.buildStep(now, headPose, keypoints, descriptors, frameMeta);
-      } else if (state.mode === 'relocalize') {
-        this.relocStep(headPose);
-      } else if (state.mode === 'live') {
-        this.liveStep(now, headPose);
-      }
-      this.updateCubeMapPos();
-    });
+    if (r.stepped) this.applyCalibStep();
+    if (r.T_map_head && r.T_map_ref) {
+      state.T_map_head = r.T_map_head;
+      state.T_map_ref = r.T_map_ref;
+    }
+    if (r.mapInfo) {
+      // Truthiness + counts shim for the app's map readers (net/UI/persistence
+      // fetch real map bytes from the worker on demand).
+      state.map = {
+        width: r.mapInfo.width,
+        height: r.mapInfo.height,
+        keyframes: new Array(r.mapInfo.keyframes),
+        landmarks: new Array(r.mapInfo.landmarks),
+      };
+    }
+    if (r.mapCreated) {
+      state.kf0Pose = null;
+      state.hasMap = false;
+    }
+    if (r.hasMapNow) {
+      state.hasMap = true;
+      this.net.setHasMap(true);
+      this.net.announce();
+    }
+    if (r.landmarks) this.workerLandmarks = r.landmarks;
+    if (r.reloc) {
+      state.lastReloc = {inliers: r.reloc.inliers, ts: performance.now()};
+      if (state.mode === 'relocalize') this.setMode('live');
+    }
+    for (const ev of r.events || []) {
+      if (ev.kind === 'log') this.ui.log(ev.msg, ev.level || '');
+      else if (ev.kind === 'badge') this.ui.setBadge(ev.text);
+      else if (ev.kind === 'stats') this.ui.setStats(ev.stats);
+      else if (ev.kind === 'mode') this.setMode(ev.mode);
+    }
+    this.updateCubeMapPos();
+    this.updateLandmarkPoints();
+    this.updateLandmarkGroupPose();
+  }
+
+  /** Adoption + reporting after a worker LM solve (gating lives worker-side). */
+  applyCalibStep() {
+    const state = this.state;
+    const adopted = this.adoptOnlineCalibration();
+    this.ui.setStats({calib: this.calibLine(adopted)});
+    if (adopted && !state.calibConvergedLogged) {
+      state.calibConvergedLogged = true;
+      const k = KFromCalibrator(state.calibrator);
+      const q = state.calibrator.quality;
+      this.ui.log(
+        `online calibration converged: fx=${k.fx.toFixed(1)} ` +
+          `cy=${k.cy.toFixed(1)} rms=${(q.rmsEpipolar * k.fx).toFixed(2)}px`
+      );
+    }
   }
 
   processFrame(frame, now) {
@@ -1482,15 +1351,20 @@ class SimMain extends xb.Script {
       const buf = frame.data.buffer;
       this.orbWorker.postMessage(
         {
+          type: 'frame',
           buffer: buf,
           width: frame.width,
           height: frame.height,
           maxFeatures: MAX_FEATURES,
           meta: {
             now,
+            tMs: frame.tMs || 0,
             headPose,
             width: frame.width,
             height: frame.height,
+            mode: state.mode,
+            K: state.K,
+            T_head_camera: state.T_head_camera,
           },
         },
         [buf]
@@ -1572,9 +1446,15 @@ class SimMain extends xb.Script {
 
   // ---- map persistence ------------------------------------------------------
 
-  adoptMap(m, name) {
+  adoptMap(info, name) {
     const state = this.state;
-    state.map = m;
+    // Counts shim; the real map lives in the compute worker.
+    state.map = {
+      width: info.width,
+      height: info.height,
+      keyframes: new Array(info.keyframes),
+      landmarks: new Array(info.landmarks),
+    };
     state.mapName = name || state.mapName;
     state.hasMap = true;
     state.lastKf = null;
@@ -1585,8 +1465,8 @@ class SimMain extends xb.Script {
     state.lastReloc = null;
     state.cube.mapPos = null;
     this.ui.setStats({
-      keyframes: m.keyframes?.length || 0,
-      landmarks: m.landmarks?.length || 0,
+      keyframes: info.keyframes || 0,
+      landmarks: info.landmarks || 0,
       inliers: null,
     });
     this.net.setHasMap(true);
@@ -1604,7 +1484,9 @@ class SimMain extends xb.Script {
       .slice(11, 19)
       .replace(/:/g, '')}`;
     try {
-      const bytes = serializeMap(state.map);
+      const r = await this.rpc('serializeMap');
+      if (!r || !r.ok || !r.bytes) throw new Error('serialize failed');
+      const bytes = r.bytes;
       await store.saveMap(name, bytes);
       state.mapName = name;
       state.hasMap = true;
@@ -1626,11 +1508,11 @@ class SimMain extends xb.Script {
         this.ui.log(`map "${name}" not in IndexedDB`, 'warn');
         return false;
       }
-      const m = deserializeMap(bytes);
-      this.adoptMap(m, name);
-      this.ui.log(
-        `loaded map "${name}" (${m.landmarks?.length || 0} landmarks)`
-      );
+      const r = await this.rpc('loadMap', {bytes, name});
+      if (!r || !r.ok) throw new Error(r && r.error ? r.error : 'load failed');
+      this.adoptMap(r.mapInfo, name);
+      if (r.landmarks) this.workerLandmarks = r.landmarks;
+      this.ui.log(`loaded map "${name}" (${r.mapInfo.landmarks} landmarks)`);
       this.ui.setBadge(`map: ${name}`);
       return true;
     } catch (err) {
@@ -1749,6 +1631,10 @@ class SimMain extends xb.Script {
   }
 
   dispose() {
+    if (this.orbWorker) {
+      this.orbWorker.terminate();
+      this.orbWorker = null;
+    }
     window.removeEventListener('beforeunload', this.onUnload);
     if (this.onVisibilityChange) {
       document.removeEventListener('visibilitychange', this.onVisibilityChange);

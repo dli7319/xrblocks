@@ -85,9 +85,9 @@ import {
 } from './sim-feed.js';
 
 // Local timing constants — copied exactly from app/main.js (raw demo).
-const PROCESS_INTERVAL_MS = 100; // feature extraction <= 10 Hz
+const PROCESS_INTERVAL_MS = 200; // feature extraction <= 10 Hz
 const RELOC_MIN_INTERVAL_MS = 250; // PnP search <= 4 Hz
-const CALIB_STEP_INTERVAL_MS = 400; // online self-calibration LM solve cadence
+const CALIB_STEP_INTERVAL_MS = 300; // online self-calibration LM solve cadence
 const CALIB_PAIR_MIN_ROT_DEG = 2.5; // long-baseline pairing: real epipolar leverage
 const CALIB_PAIR_MIN_TRANS_M = 0.04;
 const CALIB_MAX_RMS_PX = 8; // adoption plausibility gate
@@ -587,6 +587,23 @@ class SimMain extends xb.Script {
     try {
       this.cv = await loadCv();
       this.ui.log('OpenCV ready');
+      // ORB extraction runs in a Web Worker (extractOrb ~70ms per 512x512
+      // frame here): the render thread must never block on it. Frames post
+      // with a TRANSFERRED ImageData buffer and results arrive as jobs.
+      // CLASSIC worker on purpose: opencv.js has no CORS headers, so only
+      // importScripts (CORS-exempt) can load it from a worker — see the
+      // worker's docblock. It loads our ESM lib via dynamic import().
+      this.orbWorker = new Worker(new URL('./sim-worker.js', import.meta.url));
+      this.orbWorker.onmessage = (e) => this.onOrbResult(e.data);
+      this.orbWorker.onerror = (e) => {
+        this.ui.log(`ORB worker error: ${e.message || e}`, 'error');
+        this.orbBusy = false;
+      };
+      this.orbWorker.onmessageerror = () => {
+        this.ui.log('ORB worker message error', 'error');
+        this.orbBusy = false;
+      };
+      this.orbBusy = false;
     } catch (err) {
       this.ui.log(`loadCv failed: ${err.message} — polling global cv`, 'warn');
       this.cv = await new Promise((resolve, reject) => {
@@ -1030,7 +1047,7 @@ class SimMain extends xb.Script {
     state.lastCalibStep = now;
     try {
       // 8ms iteration budget: never blocks a frame; converges across calls.
-      calib.step(8);
+      calib.step(5);
     } catch (err) {
       this.ui.log(`calib step failed: ${err.message}`, 'warn');
       return;
@@ -1126,50 +1143,65 @@ class SimMain extends xb.Script {
     const count =
       map && Array.isArray(map.landmarks) ? map.landmarks.length : 0;
     if (count === this.landmarkCount) return;
-    // Throttled rebuilds: during build the count changes constantly and a full
-    // geometry rebuild every processed frame was a stutter source (trace).
-    const now = performance.now();
-    if (this.landmarkPoints && now - (this.landmarkRebuildAt || 0) < 2000) {
+    if (!count) {
+      this.landmarkCount = 0;
       return;
     }
-    this.landmarkRebuildAt = now;
-    this.landmarkCount = count;
-    if (this.landmarkPoints) {
-      this.landmarkGroup.remove(this.landmarkPoints);
-      this.landmarkPoints.geometry.dispose();
-      this.landmarkPoints.material.dispose();
-      this.landmarkPoints = null;
+    // INCREMENTAL update: preallocated buffers + setDrawRange. The old full
+    // rebuild (allocate + fill + dispose) every 2s during build caused GC
+    // hitches that showed up as ~230ms gaps in screen recordings.
+    const cap = Math.max(2048, count + 512);
+    if (!this.landmarkPoints || this.landmarkPoints.userData.cap < cap) {
+      if (this.landmarkPoints) {
+        this.landmarkGroup.remove(this.landmarkPoints);
+        this.landmarkPoints.geometry.dispose();
+        this.landmarkPoints.material.dispose();
+        this.landmarkPoints = null;
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute(
+        'position',
+        new THREE.BufferAttribute(new Float32Array(cap * 3), 3)
+      );
+      geometry.setAttribute(
+        'color',
+        new THREE.BufferAttribute(new Float32Array(cap * 3), 3)
+      );
+      this.landmarkPoints = new THREE.Points(
+        geometry,
+        new THREE.PointsMaterial({
+          // Constant 4px dots: world-size sprites exploded into huge squares
+          // whenever a point passed close to the camera. PLAIN material on
+          // purpose — map+alphaTest rendered invisible in the WebGPU path.
+          size: 4,
+          sizeAttenuation: false,
+          vertexColors: true,
+        })
+      );
+      this.landmarkPoints.name = 'ORB Landmarks';
+      this.landmarkPoints.userData.cap = cap;
+      this.landmarkGroup.add(this.landmarkPoints);
     }
-    if (!count) return;
-    const positions = new Float32Array(count * 3);
-    const colors = new Float32Array(count * 3);
+    const pos = this.landmarkPoints.geometry.attributes.position;
+    const col = this.landmarkPoints.geometry.attributes.color;
+    const landmarks = map.landmarks;
     for (let i = 0; i < count; i++) {
-      const lm = map.landmarks[i];
-      positions[3 * i] = lm.position[0];
-      positions[3 * i + 1] = lm.position[1];
-      positions[3 * i + 2] = lm.position[2];
+      const lm = landmarks[i];
+      pos.array[3 * i] = lm.position[0];
+      pos.array[3 * i + 1] = lm.position[1];
+      pos.array[3 * i + 2] = lm.position[2];
       const [r, g, b] = this.descriptorColor(lm.descriptor);
-      colors[3 * i] = r;
-      colors[3 * i + 1] = g;
-      colors[3 * i + 2] = b;
+      col.array[3 * i] = r;
+      col.array[3 * i + 1] = g;
+      col.array[3 * i + 2] = b;
     }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    this.landmarkPoints = new THREE.Points(
-      geometry,
-      new THREE.PointsMaterial({
-        // Constant 4px dots: world-size sprites exploded into huge squares
-        // whenever a point passed close to the camera. PLAIN material on
-        // purpose — map+alphaTest rendered invisible in the WebGPU path.
-        size: 4,
-        sizeAttenuation: false,
-        vertexColors: true,
-      })
-    );
-    this.landmarkPoints.name = 'ORB Landmarks';
-    this.landmarkGroup.add(this.landmarkPoints);
+    pos.needsUpdate = true;
+    col.needsUpdate = true;
+    this.landmarkPoints.geometry.setDrawRange(0, count);
+    this.landmarkCount = count;
+    this.landmarkRebuildAt = performance.now();
   }
+
 
   /** Deterministic bright color from a 32-byte ORB descriptor. */
   descriptorColor(desc) {
@@ -1375,32 +1407,16 @@ class SimMain extends xb.Script {
     return null;
   }
 
-  processFrame(frame, now) {
+  /** Worker ORB result -> the staggered pipeline jobs (one per engine tick). */
+  onOrbResult(data) {
+    this.orbBusy = false;
     const state = this.state;
-    this.ensureIntrinsics(frame);
-    this.ensureCalibrator(frame);
-    const {keypoints, descriptors} = extractOrb(this.cv, frame, {
-      maxFeatures: MAX_FEATURES,
-    });
-
-    // Observed frame age (capture-estimate -> processing): a persistent large
-    // value on a real device means the media clock tracks arrival, not capture —
-    // compensate with ?frameLagMs.
-    if (frame.tMs) state.frameAgeMs = now - frame.tMs;
-
-    const headPose = this.frameAlignedPose(frame) || this.currentHeadPose();
-    this.poseHistory.push(frame.tMs || now, headPose);
-    state.headPose = headPose;
-
-    // The stability cube is placed once at startup after the first valid head
-    // pose (and on demand via the button / window.__scoloc.placeCube).
-    if (!state.cube.placed) this.placeCube();
-
-    // Heavy phases run as TWO jobs drained ONE per engine tick (see update()):
-    // stacking ORB + several 62k-pair matches + the LM step + keyframe
-    // triangulation in one rAF tick produced 50-470ms stutters (trace:
-    // matchDescriptorsWords = 20% of all samples). The frame-to-frame match
-    // feeds only the UI counter; everything below keeps its original order.
+    if (!data || !data.ok) {
+      this.ui.log(`ORB failed: ${data && data.error}`, 'error');
+      return;
+    }
+    const {keypoints, descriptors} = data;
+    const {now, headPose, width, height} = data.meta;
     if (!this.jobs) this.jobs = [];
     this.jobs.push(() => {
       // The frame-to-frame match feeds ONLY the UI counter — every 3rd frame.
@@ -1423,8 +1439,9 @@ class SimMain extends xb.Script {
       state.prevDesc = descriptors;
     });
     this.jobs.push(() => {
+      const frameMeta = {width, height};
       if (state.mode === 'build') {
-        this.buildStep(now, headPose, keypoints, descriptors, frame);
+        this.buildStep(now, headPose, keypoints, descriptors, frameMeta);
       } else if (state.mode === 'relocalize') {
         this.relocStep(headPose);
       } else if (state.mode === 'live') {
@@ -1432,6 +1449,53 @@ class SimMain extends xb.Script {
       }
       this.updateCubeMapPos();
     });
+  }
+
+  processFrame(frame, now) {
+    const state = this.state;
+    this.ensureIntrinsics(frame);
+    this.ensureCalibrator(frame);
+    // Observed frame age (capture-estimate -> processing): a persistent large
+    // value on a real device means the media clock tracks arrival, not capture —
+    // compensate with ?frameLagMs.
+    if (frame.tMs) state.frameAgeMs = now - frame.tMs;
+
+    const headPose = this.frameAlignedPose(frame) || this.currentHeadPose();
+    this.poseHistory.push(frame.tMs || now, headPose);
+    state.headPose = headPose;
+
+    // The stability cube is placed once at startup after the first valid head
+    // pose (and on demand via the button / window.__scoloc.placeCube).
+    if (!state.cube.placed) this.placeCube();
+
+    // Heavy phases run as TWO jobs drained ONE per engine tick (see update()):
+    // stacking ORB + several 62k-pair matches + the LM step + keyframe
+    // triangulation in one rAF tick produced 50-470ms stutters (trace:
+    // matchDescriptorsWords = 20% of all samples). The frame-to-frame match
+    // feeds only the UI counter; everything below keeps its original order.
+    // ORB extraction runs in the worker (see onOrbResult for the pipeline
+    // jobs). Frames are dropped while the worker is busy — the pipeline runs
+    // at the worker's pace, the render tick stays free.
+    if (this.orbWorker && !this.orbBusy) {
+      this.orbBusy = true;
+      // Frame shape: {data, width, height, tMs} (see app/sim-feed.js).
+      const buf = frame.data.buffer;
+      this.orbWorker.postMessage(
+        {
+          buffer: buf,
+          width: frame.width,
+          height: frame.height,
+          maxFeatures: MAX_FEATURES,
+          meta: {
+            now,
+            headPose,
+            width: frame.width,
+            height: frame.height,
+          },
+        },
+        [buf]
+      );
+    }
     this.updateLandmarkPoints();
     this.updateLandmarkGroupPose();
 

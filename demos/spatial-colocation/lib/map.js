@@ -38,9 +38,10 @@ const MERGE_MAX_HAMMING = 48;
 export const MAX_LANDMARKS = 12000;
 /** Spatial hash cell size; MERGE_RADIUS_M guarantees in-radius points are in the 27-neighborhood. */
 const GRID_CELL_M = MERGE_RADIUS_M;
-/** Previous keyframes triangulated against per new keyframe (kept small:
- *  each partner is a full descriptor match and they all ran in one frame). */
-const MAX_TRIANGULATION_PARTNERS = 2;
+/** Previous keyframes triangulated against per new keyframe (ONE: each partner
+ *  is a full descriptor match; two in one frame still hitched ~200ms on slow
+ *  CPUs and showed as periodic gaps in recordings). */
+const MAX_TRIANGULATION_PARTNERS = 1;
 /** Minimum matches before attempting triangulation against a partner. */
 const MIN_PARTNER_MATCHES = 4;
 /** Landmark distance sanity (m): kills degenerate near-camera and absurd-far

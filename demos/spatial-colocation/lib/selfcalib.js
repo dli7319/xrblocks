@@ -37,8 +37,8 @@
  * translations.
  */
 
-const MAX_PAIRS = 400; // ring buffer cap (frame pairs), drop oldest
-const MAX_MATCHES_PER_PAIR = 128; // per-pair match subsample (compute bound)
+const MAX_PAIRS = 200; // ring buffer cap (frame pairs), drop oldest
+const MAX_MATCHES_PER_PAIR = 64; // per-pair match subsample (compute bound)
 const MIN_MATCHES_PER_PAIR = 6; // below this a pair is not worth storing
 const MIN_OBS = 30; // residuals required to run the optimizer
 const MIN_PAIRS_FOR_CONSTRAINT = 10;
@@ -750,18 +750,17 @@ export class OnlineCalibrator {
         break;
       }
       iterations = it + 1;
-      // Numeric Jacobian (central differences).
+      // Numeric Jacobian (FORWARD differences: one residual pass per free
+      // parameter instead of two — central differences doubled every LM
+      // iteration and dominated step()'s frame-blocking cost).
       for (let k = 0; k < 10; k++) {
         if (freeze[k]) continue;
         const h = FD_STEP * Math.max(1, Math.abs(p[k]));
         const pp = p.slice();
         pp[k] = p[k] + h;
-        const pm = p.slice();
-        pm[k] = p[k] - h;
         this._evalResiduals(pp, layout, tmpP);
-        this._evalResiduals(pm, layout, tmpM);
         for (let row = 0; row < m; row++) {
-          jac[row * 10 + k] = (tmpP[row] - tmpM[row]) / (2 * h);
+          jac[row * 10 + k] = (tmpP[row] - res[row]) / h;
         }
       }
       // Tukey biweight IRLS: the MAD trim froze the observation layout at

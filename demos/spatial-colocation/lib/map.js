@@ -42,6 +42,10 @@ const GRID_CELL_M = MERGE_RADIUS_M;
 const MAX_TRIANGULATION_PARTNERS = 3;
 /** Minimum matches before attempting triangulation against a partner. */
 const MIN_PARTNER_MATCHES = 4;
+/** Landmark distance sanity (m): kills degenerate near-camera and absurd-far
+ * triangulations (they render as huge near sprites and poison relocalization). */
+const MIN_LANDMARK_DIST_M = 0.25;
+const MAX_LANDMARK_DIST_M = 8.0;
 /** File magic for serialized maps ('SCM1'). */
 const MAGIC = [0x53, 0x43, 0x4d, 0x31];
 /** Bytes per keypoint in the binary blob: x, y, angle, size, octave (float64). */
@@ -458,6 +462,28 @@ function growLandmarks(map, keyframe, match, helpers, cv, minParallax) {
         ]
       );
       if (parallax < minParallax) continue;
+
+      // Distance sanity from BOTH camera centers (convention-free): degenerate
+      // pairs (wrong matches, barely-above-min-parallax) triangulate points
+      // centimeters from a camera or at absurd range.
+      const distNew = Math.hypot(
+        position[0] - centerNew[0],
+        position[1] - centerNew[1],
+        position[2] - centerNew[2]
+      );
+      const distPrev = Math.hypot(
+        position[0] - centerPrev[0],
+        position[1] - centerPrev[1],
+        position[2] - centerPrev[2]
+      );
+      if (
+        distNew < MIN_LANDMARK_DIST_M ||
+        distNew > MAX_LANDMARK_DIST_M ||
+        distPrev < MIN_LANDMARK_DIST_M ||
+        distPrev > MAX_LANDMARK_DIST_M
+      ) {
+        continue;
+      }
 
       const matched = keep[i];
       const descriptor = keyframe.descriptors.subarray(

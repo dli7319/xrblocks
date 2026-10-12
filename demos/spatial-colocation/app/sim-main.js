@@ -1151,13 +1151,34 @@ class SimMain extends xb.Script {
     this.landmarkPoints = new THREE.Points(
       geometry,
       new THREE.PointsMaterial({
-        size: 0.012,
+        // Constant 4px ROUND dots: world-size sprites exploded into huge
+        // squares whenever a point passed close to the camera (and square
+        // sprites read as "floating squares" anyway).
+        size: 4,
+        sizeAttenuation: false,
         vertexColors: true,
-        sizeAttenuation: true,
+        map: this.dotTexture(),
+        alphaTest: 0.5,
+        transparent: true,
       })
     );
     this.landmarkPoints.name = 'ORB Landmarks';
     this.landmarkGroup.add(this.landmarkPoints);
+  }
+
+  /** Tiny round-dot sprite texture (cached), so points render as dots. */
+  dotTexture() {
+    if (this._dotTexture) return this._dotTexture;
+    const c = document.createElement('canvas');
+    c.width = 32;
+    c.height = 32;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(16, 16, 13, 0, Math.PI * 2);
+    ctx.fill();
+    this._dotTexture = new THREE.CanvasTexture(c);
+    return this._dotTexture;
   }
 
   /** Deterministic bright color from a 32-byte ORB descriptor. */

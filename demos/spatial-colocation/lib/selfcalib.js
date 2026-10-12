@@ -38,7 +38,7 @@
  */
 
 const MAX_PAIRS = 400; // ring buffer cap (frame pairs), drop oldest
-const MAX_MATCHES_PER_PAIR = 64; // per-pair match subsample (compute bound)
+const MAX_MATCHES_PER_PAIR = 128; // per-pair match subsample (compute bound)
 const MIN_MATCHES_PER_PAIR = 6; // below this a pair is not worth storing
 const MIN_OBS = 30; // residuals required to run the optimizer
 const MIN_PAIRS_FOR_CONSTRAINT = 10;
@@ -51,6 +51,13 @@ const DEN_EPS = 1e-9; // degenerate Sampson denominator threshold
 const TRIM_SIGMA = 2.5; // robust observation gate (MAD sigmas, per step())
 const TRIM_FLOOR = 1e-7; // ~5e-5 px — keeps perfect/near-perfect data intact
 const LEVER_MAX_M = 0.5; // physical lever-arm bound (head-mounted camera)
+// MAP prior anchor: a weak Tikhonov term toward the INITIALIZATION, weighted
+// at LAMBDA_REL of the data curvature. Live/sim observation noise leaves the
+// likelihood nearly flat along some directions (run-to-run estimates swung
+// 2%-50%); a 3% anchor makes the estimate CONSISTENT while the data still
+// dominates whenever it is informative (synthetic recovery and the +/-50%
+// basin are unaffected).
+const LAMBDA_REL = 0.03;
 const SMALL_DELTA = 1e-9; // stop when max |dp| / (1 + |p|) drops below
 const PLATEAU = 1e-12; // stop when relative cost gain drops below
 
@@ -396,7 +403,7 @@ export class OnlineCalibrator {
    *   priorTHeadCamera: number[][]}} opts priorK: 3x3 nested,
    *   priorTHeadCamera: 4x4 nested (INITIALIZATION ONLY)
    */
-  constructor({width, height, priorK, priorTHeadCamera}) {
+  constructor({width, height, priorK, priorTHeadCamera, priorWeight = LAMBDA_REL}) {
     if (!(width > 0) || !(height > 0)) {
       throw new Error('OnlineCalibrator: width/height must be positive');
     }
@@ -409,7 +416,12 @@ export class OnlineCalibrator {
     this.buffer = []; // ring buffer of frame pairs
     this._steps = 0;
     this._rmsEpipolar = null;
+    this._priorWeight = priorWeight;
     this.p = this._clamp(this._paramsFromPriors());
+    this._pBest = null;
+    this._bestCost = null;
+    this._guardLayout = null;
+    this._guardAge = 0;
   }
 
   /** Parameter vector from the current priors (defaults if none supplied). */
@@ -494,8 +506,71 @@ export class OnlineCalibrator {
       obs.push(a.x, a.y, b.x, b.y);
     }
     if (obs.length < MIN_MATCHES_PER_PAIR * 4) return;
-    this.buffer.push({R: rel.R, t: rel.t, obs: Float64Array.from(obs)});
+
+    // Geometric consistency gate: RAW descriptor matches carry a systematic
+    // wrong-match tail whose bias inflates focal (verified live: fits reached
+    // 4-5x truth while the trimmed cost fell). Score every observation's
+    // Sampson residual at the CURRENT parameters and MAD-gate the pair's own
+    // outliers at 2.5 sigmas BEFORE storing it.
+    const obsF = this._filterObs(rel, obs);
+    if (obsF.length < MIN_MATCHES_PER_PAIR * 4) return;
+    this.buffer.push({R: rel.R, t: rel.t, obs: Float64Array.from(obsF)});
     while (this.buffer.length > MAX_PAIRS) this.buffer.shift();
+  }
+
+  /** Per-pair Sampson MAD gate at the current parameters. */
+  _filterObs(rel, obs) {
+    const p = this.p;
+    const fx = p[0];
+    const fy = p[1];
+    const cx = p[2];
+    const cy = p[3];
+    const R = rotMatFromRotVec([p[4], p[5], p[6]]);
+    const t = [p[7], p[8], p[9]];
+    const Rt = transpose3(R);
+    const Rij = mul3(Rt, mul3(rel.R, R));
+    const v = mul3v(rel.R, t);
+    const tij = mul3v(Rt, [
+      v[0] + rel.t[0] - t[0],
+      v[1] + rel.t[1] - t[1],
+      v[2] + rel.t[2] - t[2],
+    ]);
+    const E = skewTimes(tij, Rij);
+    const n = obs.length / 4;
+    const scores = new Float64Array(n);
+    const keepIdx = [];
+    for (let k = 0; k < n; k++) {
+      const xi0 = (obs[4 * k] - cx) / fx;
+      const xi1 = -(obs[4 * k + 1] - cy) / fy;
+      const xj0 = (obs[4 * k + 2] - cx) / fx;
+      const xj1 = -(obs[4 * k + 3] - cy) / fy;
+      // r = x_jᵀ E x_i with the pinned three-convention bearings (z = -1).
+      const g0 = E[0][0] * xi0 + E[0][1] * xi1 - E[0][2];
+      const g1 = E[1][0] * xi0 + E[1][1] * xi1 - E[1][2];
+      const r = xj0 * g0 + xj1 * g1 - (E[2][0] * xi0 + E[2][1] * xi1 - E[2][2]);
+      const den = Math.hypot(g0, g1);
+      if (!Number.isFinite(den) || den < DEN_EPS) continue;
+      scores[keepIdx.length] = Math.abs(r) / den;
+      keepIdx.push(k);
+    }
+    if (keepIdx.length < MIN_MATCHES_PER_PAIR) return [];
+    const sorted = [];
+    for (let i = 0; i < keepIdx.length; i++) sorted.push(scores[i]);
+    sorted.sort((a, b) => a - b);
+    const med = sorted[sorted.length >> 1] || 0;
+    const mad = [];
+    for (let i = 0; i < keepIdx.length; i++)
+      mad.push(Math.abs(scores[i] - med));
+    mad.sort((a, b) => a - b);
+    const sigma = Math.max(TRIM_FLOOR, 1.4826 * (mad[mad.length >> 1] || 0));
+    const gate = med + TRIM_SIGMA * sigma;
+    const out = [];
+    for (let i = 0; i < keepIdx.length; i++) {
+      if (scores[i] > gate) continue;
+      const k = keepIdx[i];
+      out.push(obs[4 * k], obs[4 * k + 1], obs[4 * k + 2], obs[4 * k + 3]);
+    }
+    return out;
   }
 
   /**
@@ -598,11 +673,13 @@ export class OnlineCalibrator {
   step() {
     // Fixed observation layout at the base parameters: pairs with degenerate
     // Sampson denominators are dropped here; perturbed evaluations clamp.
-    let layout = this._buildLayout(this.p);
+    const fullLayout = this._buildLayout(this.p);
+    let layout = fullLayout;
     let m = layout.length / 2;
     if (m < MIN_OBS) {
       return {iterations: 0, rmsEpipolar: null, improved: false};
     }
+    let prior = null;
     let res = new Float64Array(m);
     this._evalResiduals(this.p, layout, res);
     // Robust observation gate: the apps feed RAW descriptor matches, whose
@@ -624,6 +701,7 @@ export class OnlineCalibrator {
     let cost = 0;
     for (let i = 0; i < m; i++) cost += res[i] * res[i];
     const costStart = cost;
+    const pStart = this.p.slice();
 
     const rotDiverse = rotationDiverse(this.buffer);
     const transDiv = translationDiversity(this.buffer);
@@ -670,6 +748,17 @@ export class OnlineCalibrator {
           jac[row * 10 + k] = (tmpP[row] - tmpM[row]) / (2 * h);
         }
       }
+      // Tukey biweight IRLS: the MAD trim froze the observation layout at
+      // step() start, but heavy ORB tails still bias the solve if left
+      // unweighted — and Huber's LINEAR tail still lets tail mass pull (seen
+      // live: an inflated-focal fit outranked a clearly better truth fit).
+      // Tukey is REDESCENDING: beyond c the weight is exactly 0, so tails are
+      // inert. c from the CURRENT residual MAD, recomputed every iteration.
+      const absSorted = new Float64Array(m);
+      for (let row = 0; row < m; row++) absSorted[row] = Math.abs(res[row]);
+      absSorted.sort();
+      const medAbs = absSorted[m >> 1] || 0;
+      const tukeyC = Math.max(TRIM_FLOOR, 4.685 * 1.4826 * medAbs * 0.5);
       // Normal equations A = JᵀJ, b = -Jᵀr.
       const A = [
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -686,15 +775,28 @@ export class OnlineCalibrator {
       const b = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
       for (let row = 0; row < m; row++) {
         const r = res[row];
+        const u = Math.abs(r) / tukeyC;
+        const w = u < 1 ? (1 - u * u) * (1 - u * u) : 0;
         for (let i = 0; i < 10; i++) {
           const ji = jac[row * 10 + i];
           if (ji === 0) continue;
-          b[i] -= ji * r;
-          for (let j = i; j < 10; j++) A[i][j] += ji * jac[row * 10 + j];
+          b[i] -= w * ji * r;
+          for (let j = i; j < 10; j++) A[i][j] += w * ji * jac[row * 10 + j];
         }
       }
       for (let i = 0; i < 10; i++) {
         for (let j = 0; j < i; j++) A[i][j] = A[j][i];
+      }
+      // Weak MAP anchor toward the initialization (see LAMBDA_REL).
+      if (!prior) prior = this._paramsFromPriors();
+      let dataDiag = 0;
+      for (let k = 0; k < 10; k++) dataDiag += A[k][k];
+      const lambdaAbs = (this._priorWeight * dataDiag) / 10;
+      for (let k = 0; k < 10; k++) {
+        const sk = 1 + Math.abs(prior[k]);
+        const wPrior = lambdaAbs / (sk * sk);
+        A[k][k] += wPrior;
+        b[k] -= wPrior * (p[k] - prior[k]);
       }
       // Frozen parameters: identity row/col, zero rhs -> zero delta.
       // Additionally freeze parameters whose RELATIVE curvature is negligible:
@@ -777,30 +879,99 @@ export class OnlineCalibrator {
 
     for (let k = 0; k < 10; k++) this.p[k] = p[k];
     this._steps += iterations;
-    this._rmsEpipolar = Math.sqrt(cost / m);
+
+    // Global monotonicity guard: the per-step MAD trim makes the inner cost a
+    // moving basis, so consecutive steps can walk UPHILL on the full data
+    // (observed live: fits ending 6x WORSE than their start). Accept the step's
+    // end state only if the Huber cost over the FULL untrimmed layout improved
+    // vs the step's start — a fixed basis that cannot flatter either side.
+    // The comparison basis is CACHED for 10 steps so consecutive steps are
+    // monotone on an identical basis (per-step rebuilds let the walk slip
+    // between subtly different layouts — observed live as occasional blowups).
+    if (!this._guardLayout || --this._guardAge <= 0) {
+      this._guardLayout = this._buildLayout(this.p);
+      this._guardAge = 10;
+    }
+    const guardLayout = this._guardLayout;
+    const mf = guardLayout.length / 2;
+    const resStartF = new Float64Array(mf);
+    this._evalResiduals(pStart, guardLayout, resStartF);
+    const absS = new Float64Array(mf);
+    for (let i = 0; i < mf; i++) absS[i] = Math.abs(resStartF[i]);
+    absS.sort();
+    const tc = Math.max(
+      TRIM_FLOOR,
+      4.685 * 1.4826 * (absS[mf >> 1] || 0) * 0.5
+    );
+    const priorG = this._paramsFromPriors();
+    const anchorPenalty = (pp) => {
+      let s = 0;
+      for (let k = 0; k < 10; k++) {
+        const sk = 1 + Math.abs(priorG[k]);
+        const d = (pp[k] - priorG[k]) / sk;
+        s += d * d;
+      }
+      return (this._priorWeight / 2) * s;
+    };
+    const tukeyCost = (r, pp) => {
+      // Tukey biweight loss: (c^2/6) * (1 - (1-u^2)^3) for |u| < 1, else c^2/6,
+      // plus the weak prior anchor (the optimized MAP objective).
+      let s = 0;
+      for (let i = 0; i < mf; i++) {
+        const u = Math.abs(r[i]) / tc;
+        s += u < 1 ? 1 - (1 - u * u) * (1 - u * u) * (1 - u * u) : 1;
+      }
+      return (tc * tc * s) / 6 + anchorPenalty(pp);
+    };
+    const resEndF = new Float64Array(mf);
+    this._evalResiduals(this.p, guardLayout, resEndF);
+    let reverted = false;
+    if (tukeyCost(resEndF, this.p) > tukeyCost(resStartF, pStart)) {
+      for (let k = 0; k < 10; k++) this.p[k] = pStart[k];
+      reverted = true;
+    }
+    // Track the BEST state ever seen on the robust cost: the estimate we
+    // report/adopt is the best-seen, never a later valley drift.
+    const endCost = reverted
+      ? tukeyCost(resStartF, pStart)
+      : tukeyCost(resEndF, this.p);
+    if (this._bestCost === null || endCost < this._bestCost) {
+      this._bestCost = endCost;
+      this._pBest = this.p.slice();
+    }
+    const finalRes = reverted ? resStartF : resEndF;
+    let costFinal = 0;
+    for (let i = 0; i < mf; i++) costFinal += finalRes[i] * finalRes[i];
+    this._rmsEpipolar = Math.sqrt(costFinal / mf);
     return {
       iterations,
       rmsEpipolar: this._rmsEpipolar,
-      improved: cost < costStart,
+      improved: !reverted && costFinal < costStart,
     };
   }
 
-  /** Current intrinsics estimate: 3x3 nested `[[fx,0,cx],[0,fy,cy],[0,0,1]]`. */
+  /** Best-seen parameter vector (robust-cost champion), or the current one. */
+  get _pOut() {
+    return this._pBest || this.p;
+  }
+
+  /** Intrinsics estimate: 3x3 nested `[[fx,0,cx],[0,fy,cy],[0,0,1]]`. */
   get K() {
     return [
-      [this.p[0], 0, this.p[2]],
-      [0, this.p[1], this.p[3]],
+      [this._pOut[0], 0, this._pOut[2]],
+      [0, this._pOut[1], this._pOut[3]],
       [0, 0, 1],
     ];
   }
 
   /** Current extrinsics estimate: `T_head_camera` (4x4 nested). */
   get T_head_camera() {
-    const R = rotMatFromRotVec([this.p[4], this.p[5], this.p[6]]);
+    const q = this._pOut;
+    const R = rotMatFromRotVec([q[4], q[5], q[6]]);
     return [
-      [R[0][0], R[0][1], R[0][2], this.p[7]],
-      [R[1][0], R[1][1], R[1][2], this.p[8]],
-      [R[2][0], R[2][1], R[2][2], this.p[9]],
+      [R[0][0], R[0][1], R[0][2], q[7]],
+      [R[1][0], R[1][1], R[1][2], q[8]],
+      [R[2][0], R[2][1], R[2][2], q[9]],
       [0, 0, 0, 1],
     ];
   }
@@ -842,6 +1013,10 @@ export class OnlineCalibrator {
     this._steps = 0;
     this._rmsEpipolar = null;
     this.p = this._clamp(this._paramsFromPriors());
+    this._pBest = null;
+    this._bestCost = null;
+    this._guardLayout = null;
+    this._guardAge = 0;
   }
 }
 

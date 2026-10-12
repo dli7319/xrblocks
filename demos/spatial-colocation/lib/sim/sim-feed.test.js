@@ -16,6 +16,7 @@ import {
   SWEEP_RADIUS_M,
   SWEEP_HEIGHT_M,
   SWEEP_BOB_M,
+  SWEEP_ROLL_DEG,
 } from '../../app/sim-feed.js';
 
 let checks = 0;
@@ -132,6 +133,23 @@ check('autoSweepPoseAt: faces outward from the circle center at t=0', () => {
   assert.ok(Math.abs(fx) < 1e-9, 'forward x');
   assert.ok(Math.abs(fz - 1) < 1e-9, 'forward z');
   assert.equal(pose.pitch, 0, 'no pitch nod at t=0');
+});
+
+check('autoSweepPoseAt: roll varies and stays within SWEEP_ROLL_DEG', () => {
+  let maxAbs = 0;
+  let minR = Infinity;
+  let maxR = -Infinity;
+  for (let t = 0; t < 60; t += 0.25) {
+    const {roll} = autoSweepPoseAt(t);
+    maxAbs = Math.max(maxAbs, Math.abs(roll));
+    minR = Math.min(minR, roll);
+    maxR = Math.max(maxR, roll);
+  }
+  assert.ok(
+    maxAbs <= (SWEEP_ROLL_DEG * Math.PI) / 180 + 1e-9,
+    `roll ${maxAbs} exceeds bound`
+  );
+  assert.ok(maxR - minR > 0.1, 'roll must actually vary (fy observability)');
 });
 
 console.log(`\n${checks} checks passed`);

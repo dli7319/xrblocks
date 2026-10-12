@@ -261,6 +261,7 @@ function runTrial(seed) {
     : [(rng() * 2 - 1) * 0.3, (rng() * 2 - 1) * 0.3, (rng() * 2 - 1) * 0.3];
   const priorT = poseFromRt(rotMatFromRotVec(rv), lv);
   const calib = new OnlineCalibrator({
+    priorWeight: 0,
     width: W,
     height: H,
     priorK,

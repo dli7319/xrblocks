@@ -88,8 +88,8 @@ import {
 const PROCESS_INTERVAL_MS = 100; // feature extraction <= 10 Hz
 const RELOC_MIN_INTERVAL_MS = 250; // PnP search <= 4 Hz
 const CALIB_STEP_INTERVAL_MS = 2000; // online self-calibration LM solve cadence
-const CALIB_PAIR_MIN_ROT_DEG = 1.2; // long-baseline pairing: real epipolar leverage
-const CALIB_PAIR_MIN_TRANS_M = 0.02;
+const CALIB_PAIR_MIN_ROT_DEG = 2.5; // long-baseline pairing: real epipolar leverage
+const CALIB_PAIR_MIN_TRANS_M = 0.04;
 const CALIB_MAX_RMS_PX = 8; // adoption plausibility gate
 const POSE_TTL_MS = 4000;
 const MAP_FALLBACK_MS = 3500;
@@ -168,7 +168,7 @@ function applySweepPose(camera, tSec) {
   const pose = autoSweepPoseAt(tSec);
   camera.position.set(pose.position[0], pose.position[1], pose.position[2]);
   camera.quaternion.setFromEuler(
-    new THREE.Euler(pose.pitch, pose.yaw, 0, 'YXZ')
+    new THREE.Euler(pose.pitch, pose.yaw, pose.roll || 0, 'YXZ')
   );
   camera.updateMatrixWorld(true);
 }

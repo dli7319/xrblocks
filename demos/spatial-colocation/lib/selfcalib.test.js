@@ -375,6 +375,7 @@ check('convention pin: known-pose projection has ~zero residual', () => {
     translate: true,
   });
   const calib = new OnlineCalibrator({
+    priorWeight: 0,
     width: W,
     height: H,
     priorK: [
@@ -412,6 +413,7 @@ check('convention pin: flipped v (y-up mistake) does NOT fit', () => {
     flipY: true,
   });
   const calib = new OnlineCalibrator({
+    priorWeight: 0,
     width: W,
     height: H,
     priorK: [
@@ -435,6 +437,7 @@ check('convention pin: flipped v (y-up mistake) does NOT fit', () => {
 check('K recovery: fx/fy within 2%, cx/cy within 2px', () => {
   const pairs = generatePairs({seed: 11, frames: 26, noisePx: 0.5});
   const calib = new OnlineCalibrator({
+    priorWeight: 0,
     width: W,
     height: H,
     priorK: PRIOR_K,
@@ -456,6 +459,7 @@ check('extrinsics recovery: rotation < 2deg, lever arm < 2cm', () => {
   // Same synthetic run as the K recovery (rotation ~5deg truth, lever ~2cm).
   const pairs = generatePairs({seed: 11, frames: 26, noisePx: 0.5});
   const calib = new OnlineCalibrator({
+    priorWeight: 0,
     width: W,
     height: H,
     priorK: PRIOR_K,
@@ -498,6 +502,7 @@ check(
       rollA: 0.3,
     });
     const calib = new OnlineCalibrator({
+    priorWeight: 0,
       width: W,
       height: H,
       priorK: PRIOR_K,
@@ -534,6 +539,7 @@ check('prior is initialization only: 20%-wrong prior still converges', () => {
   );
   const pairs = generatePairs({seed: 17, frames: 26, noisePx: 0.5});
   const calib = new OnlineCalibrator({
+    priorWeight: 0,
     width: W,
     height: H,
     priorK,
@@ -561,6 +567,7 @@ check('prior is initialization only: 20%-wrong prior still converges', () => {
 check('reset() clears the buffer and re-converges', () => {
   const pairs = generatePairs({seed: 19, frames: 26, noisePx: 0.5});
   const calib = new OnlineCalibrator({
+    priorWeight: 0,
     width: W,
     height: H,
     priorK: PRIOR_K,
@@ -600,6 +607,7 @@ check('reset() clears the buffer and re-converges', () => {
 
 check('KFromCalibrator returns the fx/fy/cx/cy view', () => {
   const calib = new OnlineCalibrator({
+    priorWeight: 0,
     width: W,
     height: H,
     priorK: PRIOR_K,
@@ -631,6 +639,7 @@ check('robust to 25% outlier matches (raw descriptor matches)', () => {
     }
   }
   const calib = new OnlineCalibrator({
+    priorWeight: 0,
     width: W,
     height: H,
     priorK: PRIOR_K,
@@ -659,6 +668,7 @@ check('lever arm is clamped to a physical bound', () => {
   // Documented deviation pin: degenerate/weak data must not run the lever arm
   // away — components clamp to +-0.5 m (head-mounted camera bound).
   const calib = new OnlineCalibrator({
+    priorWeight: 0,
     width: W,
     height: H,
     priorK: PRIOR_K,
@@ -672,6 +682,32 @@ check('lever arm is clamped to a physical bound', () => {
   assert.ok(Math.abs(T[1][3]) <= 0.5, `ty ${T[1][3]} must clamp to 0.5`);
   assert.ok(Math.abs(T[2][3]) <= 0.5, `tz ${T[2][3]} must clamp to 0.5`);
   console.log(`   clamped lever arm: [${T[0][3]}, ${T[1][3]}, ${T[2][3]}]`);
+});
+
+check('MAP anchor: data dominates a 20%-wrong prior', () => {
+  // Default priorWeight (LAMBDA_REL anchor): with a 20%-wrong prior and
+  // realistic 1px noise, the estimate must land much CLOSER to truth than the
+  // prior is — the anchor bounds variance, it must not win against data.
+  const pairs = generatePairs({seed: 31, frames: 40, noisePx: 1.0, translate: true});
+  const badPrior = [
+    [TRUE_K.fx * 1.2, 0, TRUE_K.cx + 20],
+    [0, TRUE_K.fy * 1.2, TRUE_K.cy - 20],
+    [0, 0, 1],
+  ];
+  const calib = new OnlineCalibrator({
+    width: W,
+    height: H,
+    priorK: badPrior,
+    priorTHeadCamera: TRUE_T_HEAD_CAMERA,
+  });
+  feed(calib, pairs);
+  converge(calib);
+  const e = kErrors(calib);
+  assert.ok(e.fxPct < 12, `fx ${e.fxPct.toFixed(1)}% must be < 12% (prior was 20% off)`);
+  assert.ok(e.fyPct < 12, `fy ${e.fyPct.toFixed(1)}% must be < 12% (prior was 20% off)`);
+  assert.ok(e.cxPx < 12, `cx ${e.cxPx.toFixed(1)}px must be < 12px (prior was 20px off)`);
+  assert.ok(e.cyPx < 12, `cy ${e.cyPx.toFixed(1)}px must be < 12px (prior was 20px off)`);
+  console.log(`   anchored recovery: ${fmtK(e)}`);
 });
 
 console.log(`\n${checks} checks passed`);

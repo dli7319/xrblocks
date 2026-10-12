@@ -145,8 +145,9 @@ export function matrixToNested(m) {
  * cube.
  *
  * @param {number} tSec seconds since the sweep started
- * @returns {{position: number[], yaw: number, pitch: number}} pose to apply
- *   to the XB camera (yaw about +Y, pitch about +X, 'YXZ' euler order)
+ * @returns {{position: number[], yaw: number, pitch: number, roll: number}}
+ *   pose to apply to the XB camera (yaw about +Y, pitch about +X, roll about
+ *   +Z, 'YXZ' euler order)
  */
 export function autoSweepPoseAt(tSec) {
   const theta = (2 * Math.PI * tSec) / SWEEP_PERIOD_S;
@@ -165,7 +166,13 @@ export function autoSweepPoseAt(tSec) {
   const pitch =
     ((SWEEP_PITCH_DEG * Math.PI) / 180) *
     Math.sin((2 * Math.PI * tSec) / SWEEP_PITCH_PERIOD_S);
-  return {position, yaw, pitch};
+  // ROLL about the optical axis is essential for self-calibration: without
+  // rotation about the viewing direction, fy is nearly unobservable and the
+  // estimate drifts (verified live — see lib/selfcalib-basin.test.js notes).
+  const roll =
+    ((SWEEP_ROLL_DEG * Math.PI) / 180) *
+    Math.sin((2 * Math.PI * tSec) / SWEEP_ROLL_PERIOD_S);
+  return {position, yaw, pitch, roll};
 }
 
 export const SWEEP_PERIOD_S = 30;
@@ -174,8 +181,10 @@ export const SWEEP_HEIGHT_M = 1.5;
 export const SWEEP_BOB_M = 0.05;
 export const SWEEP_YAW_SCAN_DEG = 60;
 export const SWEEP_YAW_PERIOD_S = 15;
-export const SWEEP_PITCH_DEG = 5;
+export const SWEEP_PITCH_DEG = 12;
 export const SWEEP_PITCH_PERIOD_S = 9;
+export const SWEEP_ROLL_DEG = 34;
+export const SWEEP_ROLL_PERIOD_S = 11;
 
 // ---- camera feed -------------------------------------------------------------
 

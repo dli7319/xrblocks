@@ -60,8 +60,8 @@ const MAP_RETRY_MS = 5000;
 const MIN_MATCHES_FOR_POSE = 12;
 const CALIB_MIN_SAMPLES = 30;
 const CALIB_STEP_INTERVAL_MS = 2000; // online self-calibration LM solve cadence
-const CALIB_PAIR_MIN_ROT_DEG = 1.2; // long-baseline pairing: real epipolar leverage
-const CALIB_PAIR_MIN_TRANS_M = 0.02;
+const CALIB_PAIR_MIN_ROT_DEG = 2.5; // long-baseline pairing: real epipolar leverage
+const CALIB_PAIR_MIN_TRANS_M = 0.04;
 const CALIB_MAX_RMS_PX = 8; // adoption plausibility gate
 
 const IDENTITY = [

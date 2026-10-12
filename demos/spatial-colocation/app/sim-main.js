@@ -87,7 +87,7 @@ import {
 // Local timing constants — copied exactly from app/main.js (raw demo).
 const PROCESS_INTERVAL_MS = 100; // feature extraction <= 10 Hz
 const RELOC_MIN_INTERVAL_MS = 250; // PnP search <= 4 Hz
-const CALIB_STEP_INTERVAL_MS = 2000; // online self-calibration LM solve cadence
+const CALIB_STEP_INTERVAL_MS = 400; // online self-calibration LM solve cadence
 const CALIB_PAIR_MIN_ROT_DEG = 2.5; // long-baseline pairing: real epipolar leverage
 const CALIB_PAIR_MIN_TRANS_M = 0.04;
 const CALIB_MAX_RMS_PX = 8; // adoption plausibility gate
@@ -1029,7 +1029,8 @@ class SimMain extends xb.Script {
     }
     state.lastCalibStep = now;
     try {
-      calib.step();
+      // 8ms iteration budget: never blocks a frame; converges across calls.
+      calib.step(8);
     } catch (err) {
       this.ui.log(`calib step failed: ${err.message}`, 'warn');
       return;
@@ -1125,6 +1126,13 @@ class SimMain extends xb.Script {
     const count =
       map && Array.isArray(map.landmarks) ? map.landmarks.length : 0;
     if (count === this.landmarkCount) return;
+    // Throttled rebuilds: during build the count changes constantly and a full
+    // geometry rebuild every processed frame was a stutter source (trace).
+    const now = performance.now();
+    if (this.landmarkPoints && now - (this.landmarkRebuildAt || 0) < 2000) {
+      return;
+    }
+    this.landmarkRebuildAt = now;
     this.landmarkCount = count;
     if (this.landmarkPoints) {
       this.landmarkGroup.remove(this.landmarkPoints);
@@ -1151,34 +1159,16 @@ class SimMain extends xb.Script {
     this.landmarkPoints = new THREE.Points(
       geometry,
       new THREE.PointsMaterial({
-        // Constant 4px ROUND dots: world-size sprites exploded into huge
-        // squares whenever a point passed close to the camera (and square
-        // sprites read as "floating squares" anyway).
+        // Constant 4px dots: world-size sprites exploded into huge squares
+        // whenever a point passed close to the camera. PLAIN material on
+        // purpose — map+alphaTest rendered invisible in the WebGPU path.
         size: 4,
         sizeAttenuation: false,
         vertexColors: true,
-        map: this.dotTexture(),
-        alphaTest: 0.5,
-        transparent: true,
       })
     );
     this.landmarkPoints.name = 'ORB Landmarks';
     this.landmarkGroup.add(this.landmarkPoints);
-  }
-
-  /** Tiny round-dot sprite texture (cached), so points render as dots. */
-  dotTexture() {
-    if (this._dotTexture) return this._dotTexture;
-    const c = document.createElement('canvas');
-    c.width = 32;
-    c.height = 32;
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(16, 16, 13, 0, Math.PI * 2);
-    ctx.fill();
-    this._dotTexture = new THREE.CanvasTexture(c);
-    return this._dotTexture;
   }
 
   /** Deterministic bright color from a 32-byte ORB descriptor. */
@@ -1393,15 +1383,6 @@ class SimMain extends xb.Script {
       maxFeatures: MAX_FEATURES,
     });
 
-    let matchesList = [];
-    if (state.prevDesc) {
-      try {
-        matchesList = matchDescriptors(state.prevDesc, descriptors);
-      } catch (err) {
-        matchesList = [];
-      }
-    }
-    state.matches = matchesList.length;
     // Observed frame age (capture-estimate -> processing): a persistent large
     // value on a real device means the media clock tracks arrival, not capture —
     // compensate with ?frameLagMs.
@@ -1410,26 +1391,47 @@ class SimMain extends xb.Script {
     const headPose = this.frameAlignedPose(frame) || this.currentHeadPose();
     this.poseHistory.push(frame.tMs || now, headPose);
     state.headPose = headPose;
-    // Online self-calibration consumes the SAME per-frame matches + head-pose
-    // track the pipeline already computes (prev frame -> current frame).
-    this.feedCalibration(headPose, keypoints, descriptors);
-    this.calibStep(now);
-    state.prevHeadPose = headPose;
-    state.prevKps = keypoints;
-    state.prevDesc = descriptors;
 
     // The stability cube is placed once at startup after the first valid head
     // pose (and on demand via the button / window.__scoloc.placeCube).
     if (!state.cube.placed) this.placeCube();
 
-    if (state.mode === 'build') {
-      this.buildStep(now, headPose, keypoints, descriptors, frame);
-    } else if (state.mode === 'relocalize') {
-      this.relocStep(headPose);
-    } else if (state.mode === 'live') {
-      this.liveStep(now, headPose);
-    }
-    this.updateCubeMapPos();
+    // Heavy phases run as TWO jobs drained ONE per engine tick (see update()):
+    // stacking ORB + several 62k-pair matches + the LM step + keyframe
+    // triangulation in one rAF tick produced 50-470ms stutters (trace:
+    // matchDescriptorsWords = 20% of all samples). The frame-to-frame match
+    // feeds only the UI counter; everything below keeps its original order.
+    if (!this.jobs) this.jobs = [];
+    this.jobs.push(() => {
+      // The frame-to-frame match feeds ONLY the UI counter — every 3rd frame.
+      let matchesList = [];
+      this.frameMatchTick = (this.frameMatchTick || 0) + 1;
+      if (state.prevDesc && this.frameMatchTick % 3 === 0) {
+        try {
+          matchesList = matchDescriptors(state.prevDesc, descriptors);
+        } catch (err) {
+          matchesList = [];
+        }
+        state.matches = matchesList.length;
+      }
+      // Online self-calibration consumes the SAME per-frame matches + head-pose
+      // track the pipeline already computes (prev frame -> current frame).
+      this.feedCalibration(headPose, keypoints, descriptors);
+      this.calibStep(now);
+      state.prevHeadPose = headPose;
+      state.prevKps = keypoints;
+      state.prevDesc = descriptors;
+    });
+    this.jobs.push(() => {
+      if (state.mode === 'build') {
+        this.buildStep(now, headPose, keypoints, descriptors, frame);
+      } else if (state.mode === 'relocalize') {
+        this.relocStep(headPose);
+      } else if (state.mode === 'live') {
+        this.liveStep(now, headPose);
+      }
+      this.updateCubeMapPos();
+    });
     this.updateLandmarkPoints();
     this.updateLandmarkGroupPose();
 
@@ -1652,6 +1654,19 @@ class SimMain extends xb.Script {
     }
     if (wantAutoSweep && !this.sweep.journeyActive && this.engineCamera) {
       applySweepPose(this.engineCamera, (now - this.sweep.t0) / 1000);
+    }
+    // ONE heavy pipeline job per tick (queued by processFrame) — the stutter
+    // fix: no frame ever stacks ORB + matching + LM + triangulation.
+    const job = this.jobs && this.jobs.shift();
+    if (job) {
+      try {
+        job();
+      } catch (err) {
+        this.ui.log(
+          `pipeline error: ${err && err.message ? err.message : err}`,
+          'error'
+        );
+      }
     }
     if (!this.cv || !this.feed || !this.net) return;
     if (now - this.state.lastProcess < PROCESS_INTERVAL_MS) return;

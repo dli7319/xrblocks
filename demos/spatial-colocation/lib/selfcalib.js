@@ -670,7 +670,13 @@ export class OnlineCalibrator {
    * @returns {{iterations: number, rmsEpipolar: number|null,
    *   improved: boolean}}
    */
-  step() {
+  /**
+   * @param {number} [budgetMs] soft time budget for the LM iterations — the
+   *   call returns after at least one iteration when exceeded, so a step can
+   *   never block a render frame (the numeric Jacobian is 20 full residual
+   *   evaluations per iteration). Convergence continues on the next call.
+   */
+  step(budgetMs = Infinity) {
     // Fixed observation layout at the base parameters: pairs with degenerate
     // Sampson denominators are dropped here; perturbed evaluations clamp.
     const fullLayout = this._buildLayout(this.p);
@@ -732,7 +738,17 @@ export class OnlineCalibrator {
     let iterations = 0;
     let improved = false;
 
+    const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
     for (let it = 0; it < MAX_LM_ITERATIONS; it++) {
+      if (
+        it > 0 &&
+        budgetMs !== Infinity &&
+        typeof performance !== 'undefined' &&
+        performance.now() - t0 > budgetMs
+      ) {
+        iterations = it;
+        break;
+      }
       iterations = it + 1;
       // Numeric Jacobian (central differences).
       for (let k = 0; k < 10; k++) {
@@ -924,9 +940,16 @@ export class OnlineCalibrator {
       return (tc * tc * s) / 6 + anchorPenalty(pp);
     };
     const resEndF = new Float64Array(mf);
-    this._evalResiduals(this.p, guardLayout, resEndF);
     let reverted = false;
-    if (tukeyCost(resEndF, this.p) > tukeyCost(resStartF, pStart)) {
+    let moved = false;
+    for (let k = 0; k < 10; k++) {
+      if (this.p[k] !== pStart[k]) {
+        moved = true;
+        break;
+      }
+    }
+    if (moved) this._evalResiduals(this.p, guardLayout, resEndF);
+    if (moved && tukeyCost(resEndF, this.p) > tukeyCost(resStartF, pStart)) {
       for (let k = 0; k < 10; k++) this.p[k] = pStart[k];
       reverted = true;
     }

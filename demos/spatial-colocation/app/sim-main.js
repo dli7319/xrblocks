@@ -981,10 +981,14 @@ class SimMain extends xb.Script {
     const k = KFromCalibrator(calib);
     const q = calib.quality;
     const rmsPx = (q.rmsEpipolar * (k.fx + k.fy)) / 2;
+    // Tight scale gate (15%): weakly-constrained fits can be internally
+    // consistent yet tens of percent off — those must never reach the pipeline.
     return (
       state.calibPriorF > 0 &&
-      Math.abs(k.fx / state.calibPriorF - 1) < 0.5 &&
-      Math.abs(k.fy / state.calibPriorF - 1) < 0.5 &&
+      Math.abs(k.fx / state.calibPriorF - 1) < 0.15 &&
+      Math.abs(k.fy / state.calibPriorF - 1) < 0.15 &&
+      Math.abs(k.cx - state.K[0][2]) < 0.25 * state.K[0][2] &&
+      Math.abs(k.cy - state.K[1][2]) < 0.25 * state.K[1][2] &&
       rmsPx < CALIB_MAX_RMS_PX
     );
   }

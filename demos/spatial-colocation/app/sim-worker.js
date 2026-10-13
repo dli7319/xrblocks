@@ -27,6 +27,16 @@ const CALIB_STEP_INTERVAL_MS = 300;
 const CALIB_PAIR_MIN_ROT_DEG = 2.5;
 const CALIB_PAIR_MIN_TRANS_M = 0.04;
 const RELOC_MIN_INTERVAL_MS = 250;
+// Temporal consistency gate: between solves 250ms apart the head moves at
+// most ~0.1m / ~8deg on our trajectories — anything larger is a wrong solve,
+// not motion. Repeated-texture mismatches produce consistent
+// WRONG poses that RANSAC cannot tell apart (observed 30-70deg spikes with
+// 25-87 inliers); rejecting physically-impossible jumps kills them. After
+// RELOC_REACQUIRE_SOLVES consecutive rejections a jump is accepted again
+// (true re-acquisition after tracking loss).
+const RELOC_JUMP_MAX_M = 0.1;
+const RELOC_JUMP_MAX_DEG = 8;
+const RELOC_REACQUIRE_SOLVES = 20;
 
 // Convention flip (same as app/main.js's CV_CAM_FLIP): the map pipeline's
 // triangulator (lib/geometry.js) expects OPENCV-convention camera poses
@@ -340,11 +350,35 @@ function relocStep(now, headPose, meta, events) {
   S.lastRelocStep = now;
   const r = liveRelocalize(meta);
   if (r) {
-    S.lastReloc = {inliers: r.inliers, ts: now};
     const T_map_head = relocalizeLib.headPoseFromCameraPose(
       r.T_map_camera,
       matMulLocal(meta.T_head_camera, CV_CAM_FLIP)
     );
+    // Consensus acquisition: two consecutive solves must agree before
+    // tracking is established (first-contact garbage is common on small
+    // maps / across illumination changes).
+    if (
+      S.pendingReloc &&
+      (translationDist(S.pendingReloc, T_map_head) >= 0.2 ||
+        rotationDegBetween(S.pendingReloc, T_map_head) >= 10)
+    ) {
+      S.pendingReloc = T_map_head.map((row) => row.slice());
+      events.push({
+        kind: 'badge',
+        text: 'candidate pose — confirming (two solves must agree)',
+      });
+      return result;
+    }
+    if (!S.pendingReloc) {
+      S.pendingReloc = T_map_head.map((row) => row.slice());
+      events.push({
+        kind: 'badge',
+        text: 'candidate pose — confirming (two solves must agree)',
+      });
+      return result;
+    }
+    S.pendingReloc = null;
+    S.lastReloc = {inliers: r.inliers, ts: now};
     const p = pair(T_map_head, headPose);
     result.T_map_head = p.T_map_head;
     result.T_map_ref = p.T_map_ref;
@@ -387,7 +421,26 @@ function liveStep(now, headPose, meta) {
       matMulLocal(meta.T_head_camera, CV_CAM_FLIP)
     );
     if (propagated) {
-      const alpha = Math.min(0.85, 0.25 + r.inliers / 60);
+      const jumpM = translationDist(propagated, T_map_head);
+      const jumpDeg = rotationDegBetween(propagated, T_map_head);
+      S.rejectStreak = S.rejectStreak || 0;
+      if (
+        (jumpM > RELOC_JUMP_MAX_M || jumpDeg > RELOC_JUMP_MAX_DEG) &&
+        S.rejectStreak < RELOC_REACQUIRE_SOLVES
+      ) {
+        // Physically impossible since the last solve — a wrong-pose lock.
+        // The physics gate alone decides (repeated-texture aliases are
+        // reproducible frame-to-frame, so agreement between solves does NOT
+        // certify a pose); only the hard re-acquisition escape lets a jump
+        // through after RELOC_REACQUIRE_SOLVES consecutive rejections.
+        S.rejectStreak += 1;
+        const p = pair(propagated, headPose);
+        result.T_map_head = p.T_map_head;
+        result.T_map_ref = p.T_map_ref;
+        return result;
+      }
+      S.rejectStreak = 0;
+      const alpha = Math.min(0.6, 0.25 + r.inliers / 60);
       T_map_head = blendPose(propagated, T_map_head, alpha);
     }
     const p = pair(T_map_head, headPose);

@@ -10,6 +10,7 @@ import {
   MAX_FEATURES,
   estimateIntrinsics,
   extractOrb,
+  normalizeIllumination,
   toGrayMat,
 } from './orb.js';
 import {loadCv} from './cv-runtime.js';
@@ -163,4 +164,73 @@ describe('orb', () => {
     expect(byDefault[0][0]).toBeCloseTo(554.256, 2);
     expect(byDefault[1][1]).toBe(byDefault[0][0]);
   });
+
+test('normalizeIllumination() equalizes exposure and contrast', () => {
+  const w = 64;
+  const h = 64;
+  const a = new Uint8Array(w * h);
+  const b = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const v = 40 + ((x * 7 + y * 13) % 120);
+      a[y * w + x] = v;
+      b[y * w + x] = Math.max(0, Math.min(255, v * 0.35 + 18)); // darker, flatter
+    }
+  }
+  normalizeIllumination(a, w, h);
+  normalizeIllumination(b, w, h);
+  let diff = 0;
+  for (let i = 0; i < w * h; i++) diff += Math.abs(a[i] - b[i]);
+  const meanDiff = diff / (w * h);
+  expect(meanDiff).toBeLessThan(8);
+});
+
+test('extractOrb() descriptors survive an exposure shift (day/night proxy)', () => {
+  const base = makeTexturedImage(320, 240, 42);
+  const dark = {
+    width: base.width,
+    height: base.height,
+    data: new Uint8ClampedArray(base.data.length),
+  };
+  for (let i = 0; i < base.data.length; i += 4) {
+    // darker + warmer (sun down): channels scale differently
+    dark.data[i] = base.data[i] * 0.32 + 22;
+    dark.data[i + 1] = base.data[i + 1] * 0.28 + 16;
+    dark.data[i + 2] = base.data[i + 2] * 0.24 + 12;
+    dark.data[i + 3] = 255;
+  }
+  const a = extractOrb(cv, base, {maxFeatures: 300});
+  const b = extractOrb(cv, dark, {maxFeatures: 300});
+  expect(a.keypoints.length).toBeGreaterThan(30);
+  expect(b.keypoints.length).toBeGreaterThan(30);
+  // position-matched pairs must mostly keep low Hamming distance
+  let matched = 0;
+  let stable = 0;
+  for (const kb of b.keypoints) {
+    let best = null;
+    let bestD2 = 25; // 5px gate
+    for (const ka of a.keypoints) {
+      const d2 = (ka.x - kb.x) ** 2 + (ka.y - kb.y) ** 2;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = ka;
+      }
+    }
+    if (!best) continue;
+    matched++;
+    const ia = a.keypoints.indexOf(best);
+    const ib = b.keypoints.indexOf(kb);
+    let ham = 0;
+    for (let k = 0; k < DESC_LEN; k++) {
+      let x = a.descriptors[ia * DESC_LEN + k] ^ b.descriptors[ib * DESC_LEN + k];
+      while (x) {
+        ham += x & 1;
+        x >>= 1;
+      }
+    }
+    if (ham < 64) stable++;
+  }
+  expect(matched).toBeGreaterThan(20);
+  expect(stable / matched).toBeGreaterThan(0.7);
+});
 });

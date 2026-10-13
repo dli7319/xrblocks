@@ -8,6 +8,8 @@
 
 /** Max ORB features per frame. */
 export const MAX_FEATURES = 1000;
+/** A/B toggle: illumination normalization inside extractOrb. */
+export const NORMALIZE_ILLUMINATION = true;
 /** Descriptor length in bytes (ORB = 256 bits). */
 export const DESC_LEN = 32;
 /** Default vertical-less field of view used to guess intrinsics (degrees). */
@@ -68,6 +70,71 @@ export function toGrayMat(cv, image) {
 }
 
 /**
+ * Per-tile mean/std equalization with bilinear interpolation (CLAHE-lite).
+ * ORB's binary descriptors are only mildly invariant to exposure and color
+ * shifts; day/night relighting (sun position, warmth, sky fill) moves the
+ * whole gray distribution. Normalizing here means map building AND
+ * relocalization see comparable gradients under any time of day.
+ *
+ * @param {Uint8Array} dst grayscale buffer, modified in place
+ * @param {number} width image width
+ * @param {number} height image height
+ */
+export function normalizeIllumination(dst, width, height) {
+  const TILES = 8;
+  const tw = Math.max(1, Math.floor(width / TILES));
+  const th = Math.max(1, Math.floor(height / TILES));
+  const gx = Math.ceil(width / tw);
+  const gy = Math.ceil(height / th);
+  const mean = new Float32Array(gx * gy);
+  const std = new Float32Array(gx * gy);
+  for (let ty = 0; ty < gy; ty++) {
+    for (let tx = 0; tx < gx; tx++) {
+      let s = 0;
+      let s2 = 0;
+      let n = 0;
+      const y1 = Math.min(height, ty * th + th);
+      const x1 = Math.min(width, tx * tw + tw);
+      for (let y = ty * th; y < y1; y++) {
+        for (let x = tx * tw; x < x1; x++) {
+          const v = dst[y * width + x];
+          s += v;
+          s2 += v * v;
+          n++;
+        }
+      }
+      const m = s / Math.max(1, n);
+      mean[ty * gx + tx] = m;
+      std[ty * gx + tx] = Math.sqrt(Math.max(1, s2 / Math.max(1, n) - m * m));
+    }
+  }
+  for (let y = 0; y < height; y++) {
+    const fy = Math.min(gy - 1.001, Math.max(0, y / th - 0.5));
+    const y0 = Math.floor(fy);
+    const wy = fy - y0;
+    const y1 = Math.min(gy - 1, y0 + 1);
+    for (let x = 0; x < width; x++) {
+      const fx = Math.min(gx - 1.001, Math.max(0, x / tw - 0.5));
+      const x0 = Math.floor(fx);
+      const wx = fx - x0;
+      const x1 = Math.min(gx - 1, x0 + 1);
+      const i00 = y0 * gx + x0;
+      const i01 = y0 * gx + x1;
+      const i10 = y1 * gx + x0;
+      const i11 = y1 * gx + x1;
+      const m =
+        (mean[i00] * (1 - wx) + mean[i01] * wx) * (1 - wy) +
+        (mean[i10] * (1 - wx) + mean[i11] * wx) * wy;
+      const sd =
+        (std[i00] * (1 - wx) + std[i01] * wx) * (1 - wy) +
+        (std[i10] * (1 - wx) + std[i11] * wx) * wy;
+      const v = (dst[y * width + x] - m) * (64 / Math.max(6, sd)) + 128;
+      dst[y * width + x] = v < 0 ? 0 : v > 255 ? 255 : v;
+    }
+  }
+}
+
+/**
  * Extract ORB keypoints + binary descriptors from an RGBA raster.
  *
  * @param {object} cv OpenCV namespace
@@ -77,6 +144,10 @@ export function toGrayMat(cv, image) {
  */
 export function extractOrb(cv, image, {maxFeatures = MAX_FEATURES} = {}) {
   const gray = toGrayMat(cv, image);
+  // A/B toggle for measurements (day/night robustness pass).
+  if (NORMALIZE_ILLUMINATION) {
+    normalizeIllumination(gray.data, image.width | 0, image.height | 0);
+  }
   const orb = createOrb(cv, maxFeatures);
   const vector = new cv.KeyPointVector();
   const descriptorsMat = new cv.Mat();

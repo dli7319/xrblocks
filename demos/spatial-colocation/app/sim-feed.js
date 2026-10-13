@@ -149,12 +149,13 @@ export function matrixToNested(m) {
  *   pose to apply to the XB camera (yaw about +Y, pitch about +X, roll about
  *   +Z, 'YXZ' euler order)
  */
-export function autoSweepPoseAt(tSec) {
+export function autoSweepPoseAt(tSec, radiusScale = 1) {
   const theta = (2 * Math.PI * tSec) / SWEEP_PERIOD_S;
+  const r = SWEEP_RADIUS_M * radiusScale;
   const position = [
-    SWEEP_RADIUS_M * Math.sin(theta),
+    r * Math.sin(theta),
     SWEEP_HEIGHT_M + SWEEP_BOB_M * Math.sin((2 * Math.PI * tSec) / 12),
-    SWEEP_RADIUS_M * Math.cos(theta),
+    r * Math.cos(theta),
   ];
   // Face outward from the circle center (yaw = theta + PI maps -Z to
   // (sin theta, 0, cos theta)) plus a slow scan around it.

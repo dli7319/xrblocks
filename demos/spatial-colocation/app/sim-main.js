@@ -165,7 +165,10 @@ function translationDist(Ta, Tb) {
  * @param {number} tSec seconds since the sweep started
  */
 function applySweepPose(camera, tSec) {
-  const pose = autoSweepPoseAt(tSec);
+  const pose = autoSweepPoseAt(
+    sweepPhaseSec + sweepDir * tSec,
+    sweepRadiusScale
+  );
   camera.position.set(pose.position[0], pose.position[1], pose.position[2]);
   camera.quaternion.setFromEuler(
     new THREE.Euler(pose.pitch, pose.yaw, pose.roll || 0, 'YXZ')
@@ -412,6 +415,17 @@ const startMode = params.get('mode');
 const label = (params.get('label') || `Sim-${randId(4)}`).slice(0, 24);
 const wantDebug = params.has('debug');
 const wantAutoSweep = params.get('autoSweep') === '1';
+// Per-session trajectory variation (multi-session localization tests):
+// ?sweepPhase=SEC shifts along the sweep, ?sweepDir=-1 reverses it,
+// ?sweepRadius=SCALE scales the orbit radius. Same-room sessions can then
+// follow genuinely different head trajectories.
+const sweepPhaseSec = params.get('sweepPhase')
+  ? parseFloat(params.get('sweepPhase'))
+  : 0;
+const sweepDir = params.get('sweepDir') === '-1' ? -1 : 1;
+const sweepRadiusScale = params.get('sweepRadius')
+  ? parseFloat(params.get('sweepRadius'))
+  : 1;
 const fovOverride = params.get('fov') ? parseFloat(params.get('fov')) : null;
 const wantAutomation = params.get('xrAutomation') === '1';
 // Real-device camera feeds lag the clock by up to ~1 s; ?frameLagMs=N shifts

@@ -469,7 +469,7 @@ export class OnlineCalibrator {
    *   matches: {queryIdx: number, trainIdx: number}[]}} obs pts_i/pts_j:
    *   keypoints; matches: queryIdx indexes pts_i (frame i), trainIdx pts_j
    */
-  addPair({T_ref_head_i, T_ref_head_j, pts_i, pts_j, matches}) {
+  addPair({T_ref_head_i, T_ref_head_j, pts_i, pts_j, matches, tMs_i, tMs_j}) {
     if (
       !T_ref_head_i ||
       !T_ref_head_j ||
@@ -514,17 +514,19 @@ export class OnlineCalibrator {
     // outliers at 2.5 sigmas BEFORE storing it.
     const obsF = this._filterObs(rel, obs);
     if (obsF.length < MIN_MATCHES_PER_PAIR * 4) return;
-    this.buffer.push({R: rel.R, t: rel.t, obs: Float64Array.from(obsF)});
+    this.buffer.push({
+      R: rel.R,
+      t: rel.t,
+      obs: Float64Array.from(obsF),
+      tMs_i: Number.isFinite(tMs_i) ? tMs_i : null,
+      tMs_j: Number.isFinite(tMs_j) ? tMs_j : null,
+    });
     while (this.buffer.length > MAX_PAIRS) this.buffer.shift();
   }
 
-  /** Per-pair Sampson MAD gate at the current parameters. */
-  _filterObs(rel, obs) {
+  /** Camera-motion epipolar matrix from a head-frame pair transform. */
+  _pairE(rel) {
     const p = this.p;
-    const fx = p[0];
-    const fy = p[1];
-    const cx = p[2];
-    const cy = p[3];
     const R = rotMatFromRotVec([p[4], p[5], p[6]]);
     const t = [p[7], p[8], p[9]];
     const Rt = transpose3(R);
@@ -535,7 +537,128 @@ export class OnlineCalibrator {
       v[1] + rel.t[1] - t[1],
       v[2] + rel.t[2] - t[2],
     ]);
-    const E = skewTimes(tij, Rij);
+    return skewTimes(tij, Rij);
+  }
+
+  /**
+   * Mean Huber Sampson cost of a pair's observations under a substituted
+   * pair transform (used by the frame-lag sweep to score candidate pose
+   * pairings without disturbing the stored buffer).
+   *
+   * @param {Float64Array|number[]} obs flattened x_i, y_i, x_j, y_j
+   * @param {{R: number[][], t: number[]}} rel head_i -> head_j transform
+   * @returns {number} mean Huber cost (Infinity when nothing is scorable)
+   */
+  _sampsonCost(obs, rel) {
+    const p = this.p;
+    const fx = p[0];
+    const fy = p[1];
+    const cx = p[2];
+    const cy = p[3];
+    const E = this._pairE(rel);
+    const n = obs.length / 4;
+    let sum = 0;
+    let used = 0;
+    const HUBER = 2;
+    for (let k = 0; k < n; k++) {
+      const xi0 = (obs[4 * k] - cx) / fx;
+      const xi1 = -(obs[4 * k + 1] - cy) / fy;
+      const xj0 = (obs[4 * k + 2] - cx) / fx;
+      const xj1 = -(obs[4 * k + 3] - cy) / fy;
+      const g0 = E[0][0] * xi0 + E[0][1] * xi1 - E[0][2];
+      const g1 = E[1][0] * xi0 + E[1][1] * xi1 - E[1][2];
+      const r = xj0 * g0 + xj1 * g1 - (E[2][0] * xi0 + E[2][1] * xi1 - E[2][2]);
+      const den = Math.hypot(g0, g1);
+      if (!Number.isFinite(den) || den < DEN_EPS) continue;
+      const d = Math.abs(r) / den;
+      sum += d <= HUBER ? d : 2 * HUBER - HUBER * HUBER / d;
+      used++;
+    }
+    return used > 0 ? sum / used : Infinity;
+  }
+
+  /**
+   * Estimate the camera feed delay (frame timestamp minus true exposure time)
+   * by sweeping the pose-pairing lag and scoring the stored epipolar
+   * residuals. For a candidate lag L each pair's poses are re-sampled at
+   * tMs - L; the L that best explains the VISION geometry stored in `obs`
+   * wins. Observability comes from angular acceleration: under constant
+   * angular velocity both pair poses shift together and the relative
+   * transform is lag-invariant, so a flat cost curve returns null rather
+   * than a guess.
+   *
+   * @param {(tMs: number) => number[][]|null} samplePose resample the raw
+   *   (un-lag-compensated) pose history at an arbitrary time; MUST return
+   *   null when the history has no coverage there (clamped nearest-neighbor
+   *   samples would poison the cost curve at large lags)
+   * @param {{maxLagMs?: number, coarseStepMs?: number, fineStepMs?: number,
+   *   minPairs?: number, minSpreadRatio?: number}} [opts]
+   * @returns {{lagMs: number, spreadRatio: number, pairsUsed: number}|null}
+   */
+  estimateFrameLag(samplePose, opts = {}) {
+    const maxLagMs = opts.maxLagMs ?? 1000;
+    const coarseStepMs = opts.coarseStepMs ?? 25;
+    const fineStepMs = opts.fineStepMs ?? 5;
+    const minPairs = opts.minPairs ?? 8;
+    const minSpreadRatio = opts.minSpreadRatio ?? 1.15;
+    const pairs = this.buffer.filter(
+      (pair) => pair.tMs_i !== null && pair.tMs_j !== null
+    );
+    if (pairs.length < minPairs) return null;
+    const costAt = (lagMs) => {
+      let sum = 0;
+      let used = 0;
+      for (const pair of pairs) {
+        const Ti = samplePose(pair.tMs_i - lagMs);
+        const Tj = samplePose(pair.tMs_j - lagMs);
+        if (!Ti || !Tj) continue;
+        const rel = relativeTransform(Tj, Ti);
+        const c = this._sampsonCost(pair.obs, rel);
+        if (Number.isFinite(c)) {
+          sum += c;
+          used++;
+        }
+      }
+      return used >= minPairs ? sum / used : Infinity;
+    };
+    let bestLag = 0;
+    let bestCost = Infinity;
+    let worstCost = 0;
+    for (let lag = 0; lag <= maxLagMs; lag += coarseStepMs) {
+      const c = costAt(lag);
+      if (c < bestCost) {
+        bestCost = c;
+        bestLag = lag;
+      }
+      if (Number.isFinite(c) && c > worstCost) worstCost = c;
+    }
+    if (!Number.isFinite(bestCost)) return null;
+    for (
+      let lag = Math.max(0, bestLag - coarseStepMs);
+      lag <= Math.min(maxLagMs, bestLag + coarseStepMs);
+      lag += fineStepMs
+    ) {
+      const c = costAt(lag);
+      if (c < bestCost) {
+        bestCost = c;
+        bestLag = lag;
+      }
+    }
+    // Flat cost curve = lag is unobservable on this motion (constant angular
+    // velocity or near-static scenes). Report null instead of a guess.
+    const spreadRatio = bestCost > 0 ? worstCost / bestCost : 1;
+    if (spreadRatio < minSpreadRatio) return null;
+    return {lagMs: bestLag, spreadRatio, pairsUsed: pairs.length};
+  }
+
+  /** Per-pair Sampson MAD gate at the current parameters. */
+  _filterObs(rel, obs) {
+    const p = this.p;
+    const fx = p[0];
+    const fy = p[1];
+    const cx = p[2];
+    const cy = p[3];
+    const E = this._pairE(rel);
     const n = obs.length / 4;
     const scores = new Float64Array(n);
     const keepIdx = [];

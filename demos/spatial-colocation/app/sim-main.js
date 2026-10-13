@@ -1040,7 +1040,12 @@ class SimMain extends xb.Script {
     const k = KFromCalibrator(calib);
     const rmsPx = (q.rmsEpipolar * (k.fx + k.fy)) / 2;
     const mark = adopted ? '✓' : '✗ implausible';
-    return `calib ${mark} fx ${k.fx.toFixed(1)} · rms ${rmsPx.toFixed(1)}px · ${q.pairs} pairs`;
+    const lag = this.state.estimatedFrameLagMs;
+    const lagPart =
+      lag === null || lag === undefined
+        ? 'feed lag —'
+        : `feed lag ${Math.round(lag)}ms est`;
+    return `calib ${mark} fx ${k.fx.toFixed(1)} · rms ${rmsPx.toFixed(1)}px · ${q.pairs} pairs · ${lagPart}`;
   }
 
   /** Apply the online estimate to the pipeline (kSource=online only). */
@@ -1267,7 +1272,13 @@ class SimMain extends xb.Script {
   frameAlignedPose(frame) {
     if (!frame) return null;
     if (frame.T_ref_head) return frame.T_ref_head;
-    if (frame.tMs) return this.poseHistory.sample(frame.tMs - frameLagMs);
+    if (frame.tMs) {
+      // The estimated feed delay refines (and eventually replaces) the manual
+      // ?frameLagMs prior: pair each frame with the head pose at its true
+      // exposure instant.
+      const lagMs = this.state.estimatedFrameLagMs ?? frameLagMs;
+      return this.poseHistory.sample(frame.tMs - lagMs);
+    }
     return null;
   }
 
@@ -1287,6 +1298,10 @@ class SimMain extends xb.Script {
     const state = this.state;
     if (!r) return;
     if (r.matches) state.matches = r.matches;
+    if (r.frameLagMs !== null && r.frameLagMs !== undefined) {
+      state.estimatedFrameLagMs = r.frameLagMs;
+      state.frameLagSpread = r.frameLagSpread;
+    }
     if (r.calib) {
       // Debug/UI shim: the real OnlineCalibrator lives in the worker. This
       // mirrors the fields adoption + stats read (K, T_head_camera, quality,
@@ -1359,7 +1374,17 @@ class SimMain extends xb.Script {
     if (frame.tMs) state.frameAgeMs = now - frame.tMs;
 
     const headPose = this.frameAlignedPose(frame) || this.currentHeadPose();
-    this.poseHistory.push(frame.tMs || now, headPose);
+    const poseTMs = frame.tMs || now;
+    this.poseHistory.push(poseTMs, headPose);
+    // Raw pose stream for the worker's frame-lag estimator (its sweep needs
+    // the UN-lag-compensated history).
+    if (headPose) {
+      this.orbWorker.postMessage({
+        type: 'pose',
+        tMs: poseTMs,
+        T: headPose.map((row) => row.slice()),
+      });
+    }
     state.headPose = headPose;
 
     // The stability cube is placed once at startup after the first valid head

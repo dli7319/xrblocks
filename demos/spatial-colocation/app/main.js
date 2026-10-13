@@ -168,6 +168,9 @@ const state = {
   T_map_head: null,
   relocRef: null, // {T_map_head, T_ref_head} — propagate pose between relocalizations
   lastReloc: null, // {inliers, ts}
+  estimatedFrameLagMs: null, // online feed-delay estimate (null = unobservable)
+  frameLagSpread: null,
+  lastLagEstimate: 0,
   matches: 0,
   calibrator: null, // OnlineCalibrator (lib/selfcalib.js) — online K + extrinsics
   calibFrameW: 0,
@@ -515,7 +518,9 @@ function frameAlignedPose(frame) {
   if (!frame) return null;
   if (frame.T_ref_head) return frame.T_ref_head;
   if (frame.tMs && state.poseHistory) {
-    return state.poseHistory.sample(frame.tMs - frameLagMs);
+    // Estimated feed delay refines the manual ?frameLagMs prior.
+    const lagMs = state.estimatedFrameLagMs ?? frameLagMs;
+    return state.poseHistory.sample(frame.tMs - lagMs);
   }
   return null;
 }
@@ -602,12 +607,12 @@ function ensureCalibrator(frame) {
  * epipolar constraints real leverage. Head poses from the scale-ambiguous SfM
  * chain are fine: the constraint is scale-invariant.
  */
-function feedCalibration(headPose, keypoints, descriptors) {
+function feedCalibration(headPose, keypoints, descriptors, tMs) {
   const calib = state.calibrator;
   if (!calib || !headPose || !descriptors) return;
   const ref = state.calibRef;
   if (!ref || !ref.headPose || !ref.desc) {
-    state.calibRef = {kps: keypoints, desc: descriptors, headPose};
+    state.calibRef = {kps: keypoints, desc: descriptors, headPose, tMs};
     return;
   }
   const pairRot = rotationDegBetween(ref.headPose, headPose);
@@ -623,9 +628,34 @@ function feedCalibration(headPose, keypoints, descriptors) {
       pts_i: ref.kps,
       pts_j: keypoints,
       matches,
+      tMs_i: ref.tMs,
+      tMs_j: tMs,
     });
   }
-  state.calibRef = {kps: keypoints, desc: descriptors, headPose};
+  state.calibRef = {kps: keypoints, desc: descriptors, headPose, tMs};
+}
+
+/**
+ * Online feed-delay estimation at its own cadence: sweep the pose-pairing lag
+ * against the raw pose history and keep the sharpest minimum. Stays null while
+ * the motion carries no observability (see estimateFrameLag).
+ */
+function maybeEstimateFrameLag(now) {
+  const calib = state.calibrator;
+  if (!calib || !state.poseHistory) return;
+  if (state.lastLagEstimate && now - state.lastLagEstimate < 2000) return;
+  state.lastLagEstimate = now;
+  try {
+    const est = calib.estimateFrameLag((t) => state.poseHistory.sampleStrict(t), {
+      maxLagMs: 1000,
+    });
+    if (est) {
+      state.estimatedFrameLagMs = est.lagMs;
+      state.frameLagSpread = est.spreadRatio;
+    }
+  } catch (err) {
+    // non-fatal: the estimator is advisory
+  }
 }
 
 /**
@@ -661,9 +691,14 @@ function calibLine(adopted) {
   const k = KFromCalibrator(calib);
   const rmsPx = (q.rmsEpipolar * (k.fx + k.fy)) / 2;
   const mark = adopted ? '✓' : '✗ implausible';
+  const lag = state.estimatedFrameLagMs;
+  const lagPart =
+    lag === null || lag === undefined
+      ? 'feed lag —'
+      : `feed lag ${Math.round(lag)}ms est`;
   return (
     `calib: fx ${k.fx.toFixed(1)} fy ${k.fy.toFixed(1)} ` +
-    `(rms ${rmsPx.toFixed(1)}px, ${q.pairs} pairs, ${mark})`
+    `(rms ${rmsPx.toFixed(1)}px, ${q.pairs} pairs, ${mark}) · ${lagPart}`
   );
 }
 
@@ -702,6 +737,7 @@ function calibStep(now) {
   state.lastCalibStep = now;
   try {
     calib.step();
+  maybeEstimateFrameLag(performance.now());
   } catch (err) {
     ui.log(`calib step failed: ${err.message}`, 'warn');
     return;
@@ -914,7 +950,7 @@ function processFrame(frame, now) {
   state.poseHistory.push(frame.tMs || now, headPose);
   // Online self-calibration consumes LONG-BASELINE pairs (reference frame ->
   // current) built from the same ORB features the pipeline already extracts.
-  feedCalibration(headPose, keypoints, descriptors);
+  feedCalibration(headPose, keypoints, descriptors, frame.tMs);
   calibStep(now);
   state.prevHeadPose = headPose;
   state.prevKps = keypoints;

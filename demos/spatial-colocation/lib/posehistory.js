@@ -39,6 +39,17 @@ export class PoseHistory {
     return (after.tMs - tMs < tMs - before.tMs ? after : before).T;
   }
 
+  /**
+   * Like `sample`, but returns null OUTSIDE the recorded coverage — the
+   * contract `OnlineCalibrator.estimateFrameLag` needs (a clamped
+   * nearest-neighbor sample would poison a lag sweep at large lags).
+   */
+  sampleStrict(tMs) {
+    const e = this.entries;
+    if (!e.length || tMs < e[0].tMs || tMs > e[e.length - 1].tMs) return null;
+    return this.sample(tMs);
+  }
+
   clear() {
     this.entries.length = 0;
   }

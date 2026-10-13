@@ -27,6 +27,11 @@ const CALIB_STEP_INTERVAL_MS = 300;
 const CALIB_PAIR_MIN_ROT_DEG = 2.5;
 const CALIB_PAIR_MIN_TRANS_M = 0.04;
 const RELOC_MIN_INTERVAL_MS = 250;
+// Frame-lag (feed delay) estimation: raw pose samples at their own clock
+// times let estimateFrameLag re-sample the history at tMs - L for candidate
+// lags. Ring keeps ~8 s of pose traffic at 60 Hz.
+const LAG_RING_MAX = 512;
+const LAG_ESTIMATE_INTERVAL_MS = 2000;
 // Temporal consistency gate: between solves 250ms apart the head moves at
 // most ~0.1m / ~8deg on our trajectories — anything larger is a wrong solve,
 // not motion. Repeated-texture mismatches produce consistent
@@ -79,6 +84,10 @@ const S = {
   lastReloc: null,
   lastRelocStep: 0,
   landmarkSentCount: -1,
+  poseRing: [], // {tMs, T} raw pose samples for frame-lag estimation
+  frameLagMs: null, // latest feed-delay estimate (null = not yet observable)
+  frameLagSpread: null,
+  lastLagEstimate: 0,
 };
 
 function sleep(ms) {
@@ -217,12 +226,12 @@ function ensureCalibrator(meta) {
   S.prevHeadPose = null;
 }
 
-function feedCalibration(headPose, keypoints, descriptors) {
+function feedCalibration(headPose, keypoints, descriptors, tMs) {
   const calib = S.calibrator;
   if (!calib || !headPose || !descriptors) return;
   const ref = S.calibRef;
   if (!ref || !ref.headPose || !ref.desc) {
-    S.calibRef = {kps: keypoints, desc: descriptors, headPose};
+    S.calibRef = {kps: keypoints, desc: descriptors, headPose, tMs};
     return;
   }
   const pairRot = rotationDegBetween(ref.headPose, headPose);
@@ -238,9 +247,11 @@ function feedCalibration(headPose, keypoints, descriptors) {
       pts_i: ref.kps,
       pts_j: keypoints,
       matches,
+      tMs_i: ref.tMs,
+      tMs_j: tMs,
     });
   }
-  S.calibRef = {kps: keypoints, desc: descriptors, headPose};
+  S.calibRef = {kps: keypoints, desc: descriptors, headPose, tMs};
 }
 
 function calibSnapshot() {
@@ -535,7 +546,7 @@ async function onFrame(data) {
     }
   }
 
-  feedCalibration(meta.headPose, keypoints, descriptors);
+  feedCalibration(meta.headPose, keypoints, descriptors, meta.tMs);
 
   // LM solve at its own cadence; the app adopts from the snapshot.
   let stepped = false;
@@ -548,6 +559,47 @@ async function onFrame(data) {
       events.push({
         kind: 'log',
         msg: `calib step failed: ${err.message}`,
+        level: 'warn',
+      });
+    }
+  }
+
+  // Feed-delay estimation at its own cadence: re-sample the raw pose ring at
+  // tMs - L for candidate lags and pick the pairing the vision geometry likes
+  // best. Stays null while motion is uninformative (no rotation variance).
+  if (
+    S.calibrator &&
+    (!S.lastLagEstimate || now - S.lastLagEstimate >= LAG_ESTIMATE_INTERVAL_MS)
+  ) {
+    S.lastLagEstimate = now;
+    try {
+      const est = S.calibrator.estimateFrameLag(
+        (t) => {
+          const ring = S.poseRing;
+          if (!ring.length || t < ring[0].tMs || t > ring[ring.length - 1].tMs) {
+            return null;
+          }
+          let lo = 0;
+          let hi = ring.length - 1;
+          while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (ring[mid].tMs < t) lo = mid + 1;
+            else hi = mid;
+          }
+          const after = ring[lo];
+          const before = lo > 0 ? ring[lo - 1] : after;
+          return (after.tMs - t < t - before.tMs ? after : before).T;
+        },
+        {maxLagMs: 1000}
+      );
+      if (est) {
+        S.frameLagMs = est.lagMs;
+        S.frameLagSpread = est.spreadRatio;
+      }
+    } catch (err) {
+      events.push({
+        kind: 'log',
+        msg: `frame-lag estimate failed: ${err.message}`,
         level: 'warn',
       });
     }
@@ -588,6 +640,8 @@ async function onFrame(data) {
   const out = {
     type: 'result',
     meta: {now, tMs: meta.tMs, headPose: meta.headPose},
+    frameLagMs: S.frameLagMs,
+    frameLagSpread: S.frameLagSpread,
     matches: matchesCount,
     calib: calibSnapshot(),
     stepped,
@@ -623,6 +677,13 @@ async function onFrame(data) {
 self.onmessage = async (e) => {
   const msg = e.data;
   try {
+    if (msg.type === 'pose') {
+      // Raw pose traffic for frame-lag estimation (kept off the frame path).
+      const ring = S.poseRing;
+      ring.push({tMs: msg.tMs, T: msg.T});
+      while (ring.length > LAG_RING_MAX) ring.shift();
+      return;
+    }
     if (msg.type === 'frame') {
       await onFrame(msg);
       return;

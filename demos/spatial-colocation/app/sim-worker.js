@@ -369,33 +369,78 @@ function relocStep(now, headPose, meta, events) {
 function liveStep(now, headPose, meta) {
   const result = {reloc: null, T_map_head: null, T_map_ref: null};
   const r = liveRelocalize(meta);
+  // Propagated pose first (smooth, drifts slowly) — the PnP solve then blends
+  // into it, weighted by inliers, damping single-solve noise.
+  let propagated = null;
+  if (S.relocRef && headPose) {
+    propagated = geometryLib.matMul(
+      S.relocRef.T_map_head,
+      geometryLib.matMul(
+        geometryLib.invertRigid(S.relocRef.T_ref_head),
+        headPose
+      )
+    );
+  }
   if (r) {
-    const T_map_head = relocalizeLib.headPoseFromCameraPose(
+    let T_map_head = relocalizeLib.headPoseFromCameraPose(
       r.T_map_camera,
       matMulLocal(meta.T_head_camera, CV_CAM_FLIP)
     );
+    if (propagated) {
+      const alpha = Math.min(0.85, 0.25 + r.inliers / 60);
+      T_map_head = blendPose(propagated, T_map_head, alpha);
+    }
     const p = pair(T_map_head, headPose);
     S.relocRef = {T_map_head, T_ref_head: headPose};
     S.lastReloc = {inliers: r.inliers, ts: now};
     result.T_map_head = p.T_map_head;
     result.T_map_ref = p.T_map_ref;
     result.reloc = {inliers: r.inliers};
-  } else if (S.relocRef && headPose) {
+  } else if (propagated) {
     // Propagate between successful relocalizations via the head-pose track.
-    const p = pair(
-      geometryLib.matMul(
-        S.relocRef.T_map_head,
-        geometryLib.matMul(
-          geometryLib.invertRigid(S.relocRef.T_ref_head),
-          headPose
-        )
-      ),
-      headPose
-    );
+    const p = pair(propagated, headPose);
     result.T_map_head = p.T_map_head;
     result.T_map_ref = p.T_map_ref;
   }
   return result;
+}
+
+/** Inlier-weighted blend of two 4x4 poses (translation lerp + rotation matrix
+ *  blend re-orthonormalized). Damps single-PnP-solve noise in live mode. */
+function blendPose(A, B, alpha) {
+  const out = [
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 1],
+  ];
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 4; j++) {
+      out[i][j] = (1 - alpha) * A[i][j] + alpha * B[i][j];
+    }
+  }
+  // Gram-Schmidt on the rotation rows.
+  const rows = [0, 1, 2].map((i) => [out[i][0], out[i][1], out[i][2]]);
+  const norm = (v) => {
+    const l = Math.hypot(v[0], v[1], v[2]) || 1;
+    return [v[0] / l, v[1] / l, v[2] / l];
+  };
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const r0 = norm(rows[0]);
+  const proj = dot(rows[1], r0);
+  let r1 = rows[1].map((v, i) => v - proj * r0[i]);
+  r1 = norm(r1);
+  const r2 = norm([
+    r0[1] * r1[2] - r0[2] * r1[1],
+    r0[2] * r1[0] - r0[0] * r1[2],
+    r0[0] * r1[1] - r0[1] * r1[0],
+  ]);
+  [r0, r1, r2].forEach((r, i) => {
+    out[i][0] = r[0];
+    out[i][1] = r[1];
+    out[i][2] = r[2];
+  });
+  return out;
 }
 
 function landmarkSnapshot() {
@@ -550,8 +595,12 @@ self.onmessage = async (e) => {
       S.lastKf = null;
       S.kf0Pose = null;
       S.hasMapAnnounced = true;
-      S.relocRef = null;
-      S.lastReloc = null;
+      // keepPose (map REFRESH): the map grows in the same origin frame, so an
+      // established localization stays valid — only the initial load resets it.
+      if (!msg.keepPose) {
+        S.relocRef = null;
+        S.lastReloc = null;
+      }
       S.landmarkSentCount = -1;
       const snap = landmarkSnapshot();
       self.postMessage(

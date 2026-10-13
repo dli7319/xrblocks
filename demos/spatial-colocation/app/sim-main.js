@@ -87,7 +87,14 @@ import {
 // Local timing constants — copied exactly from app/main.js (raw demo).
 const PROCESS_INTERVAL_MS = 200; // feature extraction <= 10 Hz
 const RELOC_MIN_INTERVAL_MS = 250; // PnP search <= 4 Hz
-const CALIB_STEP_INTERVAL_MS = 300; // online self-calibration LM solve cadence
+const CALIB_STEP_INTERVAL_MS = 300;
+// Map freshness for relocalization clients: a stale snapshot limits accuracy
+// (measured cross-session: 74-lm map -> 0.23m/18.6deg, 145-lm -> 0.10m/5.1deg
+// colocation error). Re-request the room's current map while localization is
+// weak or aging.
+const MAP_REFRESH_MS = 15000;
+const MAP_REFRESH_MIN_INLIERS = 30;
+const MAP_REFRESH_STALE_MS = 15000; // online self-calibration LM solve cadence
 const CALIB_PAIR_MIN_ROT_DEG = 2.5; // long-baseline pairing: real epipolar leverage
 const CALIB_PAIR_MIN_TRANS_M = 0.04;
 const CALIB_MAX_RMS_PX = 8; // adoption plausibility gate
@@ -734,12 +741,19 @@ class SimMain extends xb.Script {
     });
     net.on('map-data', async ({from, name, bytes}) => {
       try {
-        const r = await this.rpc('loadMap', {bytes, name});
+        const refresh = !!this.state.map;
+        const r = await this.rpc('loadMap', {
+          bytes,
+          name,
+          keepPose: refresh,
+        });
         if (!r || !r.ok) throw new Error(r && r.error ? r.error : 'load failed');
-        this.adoptMap(r.mapInfo, name);
+        this.adoptMap(r.mapInfo, name, {refresh});
         if (r.landmarks) this.workerLandmarks = r.landmarks;
         this.ui.log(
-          `map "${name}" received from ${from} (${r.mapInfo.landmarks} landmarks)`
+          refresh
+            ? `map refreshed from ${from} — now ${r.mapInfo.landmarks} landmarks`
+            : `map "${name}" received from ${from} (${r.mapInfo.landmarks} landmarks)`
         );
         this.ui.setBadge(`map: ${name}`);
       } catch (err) {
@@ -1461,7 +1475,7 @@ class SimMain extends xb.Script {
 
   // ---- map persistence ------------------------------------------------------
 
-  adoptMap(info, name) {
+  adoptMap(info, name, {refresh = false} = {}) {
     const state = this.state;
     // Counts shim; the real map lives in the compute worker.
     state.map = {
@@ -1472,6 +1486,15 @@ class SimMain extends xb.Script {
     };
     state.mapName = name || state.mapName;
     state.hasMap = true;
+    if (refresh) {
+      // Same map, grown: the localized pose stays valid (same origin frame).
+      this.ui.setStats({
+        keyframes: info.keyframes || 0,
+        landmarks: info.landmarks || 0,
+      });
+      this.net.setHasMap(true);
+      return;
+    }
     state.lastKf = null;
     state.kf0Pose = null;
     state.T_map_head = null;
@@ -1615,6 +1638,23 @@ class SimMain extends xb.Script {
     }
     if (wantAutoSweep && !this.sweep.journeyActive && this.engineCamera) {
       applySweepPose(this.engineCamera, (now - this.sweep.t0) / 1000);
+    }
+    // Map freshness for relocalize/live clients (see MAP_REFRESH_*).
+    if (
+      this.net &&
+      this.state.mode !== 'build' &&
+      this.state.hasMap &&
+      this.state.map
+    ) {
+      const state = this.state;
+      const weak =
+        !state.lastReloc ||
+        state.lastReloc.inliers < MAP_REFRESH_MIN_INLIERS ||
+        now - state.lastReloc.ts > MAP_REFRESH_STALE_MS;
+      if (weak && now - (state.lastMapRefresh || 0) >= MAP_REFRESH_MS) {
+        state.lastMapRefresh = now;
+        this.net.requestMap();
+      }
     }
     // ONE heavy pipeline job per tick (queued by processFrame) — the stutter
     // fix: no frame ever stacks ORB + matching + LM + triangulation.

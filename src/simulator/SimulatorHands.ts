@@ -172,61 +172,88 @@ export class SimulatorHands {
   }
 
   loadMeshes() {
-    this.loader = new GLTFLoader();
-    this.loader.setPath(DEFAULT_HAND_PROFILE_PATH);
-    return Promise.all([
-      this.loadHandMesh('left.glb', Handedness.LEFT),
-      this.loadHandMesh('right.glb', Handedness.RIGHT),
-    ]);
+    this.loader ??= new GLTFLoader();
+    return Promise.all([this.loadLeftHandMesh(), this.loadRightHandMesh()]);
   }
 
-  private loadHandMesh(path: string, handedness: Handedness) {
-    return new Promise<void>((resolve, reject) => {
+  loadLeftHandMesh(path = DEFAULT_HAND_PROFILE_PATH + 'left.glb') {
+    return this.loadHandMesh(path, Handedness.LEFT);
+  }
+
+  loadRightHandMesh(path = DEFAULT_HAND_PROFILE_PATH + 'right.glb') {
+    return this.loadHandMesh(path, Handedness.RIGHT);
+  }
+
+  loadHandMesh(path: string, handedness: Handedness) {
+    this.loader ??= new GLTFLoader();
+    return new Promise<THREE.Group>((resolve, reject) => {
       this.loader.load(
         path,
         (gltf) => {
-          const isLeft = handedness === Handedness.LEFT;
-          const handednessName = isLeft ? 'left' : 'right';
-          const bones = isLeft ? this.leftHandBones : this.rightHandBones;
-          bones.length = 0;
-          if (isLeft) {
-            this.leftHand = gltf.scene;
-            this.leftController.add(this.leftHand);
-          } else {
-            this.rightHand = gltf.scene;
-            this.rightController.add(this.rightHand);
-          }
-          HAND_JOINT_NAMES.forEach((jointName) => {
-            const bone = gltf.scene.getObjectByName(jointName);
-            bones.push(bone);
-            if (!bone) {
-              console.warn(
-                `Couldn't find ${jointName} in ${handednessName} hand mesh`
-              );
-            }
-          });
-          applyHandJoints(
-            bones,
-            resolveSimulatorHandPoseRotations(
-              handedness,
-              isLeft
-                ? this.leftHandCurrentRotations
-                : this.rightHandCurrentRotations
-            )
-          );
-          this.syncHandJoints();
-          this.input.hands[isLeft ? 0 : 1]?.dispatchEvent?.({
-            type: 'connected',
-            data: {
-              hand: isLeft ? this.leftXRHand : this.rightXRHand,
-              handedness: handednessName,
-            } as XRInputSource,
-          });
-          resolve();
+          this.setHandMesh(gltf.scene, handedness);
+          resolve(gltf.scene);
         },
         () => {},
         (error) => reject(error)
       );
+    });
+  }
+
+  setLeftHandMesh(scene: THREE.Group) {
+    this.setHandMesh(scene, Handedness.LEFT);
+  }
+
+  setRightHandMesh(scene: THREE.Group) {
+    this.setHandMesh(scene, Handedness.RIGHT);
+  }
+
+  setHandMesh(scene: THREE.Group, handedness: Handedness) {
+    const isLeft = handedness === Handedness.LEFT;
+    const handednessName = isLeft ? 'left' : 'right';
+    const controller = isLeft ? this.leftController : this.rightController;
+    const previousHand = isLeft ? this.leftHand : this.rightHand;
+    if (previousHand && previousHand !== scene) {
+      controller.remove(previousHand);
+      disposeObjectChildren(previousHand);
+    }
+    const bones = isLeft ? this.leftHandBones : this.rightHandBones;
+    bones.length = 0;
+    if (isLeft) {
+      this.leftHand = scene;
+      this.leftController.add(this.leftHand);
+    } else {
+      this.rightHand = scene;
+      this.rightController.add(this.rightHand);
+    }
+    HAND_JOINT_NAMES.forEach((jointName) => {
+      const bone = scene.getObjectByName(jointName);
+      bones.push(bone);
+      if (!bone) {
+        console.warn(
+          `Couldn't find ${jointName} in ${handednessName} hand mesh`
+        );
+      }
+    });
+    const rawTargetJoints = isLeft
+      ? this.leftHandRawTargetJoints
+      : this.rightHandRawTargetJoints;
+    applyHandJoints(
+      bones,
+      rawTargetJoints ??
+        resolveSimulatorHandPoseRotations(
+          handedness,
+          isLeft
+            ? this.leftHandCurrentRotations
+            : this.rightHandCurrentRotations
+        )
+    );
+    this.syncHandJoints();
+    this.input?.hands[isLeft ? 0 : 1]?.dispatchEvent?.({
+      type: 'connected',
+      data: {
+        hand: isLeft ? this.leftXRHand : this.rightXRHand,
+        handedness: handednessName,
+      } as XRInputSource,
     });
   }
 
@@ -358,6 +385,7 @@ export class SimulatorHands {
     this.leftHandPose = undefined;
     this.leftHandRawTargetJoints = joints;
     applyHandJoints(this.leftHandBones, joints);
+    this.updateHandPosePanel();
   }
 
   setRightHandJoints(joints: DeepReadonly<SimulatorHandPoseJoints>) {
@@ -374,6 +402,7 @@ export class SimulatorHands {
     this.rightHandPose = undefined;
     this.rightHandRawTargetJoints = joints;
     applyHandJoints(this.rightHandBones, joints);
+    this.updateHandPosePanel();
   }
 
   update() {
